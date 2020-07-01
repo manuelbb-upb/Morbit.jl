@@ -35,7 +35,24 @@ function optimize!( config_struct :: AlgoConfig, prob::MOP, x₀::Array{Float64,
     optimize( heterogenous_mop, x₀, config_struct );
 end
 
-function optimize!( config_struct :: AlgoConfig, prob::Union{MOP, HeterogenousMOP} )
+function optimize!( config_struct :: AlgoConfig, prob::MixedMOP, x₀::Array{Float64,1} )
+    f_expensive(x) = [ f(x) for f ∈ prob.vector_of_funcs[ prob.expensive_indices ]  ];
+    f_cheap(x) = [ f(x) for f ∈ prob.vector_of_funcs[ prob.expensive_indices ]  ];
+
+    heterogenous_mop = HeterogenousMOP(
+    f_expensive = f_expensive,
+    f_cheap = f_cheap,      # assume all objectives to be expensive
+    lb = prob.lb,
+    ub = prob.ub,
+    )
+    optimize( heterogenous_mop, x₀, config_struct );
+
+    sorting_indices = sortperm( [ prob.expensive_indices; prob_cheap_indices ] );
+    config_struct.values_db[:] = [ value[sorting_indices] for value ∈ config_struct.values_db ];
+    return true;
+end
+
+function optimize!( config_struct :: AlgoConfig, prob::Union{MOP, HeterogenousMOP, MixedMOP} )
     if !isempty( prob.x_0 )
         optimize(prob, prob.x_0, config_struct)
     else
@@ -243,7 +260,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
                     @info("\tAcceptable descent step.")
                     accept_x₊ = true;
                 end
-                @info("\t\tShrinking Δpush( iterate_indices = 1) from $Δ_old to $Δ.")
+                @info("\t\tShrinking Δ from $Δ_old to $Δ.")
             else
                 improvement_step = true;
             end

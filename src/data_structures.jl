@@ -1,4 +1,50 @@
+export ParetoSet, ParetoFrontier
+export MixedMOP, add_objective!
 
+@with_kw struct ParetoSet
+    n_vars :: Int64 = 0;
+    coordinate_arrays :: Vector{ Vector{Float64} } = [];
+end
+
+function ParetoSet( matrix :: Array{Float64, 2}; points_as_columns = true )
+    if points_as_columns
+        n_vars = size(matrix, 2)
+        arrays = collect( eachrow(matrix) )
+    else
+        n_vars = size( matrix, 1 )
+        arrays = collect( eachcol(matrix) )
+    end
+    ParetoSet( n_vars, arrays )
+end
+
+function ParetoSet( data::Vararg{ Vector{Float64} , N} ) where{N}
+    n_vars = length(data);
+    coordinate_arrays = [ data... ]
+    ParetoSet(n_vars, coordinate_arrays)
+end
+
+@with_kw struct ParetoFrontier
+    n_objfs :: Int64 = 0;
+    objective_arrays :: Vector{ Vector{Float64} } = [];
+end
+
+function ParetoFrontier( matrix :: Array{Float64, 2}; points_as_columns = true )
+    if points_as_columns
+        n_objf = size(matrix, 2)
+        arrays = collect( eachrow(matrix) )
+    else
+        n_objf = size( matrix, 1 )
+        arrays = collect( eachcol(matrix) )
+    end
+    ParetoFrontier( n_objf, arrays )
+end
+
+function ParetoFrontier( f :: T where{T <: Function}, pset :: ParetoSet )
+    n_points = length( pset.coordinate_arrays[1] )
+    evals = f.( [ [pset.coordinate_arrays[d][i] for d = 1 : pset.n_vars ] for i = 1 : n_points ] )
+    eval_matrix = hcat( evals... )
+    ParetoFrontier( eval_matrix )
+end
 
 @with_kw mutable struct TrainingData
     Y :: Array{Float64,2} = Matrix{Float64}(undef, 0,0);   # matrix of other sites, translated by -x
@@ -141,4 +187,37 @@ end
     ub :: Array{Float64, 1} = [];
 
     @assert isempty(lb) & isempty(ub) || all( isinf.(lb) .& isinf.(ub) ) || all( isfinite.(lb) .& isfinite.(ub) ) "Problem must either be unconstraint or fully box constrained."
+end
+
+@with_kw struct MixedMOP
+    vector_of_funcs :: Vector{Function} = [];
+    vector_of_cheap_gradients :: Vector{ Function } = [];   # TODO Implement
+    expensive_indices :: Vector{Int64} = [];
+    cheap_indices :: Vector{Int64} = [];
+    cheap_has_gradient_flags :: Vector{Bool} = [];
+    x_0 :: Vector{Float64} = [];
+    lb :: Vector{Float64} = [];
+    ub :: Vector{Float64} = [];
+    @assert isempty(lb) & isempty(ub) || all( isinf.(lb) .& isinf.(ub) ) || all( isfinite.(lb) .& isfinite.(ub) ) "Problem must either be unconstraint or fully box constrained."
+end
+
+function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, type ::Symbol = :expensive )
+    push!( problem.vector_of_funcs, func );
+    if type == :expensive
+        push!(problem.expensive_indices, length(problem.vector_of_funcs) )
+        println("Added an expensive objective with internal index $(length(problem.vector_of_funcs)).")
+    else
+        push!(problem.cheap_indices, length( problem.vector_of_funcs) )
+        push!(problem.cheap_has_gradient_flags, false)
+        println("Added an cheap objective (autodiff enabled) with internal index $(length(problem.vector_of_funcs)).")
+    end
+end
+
+function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, grad :: T where{T <: Function})
+    push!( problem.vector_of_funcs, func );
+    push!( problem.vector_of_cheap_gradients, func );
+    # only cheap functions have gradient
+    push!(cheap_indices, length( problem.vector_of_funcs) )
+    push!(problem.cheap_has_gradient_flags, true)
+    println("Added an cheap objective (and its gradient) with internal index $(length(problem.vector_of_funcs)).")
 end
