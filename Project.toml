@@ -15,6 +15,15 @@ RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
 
 [compat]
 OSQP = "0.6"
+=======
+ForwardDiff = "0.10"
+=======
+NLopt = "0.6"
+=======
+JuMP = "0.21"
+=======
+Parameters = "0.12"
+=======
 julia = "1"
 
 [extras]
