@@ -20,6 +20,7 @@ JuMP = "0.21"
 NLopt = "0.6"
 OSQP = "0.6"
 Parameters = "0.12"
+Plots = "1.5"
 RecipesBase = "1.0"
 julia = "1"
 
