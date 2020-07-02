@@ -32,12 +32,13 @@ function optimize!( config_struct :: AlgoConfig, prob::MOP, x₀::Array{Float64,
     lb = prob.lb,
     ub = prob.ub,
     )
-    optimize( heterogenous_mop, x₀, config_struct );
+    optimize!( config_struct, heterogenous_mop, x₀);
 end
 
 function optimize!( config_struct :: AlgoConfig, prob::MixedMOP, x₀::Array{Float64,1} )
-    f_expensive(x) = [ f(x) for f ∈ prob.vector_of_funcs[ prob.expensive_indices ]  ];
-    f_cheap(x) = [ f(x) for f ∈ prob.vector_of_funcs[ prob.expensive_indices ]  ];
+
+    f_expensive(x) = isempty(prob.expensive_indices) ? Array{Float64,1}() : [ f(x) for f ∈ prob.vector_of_funcs[ prob.expensive_indices ]  ];
+    f_cheap(x) = isempty(prob.cheap_indices) ? Array{Float64,1}() : [ f(x) for f ∈ prob.vector_of_funcs[ prob.cheap_indices ]  ];
 
     heterogenous_mop = HeterogenousMOP(
     f_expensive = f_expensive,
@@ -45,10 +46,10 @@ function optimize!( config_struct :: AlgoConfig, prob::MixedMOP, x₀::Array{Flo
     lb = prob.lb,
     ub = prob.ub,
     )
-    optimize( heterogenous_mop, x₀, config_struct );
+    optimize!( config_struct, heterogenous_mop, x₀);
 
-    sorting_indices = sortperm( [ prob.expensive_indices; prob_cheap_indices ] );
-    config_struct.values_db[:] = [ value[sorting_indices] for value ∈ config_struct.values_db ];
+    sorting_indices = sortperm( [ prob.expensive_indices; prob.cheap_indices ] );
+    config_struct.iter_data.values_db[:] = [ value[sorting_indices] for value ∈ config_struct.iter_data.values_db ];
     return true;
 end
 
@@ -113,7 +114,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
     f_x_exp = f_expensive(x);
     f_x_cheap = f_cheap(x);
     n_objectives( y ) = ndims( y ) == 0 ? 1 : max( size( y )... );
-    config_struct.n_exp = n_objectives(f_x_exp );    # set number of expensive objectives
+    config_struct.n_exp = n_objectives( f_x_exp );    # set number of expensive objectives
     config_struct.n_cheap = n_objectives( f_x_cheap ); # set number of cheap objectives
 
     f_x = vcat( f_x_exp, f_x_cheap );
@@ -161,6 +162,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
 
         # compute descent step
         @info("\tComputing descent step.")
+        @show f_x
         ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained, all_objectives_descent)
         @info("\t\tCriticality measure ω is $ω.")
 

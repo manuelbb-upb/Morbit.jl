@@ -1,6 +1,5 @@
 # methods to compute a local descent step
 
-
 # Continue Backtracking if true, suppose all_objectives_descent = true (= Val)
 function continue_while( :: Val{true}, m_x₊, f_x, step_size, ω )
     any( f_x .- m_x₊ .< step_size * 1e-4 * ω )
@@ -25,6 +24,8 @@ function compute_descent_direction( type::Val{:steepest}, f:: F where {F<:Functi
     end
 
     ∇f = jacobian( f, x )
+    @show f(x)
+    @show ∇f
 
     # construct quadratic optimization problem as by fliege and svaiter
     prob = JuMP.Model(OSQP.Optimizer);
@@ -53,18 +54,18 @@ function compute_descent_direction( type::Val{:steepest}, f:: F where {F<:Functi
         step_size, _ = intersect_bounds( x, dir, Δ );
     end
 
-    x₊ = x + step_size * dir;
+    x₊ = intobounds(x + step_size * dir);           # 'intobounds' for tiny errors
     m_x₊ = f( x₊ );
 
     backtrack_factor = 0.8;
     min_step_size = 1e-15;   # to avoid infinite loop at Pareto point
     while continue_while( Val(all_objectives_descent), m_x₊, f_x, step_size, ω ) && step_size > min_step_size
         step_size *= backtrack_factor;
-        x₊ = x + step_size .* dir;
+        x₊ = intobounds(x + step_size .* dir);
         m_x₊ = f( x₊ );
     end
 
-    dir = step_size * dir;
+    dir = x₊ .- x;
 
     return ω, dir, step_size
 end
@@ -163,8 +164,8 @@ function compute_descent_direction( type::Val{:direct_search}, f :: F where {F<:
         else
 
         end
-        @info step_size
-        x₊ = x + step_size * dir;
+        #@info step_size
+        x₊ = intobounds(x + step_size * dir);
         m_x₊ = f( x₊ );
 
         backtrack_factor = 0.8;
@@ -172,11 +173,11 @@ function compute_descent_direction( type::Val{:direct_search}, f :: F where {F<:
 
         while continue_while( Val(all_objectives_descent), m_x₊, f_x, step_size, ω ) && step_size > min_step_size
             step_size *= backtrack_factor;
-            x₊ = x + step_size .* dir;
+            x₊ = intobounds(x + step_size .* dir);
             m_x₊ = f( x₊ );
         end
 
-        dir = step_size * dir;
+        dir = x₊ - x;
     end
 
     return ω, dir, step_size

@@ -68,7 +68,10 @@ end
     shape_parameter :: Float64 = 1.0;
     fully_linear :: Bool = false;
     polynomial_degree :: Int64 = -1;
-    function_handle :: T where T <: Function = x -> 0.0;
+    function_handle :: T where{T <: Function} = x -> 0.0;
+    output_handles :: Union{Nothing,Array{Any,1}} = nothing;
+    jacobian_handle :: T where{T <: Function} = x -> Array{Float64,2}();
+    gradient_handles :: Union{Nothing,Array{Any,1}} = nothing;
 
     tdata :: TrainingData = TrainingData();
     model_info :: ModelInfo = ModelInfo();
@@ -121,7 +124,7 @@ end
     # criticallity parameters
     μ :: Float64 = 3e3;
     β :: Float64 = 5e3;
-    ε_crit :: Float64 = 1e-5;
+    ε_crit :: Float64 = 1e-3;
     max_critical_loops :: Int64 = 30;
 
     # acceptance parameters
