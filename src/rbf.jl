@@ -1,112 +1,175 @@
 
+export RBFModel, train!, output, grad
+
+@with_kw mutable struct RBFModel
+    training_sites :: Array{Array{Float64, 1},1} = [];
+    training_values :: Array{Array{Float64, 1}, 1} = [];
+    kernel :: Symbol = :multiquadric;
+    shape_parameter :: Float64 = 1.0;
+    fully_linear :: Bool = false;
+    polynomial_degree :: Int64 = -1;
+
+    rbf_coefficients :: Array{Float64,2} = Matrix{Float64}(undef,0,0);
+    poly_coefficients :: Array{Float64,2} = Matrix{Float64}(undef,0,0);
+
+    tdata :: TrainingData = TrainingData();
+    model_info :: ModelInfo = ModelInfo();
+
+    function_handle :: Union{Nothing, Function} = nothing;
+    @assert polynomial_degree <= 1 "For now only polynomials with degree -1, 0, or 1 are allowed."
+end
+
+Broadcast.broadcastable(m::RBFModel) = Ref(m);
+
 function (m::RBFModel)(eval_site::Array{Float64, 1})
     m.function_handle(eval_site)  # return an array of arrays for ease of use in other methods
 end
 
-const exp_kernel(r,s) = exp(-(r/s)^2);
-const multiquadric_kernel(r,s) = - sqrt( 1 + (s*r)^2);
-const cubic_kernel(r,s) = (r*s)^3;
-const thin_plate_spline_kernel(r,s) = r == 0 ? 0.0 : r^2 * log(r);
-
-# derivatives wrt r
-const ∂exp_kernel(r,s) = - s^2 * exp_kernel(r,s);
-const ∂multiquadric_kernel(r,s) = s^2 / (2 * multiquadric_kernel(r,s));
-const ∂cubic_kernel(r,s) = s^3 * ( r + r/2 ) ;
-const ∂thin_plate_spline_kernel(r,s) = r == 0 ? 0.0 : log(r) + 1/2;
-
+@doc "Modify first model to equal second."
 function as_second!(destination :: RBFModel, source :: RBFModel )
     @unpack_RBFModel source;
     @pack_RBFModel! destination;
     return nothing
 end
 
-function get_basis_vector_function(center_sites, kernel_name, shape_parameter )
+# === Evaluate RBF part of the Model ===
 
-    kernel_func(r) = eval( Symbol(kernel_name, "_kernel") )(r, shape_parameter)
+kernel( ::Val{:exp}, r, s = 1.0 ) = exp(-(r/s)^2);
+kernel( ::Val{:multiquadric} , r, s = 1.0 ) = - sqrt( 1 + (s*r)^2);
+kernel( ::Val{:cubic} , r, s = 1.0 ) = (r*s)^3;
+kernel( ::Val{:thin_plate_spline}, r, s = 1.0) = r == 0 ? 0.0 : r^2 * log(r);
 
-    function basis_vector_function( eval_site )
-        eval_single_basis( center ) = kernel_func( norm( center .- eval_site, 2 ) )
-        basis_vector = eval_single_basis.(center_sites)
+@doc "Return n_sites-array with difference vectors (x_1 - c_{1,m}, …, x_n - c_{n,m}) of length n."
+function x_minus_sites( m:: RBFModel, x :: Vector{T} where{T<:Real})
+    [ x .- site for site ∈ m.training_sites ]
+end
+
+@doc "Return vector of all distance values between x and each center of m"
+function center_distances( m :: RBFModel, x :: Vector{T} where{T<:Real} )
+    r_vector = norm.( x_minus_sites( m, x), 2 )
+end
+
+@doc "Evaluate all ``n_c`` basis functions of m::RBFModel at second argument x and return ``n_c``-Array"
+function φ( m::RBFModel, x :: Vector{T} where{T<:Real} )
+    kernel.( Val(m.kernel), center_distances(m, x), m.shape_parameter )
+end
+
+@doc "Symmetric matrix of every center evaluated in all basis functions."
+function get_Φ( m::RBFModel )
+    hcat( φ.(m, m.training_sites)... )
+end
+
+@doc "Return ℓ-th output of the RBF Part of the model at site x."
+function rbf_output( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real})
+    φ(m, x)'m.rbf_coefficients[:, ℓ]
+end
+
+@doc "Return k-vector of *all* RBF model outputs at site x."
+function rbf_output( m::RBFModel, x :: Vector{T} where{T<:Real} )
+    φ(m, x)'m.rbf_coefficients
+end
+
+# partial derivatives, all missing the factor 2 * ( x_i - c_i ) where c is center site of a single basis function
+∂kernel( ::Val{:exp}, r, s = 1.0 ) = - s^2 * kernel( Val(:exp), r, s )
+∂kernel( ::Val{:multiquadric}, r, s = 1.0 ) = s^2 / (2 * kernel( Val(:multiquadric), r, s ) );
+∂kernel( ::Val{:cubic}, r, s = 1.0 ) = s^3 * ( r + r/2 ) ;
+∂kernel( ::Val{:thin_plate_spline}, r, s = 1.0 ) = r == 0 ? 0.0 : log(r) + 1/2;
+
+@doc "Return an n_vars x n_sites matrix where each column is an n-vector of entries 2 coeff(m,ℓ) *(x_1 - c_{1,m}), …, 2*(x_n - c_{n,m}). "
+function grad_prefix( m :: RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
+    differences = x_minus_sites( m, x )
+    2 .* hcat( [  m.rbf_coefficients[ i, ℓ ] * differences[i] for i = eachindex(differences) ] ... )
+end
+
+@doc "Return an k-array of n_vars x n_sites matrices (1 for each RBF model output) where each column is an n-vector of entries 2 coeff(m,ℓ) *(x_1 - c_{1,m}), …, 2*(x_n - c_{n,m}). "
+function grad_prefix( m :: RBFModel, x :: Vector{T} where{T<:Real} )
+    differences = x_minus_sites( m, x )
+    grad_prefix_matrices = [];
+    for ℓ = 1 : length(m.training_values[1])
+        grad_pref_ℓ = 2 .* hcat( [  m.rbf_coefficients[ i, ℓ ] * differences[i] for i = eachindex(differences) ] ... )
+        push!(grad_prefix_matrices, grad_pref_ℓ)
     end
+    return grad_prefix_matrices
 end
 
-function get_basis_vector_derivatives(center_sites, kernel_name, shape_parameter)
-    kernel_func(r) = eval( Symbol("∂", kernel_name, "_kernel") )(r, shape_parameter)
+@doc "Compute gradient term of ℓ-th RBF (scalar) model output and return n-vector."
+function rbf_grad( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
+    (grad_prefix(m, ℓ, x) * ∂kernel.( Val(m.kernel), center_distances( m, x ), m.shape_parameter ))[:]      # n × n_c * n_c × 1
+end
 
-    function basis_vector_function( eval_site )
-        eval_single_basis( center ) = kernel_func( norm( center .- eval_site, 2 ) )
-        basis_vector = eval_single_basis.(center_sites)
+@doc "Compute the Jacobian matrix of the RBF part of the model"
+function rbf_Jacobian( m::RBFModel, x :: Vector{T} where{T<:Real} )
+    grad_prefix_matrices = grad_prefix(m, x)
+    ∂kernel_eval = ∂kernel.( Val(m.kernel), center_distances( m, x ), m.shape_parameter )
+    gradient_array = [];
+    for ℓ = 1 : length(m.training_values[1])
+        grad_prefix_ℓ = grad_prefix_matrices[ℓ]
+        grad_ℓ = (grad_prefix_ℓ * ∂kernel_eval)[:]
+        push!(gradient_array, grad_ℓ);
     end
+    hcat( gradient_array... )'  # each gradient is a column vector -> stack horizontally and then transpose
 end
 
-function build_Φ( sites, kernel_name = "multiquadric", shape_parameter = 1)
-    φ = get_basis_vector_function( sites, kernel_name, shape_parameter )
-    Φ = hcat( ( φ.(sites))... );             # apply φ to all sites and form rbf matrix
-    return (Φ, φ)
+# === Evaluate polynomial part of the model ===
+poly(m::RBFModel, ℓ, x, ::Val{-1} ) = 0.0                       # degree -1 ⇒ No polynomial part (ℓ-th output)
+poly(m::RBFModel, x, ::Val{-1} ) = 0.0                          # degree -1 ⇒ No polynomial part (all outputs)
+poly(m::RBFModel, ℓ, x, ::Val{0} ) = m.poly_coefficients[ℓ]     # degree 0 ⇒ constant (ℓ-th output)
+poly(m::RBFModel, x, ::Val{0} ) = m.poly_coefficients[:]        # degree 0 ⇒ constant (all outputs)
+poly(m::RBFModel, ℓ, x, ::Val{1} ) = [x;1.0]'m.poly_coefficients[:, ℓ] # affin linear tail (ℓ-th output)
+poly(m::RBFModel, x, ::Val{1} ) = [x;1.0]'m.poly_coefficients    # affin linear tail (all outputs)
+
+@doc "Evaluate polynomial tail for output ℓ."
+function poly_output( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
+    poly( m, ℓ, x, Val(m.polynomial_degree) )
 end
 
-function build_Φ( m :: RBFModel )
-    build_Φ( m.training_sites, m.kernel, m.shape_parameter )
+@doc "k-Vector of evaluations of polynomial tail for all outputs."
+function poly_output( m::RBFModel, x :: Vector{T} where{T<:Real} )
+    poly( m, x, Val(m.polynomial_degree) )
 end
 
-function build_rbf_gradients( m :: RBFModel)
-    ∂̂φ = get_basis_vector_derivatives( m.training_sites, m.kernel, m.shape_parameter ) # maps n-vector to n_centers-vector of rbf derivative valuations
-    gradient_prefixes(site) = 2 .* [ site .- center for center in m.training_sites ] # n_centers array containing n-vectors of differences
-    ∂φ(site) = vcat( ∂̂φ(site) .* gradient_prefixes(site) )     # each row corresponds to gradient of a single rbf basis function
+∇poly(m::RBFModel, ℓ :: Int64 , ::Union{Val{-1}, Val{0} } ) = zeros( length( m.training_sites[1] ) )
+∇poly(m::RBFModel, ℓ :: Int64 , ::Val{1} ) = m.poly_coefficients[1 : end - 1, ℓ];    # return all coefficients safe c_{n+1}
+@doc "Gradient vector for polynomial tail of ℓ-th output."
+function poly_grad( m::RBFModel, ℓ :: Int64 , x :: Vector{T} where{T<:Real} )
+    ∇poly( m, ℓ, Val(m.polynomial_degree) )
 end
 
-function get_poly_function( poly_degree, coefficient_matrix, n_sites )
-    # assume x to be a coordinate column vector
-    # return a function handle that maps x to a scalar or a k-Vector (considering k outputs)
-    if poly_degree == -1
-        return x -> 0.0;
-    elseif poly_degree == 0
-        return x -> coefficient_matrix[end, :];    # simply output one coefficient for each output index
-    elseif poly_degree == 1
-        return x -> vec([x' 1.0] * coefficient_matrix[ n_sites + 1 : end, : ]);
-    end
+function poly_Jacobian( m::RBFModel, x :: Vector{T} where{T<:Real} )
+    hcat( [poly_grad(m, ℓ, x) for ℓ = 1 : length(m.training_values[1] ) ]... )'
 end
 
-function get_poly_function( poly_degree, coefficient_matrix, n_sites, output_index )
-    # assume x to be a coordinate column vector
-    # return a function handle that maps x to a scalar or a k-Vector (considering k outputs)
-    if poly_degree == -1
-        return x -> 0.0;
-    elseif poly_degree == 0
-        return x -> coefficient_matrix[end, output_index];    # simply output one coefficient for each output index
-    elseif poly_degree == 1
-        return x -> vec([x' 1.0] * coefficient_matrix[ n_sites + 1 : end, output_index ]);
-    end
+# === Combined model output ===
+@doc "Evaluate ℓ-th (scalar) model output at vector x."
+function output( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
+    rbf_output( m, ℓ, x ) + poly_output( m, ℓ, x )
 end
+output( m::RBFModel, ℓ :: Int64, x :: Real ) = output(m, ℓ, [x])
 
-function get_poly_jacobian( poly_degree, coefficient_matrix, n_sites )
-    if -1 <= poly_degree <= 0
-        return x -> 0.0;
-    else
-        return x -> coefficient_matrix[n_sites + 1 : end - 1, :]';
-    end
+@doc "Evaluate all (scalar) model outputs at vector x and return k-vector of results."
+function output( m::RBFModel, x :: Vector{T} where{T<:Real} )
+    (rbf_output( m, x ) .+ poly_output( m, x ))[:]
 end
+output( m::RBFModel, x :: Real ) = output(m, [x])
 
-function get_poly_gradient( poly_degree, coefficient_matrix, n_sites, output_index)
-    if -1 <= poly_degree <= 0
-        return x -> 0.0;
-    else
-        return x -> coefficient_matrix[n_sites + 1 : end - 1, output_index];
-    end
+function grad( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
+    rbf_grad( m, ℓ, x ) + poly_grad( m, ℓ, x)
 end
+grad(m::RBFModel, ℓ::Int64, x::Real) = grad(m, ℓ, [x])   # if n_vars == 1 and RBFModel is used outside of Optimization
 
+function Jacobian( m::RBFModel, x :: Vector{T} where{T<:Real} )
+    rbf_Jacobian( m, x ) + poly_Jacobian( m , x )
+end
+Jacobian(m::RBFModel, x::Real) = Jacobian(m,[x])         # if n_vars == 1 and RBFModel is used outside of Optimization
+
+# === Utiliy functions for solving the normal equations
+get_Π( m :: RBFModel, ::Val{-1} ) =  Matrix{Float64}( undef, 0, length(m.training_sites) );
+get_Π( m :: RBFModel, ::Val{0} ) = ones(1, length(m.training_sites));
+get_Π( m :: RBFModel, ::Val{1} ) = [ hcat( m.training_sites...); ones(1,length(m.training_sites)) ];
+
+@doc "Return polynomial base matrix. Ones in last row."
 function get_Π(m::RBFModel)
-    # return augmented site coefficient matrix for computation of polynomial coeffients
-
-    n_sites = length(m.training_sites);
-    if m.polynomial_degree == -1
-        Π = Matrix{Float64}(undef, 0, n_sites );
-    elseif m.polynomial_degree == 0
-        Π = ones(1, n_sites);
-    elseif m.polynomial_degree == 1
-        #Π = [ hcat( [π - m.training_sites[1] for π = m.training_sites]... ); ones(1, n_sites) ]; #a
-        Π = [ hcat( m.training_sites...); ones(1,n_sites) ];       #b
-    end
+    get_Π( m, Val( m.polynomial_degree ) )
 end
 
 function solve_rbf_problem( Π, Φ, f )
@@ -124,51 +187,42 @@ function solve_rbf_problem( Π, Φ, f )
     coefficients = Φ_fact \ f_augmented;   # obtain model coefficients as min norm solution to LGS
 end
 
+# === Training functions ===
+function set_coefficients!( m :: RBFModel, coefficients )
+    pd = m.polynomial_degree
+    n_vars = length(m.training_sites[1]);
+    n_out = length(m.training_values[1]);
+    n_sites = length( m.training_sites );
+    if pd == -1
+        m.rbf_coefficients = reshape(coefficients, (n_sites, n_out));
+        m.poly_coefficients =  Matrix{Float64}( undef, 0, n_out );
+    elseif pd == 0
+        m.rbf_coefficients = reshape(coefficients[1:end-1, :], (n_sites, n_out));
+        m.poly_coefficients = reshape(coefficients[ end, : ], (1, n_out));
+    elseif pd == 1
+        m.rbf_coefficients = reshape(coefficients[1 : n_sites, :], n_sites, n_out);
+        m.poly_coefficients = reshape(coefficients[ n_sites + 1 : end, : ], (n_vars + 1, n_out) );
+    end # NOTE everything wrapped in reshape for the case that n_out == 1, n_vars == 1
+end
 
 @doc "Train (and fully instanciate) a RBFModel instance to best fit its training data."
 function train!( m::RBFModel )
-    n_sites = length( m.training_sites );
-    n_out = length( m.training_values[1] );
 
-    Φ,φ = build_Φ( m );
-    Π = get_Π(m);
-    f = hcat( m.training_values... )';
+    Φ = get_Φ( m );
+    Π = get_Π( m );
+    RHS = hcat( m.training_values... )';
 
-    coefficients = solve_rbf_problem( Π,Φ, f)
-
-    rbf_function(x) = φ(x)'coefficients[1:n_sites, :];
-    poly_function = get_poly_function( m.polynomial_degree, coefficients, n_sites)
-
-    m.function_handle = x -> vec(rbf_function(x)) .+ poly_function(x);
-
-    # individual output output handles
-    m.output_handles = [];
-    for ℓ = 1 : n_out
-        output_ℓ = x -> φ(x)'coefficients[1:n_sites, ℓ] .+ get_poly_function( m.polynomial_degree, coefficients, n_sites, ℓ)(x)
-        push!( m.output_handles, output_ℓ )
-    end
-    # Build derivatives
-    ∂φ = build_rbf_gradients( m )
-    m.gradient_handles = [];
-    for ℓ = 1 : n_out
-        poly_grad = get_poly_gradient( m.polynomial_degree, coefficients, n_sites, ℓ)
-        grad( x ) = ∂φ(x)'coefficients[1:n_sites, ℓ]  .+ poly_grad(x)
-        push!(m.gradient_handles,grad);
-    end
-
-    poly_jacobian = get_poly_jacobian( m.polynomial_degree, coefficients, n_sites)
-    m.jacobian_handle = x -> begin
-        @show ∂φ(x)'coefficients[1:n_sites, :]
-        deepcopy(∂φ(x)'coefficients[1:n_sites, :]) .+ poly_jacobian(x)
-    end
-
+    coefficients = solve_rbf_problem( Π, Φ, RHS )
+    set_coefficients!(m, coefficients)
+    m.function_handle = x -> output(m, x);
     return m
 end
 
 # same as train! but using a null space method with data available from 'additional_points!' method
 function train!(m::RBFModel, Π, Q, R, Z, L)
     if m.polynomial_degree == 1
-        Φ, φ = build_Φ(m);
+        n_out = length(m.training_values[1])
+        Φ = get_Φ( m );
         n_sites = length(m.training_sites)
 
         f = hcat( m.training_values... )';
@@ -186,10 +240,13 @@ function train!(m::RBFModel, Π, Q, R, Z, L)
 
         coefficients = vcat( λ, ν );
 
-        rbf_function(x) = φ(x)'coefficients[1:n_sites, :];
-        poly_function = get_poly_function( 1, coefficients, n_sites)
+        # adjust for offset in data sites
+        coeff_offset = (m.training_sites[1]'coefficients[n_sites+1:end-1, :])[1];
+        #@show coeff_offset
+        coefficients[end, :] .-= coeff_offset
 
-        m.function_handle = x -> vec(rbf_function(x)) .+ poly_function(x - m.training_sites[1]); # Π that is passed as an argument assumes points to be translated by - first site
+        set_coefficients!(m, coefficients)
+        m.function_handle = x -> output(m, x);
 
         return m
     else

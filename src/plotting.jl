@@ -8,7 +8,7 @@ default_line_color = :cornflowerblue
 default_pareto_color = :mediumseagreen
 default_data_color = :lightgoldenrod
 default_palette(n) = palette( :oslo, n; rev = false )
-markersizes_fn(n) = map( x -> 3 + 8 * x^1.1, range(1,0; length = n ) )
+markersizes_fn(n) = n > 1 ? map( x -> 3 + 3 * x^1.1, range(1,0; length = n ) ) : 3;
 
 # Decision Space Plotting
 @userplot PlotDecisionSpace
@@ -167,5 +167,63 @@ function plot_objective_space( opt_obj :: AlgoConfig, pfront :: Union{Nothing, P
         plotobjectivespace!(opt_obj, ind )
     else
         plotobjectivespace(opt_obj,ind)
+    end
+end
+
+@userplot PlotStepSizes
+@recipe function f( d :: PlotStepSizes )
+
+    if !( isa( d.args[1], AlgoConfig ) )
+        error("plotstepsizes needs an 'AlgoConfig' object as the only argument.")
+    end
+
+    iter_data = d.args[1].iter_data;
+    stepsizes = iter_data.stepsize_array;
+    ρs = iter_data.ρ_array;
+    linear_flags = [mi.fully_linear for mi ∈ iter_data.model_info_array];
+    iterations = 1:length(stepsizes)
+
+    title := "Step Size"
+    @series begin
+        seriestype := :path
+        markerstrokewidth := 0.1
+        linecolor := default_line_color
+        label := ""
+        iterations, stepsizes
+    end
+
+    green_points = findall( ρs .>= d.args[1].ν_success )
+    blue_points = findall( d.args[1].ν_success .> ρs .>= d.args[1].ν_accept )
+    red = setdiff( iterations, [green_points;blue_points]);
+    red_points = red[ linear_flags[red] ]
+    red_diamonds = red[ .!(linear_flags)[red] ]
+
+    @series begin
+        seriestype := :scatter
+        markercolor := :green
+        label := "successfull"
+        green_points, stepsizes[green_points]
+    end
+
+    @series begin
+        seriestype := :scatter
+        markercolor := :blue
+        label := "acceptable"
+        blue_points, stepsizes[blue_points]
+    end
+
+    @series begin
+        seriestype := :scatter
+        markercolor := :red
+        label := "unsucessfull"
+        red_points, stepsizes[red_points]
+    end
+
+    @series begin
+        seriestype := :scatter
+        markercolor := :orange
+        label := "model improving"
+        marker := :diamond
+        red_diamonds, stepsizes[red_diamonds]
     end
 end

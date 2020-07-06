@@ -110,7 +110,7 @@ function additional_points!( m::RBFModel, x :: Array{Float64,1}, n_exp, sites_ar
     end
     size_Y = size(Y,2);
 
-    Φ,φ  = build_Φ( m )     # TODO change when shape_parameter is made more adaptive
+    Φ = get_Φ( m )     # TODO change when shape_parameter is made more adaptive
 
     Π = [ [zeros( size(Y,1),1) Y]; ones(1, size_Y + 1) ];  # polynomial basis matrix, (size_Y + 1) × (size_Y + 1) (columns are added)
     Q, R = qr( Π' );
@@ -130,7 +130,7 @@ function additional_points!( m::RBFModel, x :: Array{Float64,1}, n_exp, sites_ar
         if k + n_points < max_model_points # i.e. if additional columns are allowed
 
             y = sites_array[ site_index ];
-            φ_y = φ(y)
+            φ_y = φ(m, y)
             y -= x; # translate into local coordinate system
 
             # update qr decomposition of Π_y = [Π [y;1]]
@@ -197,7 +197,7 @@ function additional_points!( m::RBFModel, x :: Array{Float64,1}, n_exp, sites_ar
                 # update φ function to include new basis site
                 push!(m.training_sites, y)
                 push!(m.training_values, values_array[site_index][1:n_exp] )
-                Φ,φ = build_Φ( m );
+                Φ = get_Φ( m ); # TODO optimize
             end
         else
             break;

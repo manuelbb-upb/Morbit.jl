@@ -61,24 +61,6 @@ isempty( t :: TrainingData ) = isempty(t.Y) || isempty(t.Z);
     fully_linear :: Bool = true;
 end
 
-@with_kw mutable struct RBFModel
-    training_sites :: Array{Array{Float64, 1},1} = [];
-    training_values :: Array{Array{Float64, 1}, 1} = [];
-    kernel :: String = "multiquadric";
-    shape_parameter :: Float64 = 1.0;
-    fully_linear :: Bool = false;
-    polynomial_degree :: Int64 = -1;
-    function_handle :: T where{T <: Function} = x -> 0.0;
-    output_handles :: Union{Nothing,Array{Any,1}} = nothing;
-    jacobian_handle :: T where{T <: Function} = x -> Array{Float64,2}();
-    gradient_handles :: Union{Nothing,Array{Any,1}} = nothing;
-
-    tdata :: TrainingData = TrainingData();
-    model_info :: ModelInfo = ModelInfo();
-    @assert polynomial_degree <= 1 "For now only polynomials with degree -1, 0, or 1 are allowed."
-    #model_params :: Dict = Dict();
-end
-
 # collectible data during iterations (used for plotting and analysis)
 @with_kw mutable struct IterData
     # "global" data (actually used during iteration)
@@ -109,7 +91,7 @@ end
 
     f :: Union{Function, Nothing} = nothing;    # reset during algorithm initilization
 
-    rbf_kernel :: String = "multiquadric";
+    rbf_kernel :: Symbol = :multiquadric;
     rbf_poly_deg :: Int64 = 1;
     rbf_shape_parameter :: T where T<:Function = Δ -> 1;
     max_model_points ::Int64 = 2*n_vars^2 + 1;  # maximum number of points to be included in the construction of 1 model
@@ -118,6 +100,8 @@ end
     max_evals :: Union{Int64,Float64} = Inf;    # maxiumm number of expensive function evaluations
 
     descent_method :: Symbol = :steepest # :steepest or :direct_search ( TODO implement local Pascoletti-Serafini )
+    ideal_point :: Vector{Float64} = [];
+    image_direction :: Vector{Float64} = [];
 
     all_objectives_descent :: Bool = false;  # compute ρ as the minimum of descent ratios for ALL objetives
 
@@ -146,8 +130,8 @@ end
 
     # additional stopping criteria (mostly inspired by thoman)
     Δ_critical = 1e-3;   # max ub - lb / 10
-    Δ_min = Δ_critical / 10.0;
-    stepsize_min = 1e-6 * Δ_critical;   # stop if Δ < Δ_critical & step_size < stepsize_min
+    Δ_min = Δ_critical * 1e-3;
+    stepsize_min = 1e-2 * Δ_critical;   # stop if Δ < Δ_critical & step_size < stepsize_min
     # NOTE thomann uses stepsize in image space due to PS scalarization
 
     iter_data :: Union{Nothing,IterData} = nothing;
@@ -158,10 +142,10 @@ end
     @assert Δ₀ <= Δ_max "Δ_max = $Δ_max is smaller than initial trust region radius Δ₀ = $Δ₀."
     @assert 0 <= ν_accept <= ν_success "Acceptance parameters must be 0<= ν_accept <= ν_success."
     @assert 0 < γ_crit < 1 "Criticality reduction factor γ_crit must be in (0,1)."
-    @assert 0 < γ_shrink < 1 "Trust region reduction factor γ_shrink must be in (0,1)"
+    @assert 0 < γ_shrink <= 1 "Trust region reduction factor γ_shrink must be in (0,1]"
     @assert 1 < γ_grow "Trust region grow factor γ_grow must be bigger than 1."
     @assert max_iter > 0 "Maximal number of iterations must be a positive integer."
-    @assert rbf_kernel ∈ ["exp", "multiquadric", "cubic", "thin_plate_spline"] "Kernel '$rbf_kernel' not supported yet."
+    @assert rbf_kernel ∈ Symbol.(["exp", "multiquadric", "cubic", "thin_plate_spline"]) "Kernel '$rbf_kernel' not supported yet."
     # TODO make sure Δ_max is bounded by a fraction of global boundaries (requires mutable struct?)
 
 end

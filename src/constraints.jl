@@ -16,7 +16,7 @@ end
 
 function effective_bounds_vectors( x, Δ )
     # assume lb = zeros, ub = ones
-    global ε_bounds;
+    ε_bounds = 0.0;
     n_vars = length(x);
     lb_eff, ub_eff = effective_bounds_vectors( x, Δ, zeros( n_vars ) .+ ε_bounds, ones( n_vars ) .- ε_bounds)
     return lb_eff, ub_eff
@@ -40,8 +40,8 @@ intobounds(x, lb, ub) = min.( max.(lb, x), ub)  # project x into unit hypercube
 
 @doc "Find the scalars σ₊,σ₋ that so that x + σ±*d intersects the variable boundaries."
 function intersect_bounds(x :: T,d :: T,lb::T,ub::T ) where {T}# = Array{Float64,1}}
-    non_zero = .!(isapprox.(d,0.0, rtol=1e-12)); # TODO tolerance
-    if all( .!non_zero )
+    non_zero = (d .!= 0.0); # TODO tolerance
+    if !any(non_zero)
         return Inf, -Inf
     else
     #    x = intobounds(x, lb, ub);  # sometimes during iteration, x is outside of global box constraints by ε and then the routine below fails
@@ -49,11 +49,17 @@ function intersect_bounds(x :: T,d :: T,lb::T,ub::T ) where {T}# = Array{Float64
         σ_lb = (lb[non_zero] .- x[non_zero]) ./ d[non_zero];
         σ_ub = (ub[non_zero] .- x[non_zero]) ./ d[non_zero];
 
-        smallest_largest = sort( [σ_lb σ_ub], dims = 2 );    # first column contains the smallest factor we are allowed to move along each coordinate, second the largest factor
+        #smallest_largest = sort( [σ_lb σ_ub], dims = 2 );    # first column contains the smallest factor we are allowed to move along each coordinate, second the largest factor
+        #@show smallest_largest
 
-        σ_pos = minimum( smallest_largest[:, 2] );
-        σ_neg = maximum( smallest_largest[:, 1] );
-
+        #σ_pos = minimum( smallest_largest[:, 2] );
+        #σ_neg = maximum( smallest_largest[:, 1] );
+        σ = [σ_lb;σ_ub];
+        σ_plus = findall(σ .> 0);
+        σ_minus = findall(σ .< 0);
+        
+        σ_pos = isempty(σ_plus) ? 0.0 : minimum( σ[σ_plus] )
+        σ_neg = isempty(σ_minus) ? 0.0 : maximum( σ[σ_minus] )
         return σ_pos, σ_neg
     end
 end
@@ -68,7 +74,6 @@ end
 end
 =#
 function intersect_bounds( x :: Array{Float64,1}, d :: Array{Float64,1}, Δ :: Float64 )
-    global n_vars;    # not defined yet;
     lb, ub = effective_bounds_vectors( x, Δ );
     intersect_bounds(x , d, lb, ub)
 end
@@ -100,7 +105,7 @@ function init_objectives( problem, config_struct )
         is_constrained = true;
     end
 
-    f(x) = vcat( f_expensive(x), f_cheap(x) );
+    f(x) = vcat( f_expensive(intobounds(x)), f_cheap(intobounds(x)) );
     config_struct.f = f;
 
     return is_constrained, problem, f, f_expensive, f_cheap, scaling_func, unscaling_func

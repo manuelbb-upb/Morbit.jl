@@ -9,7 +9,7 @@ using NLopt
 #using Ipopt
 using Random: shuffle!
 using Parameters: @with_kw, @unpack, @pack!, reconstruct   # use Parameters package for structs with default values and keyword initializers
-import Base: isempty
+import Base: isempty, Broadcast
 
 export RBFModel, train!, improve!
 export optimize!
@@ -70,6 +70,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
     μ, β, ε_crit, max_critical_loops, ν_success, ν_accept, all_objectives_descent, descent_method,
     γ_crit, γ_grow, γ_shrink, γ_shrink_much, Δ₀, Δ_max, θ_enlarge_1, θ_enlarge_2, θ_pivot, θ_pivot_cholesky,
     Δ_critical, Δ_min, stepsize_min = config_struct;
+    @unpack ideal_point, image_direction = config_struct;
 
     # set n_vars dependent variables
     if n_vars == 0
@@ -99,7 +100,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
         !check_budget && @info "\nBudget exhausted.\n"
 
         check_stepsize = Δ_big_enough( Δ, stepsize );
-        !check_stepsize && @info "\nStepsize or Δ too small.\n"
+        !check_stepsize && @info "\nStepsize or Δ too small\n\t\t\tΔ = $Δ\n\t\t\tΔ_min = $Δ_min\n\t\t\tΔ_critical = $Δ_critical"
 
         return check_iter_index && check_budget && check_stepsize
     end
@@ -162,8 +163,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
 
         # compute descent step
         @info("\tComputing descent step.")
-        @show f_x
-        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained, all_objectives_descent)
+        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained, all_objectives_descent, ideal_point, image_direction )
         @info("\t\tCriticality measure ω is $ω.")
 
         # Criticallity Test
@@ -173,7 +173,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
             if !rbf_model.fully_linear
                 n_improvements = make_linear!(rbf_model, config_struct, is_constrained);
                 if n_improvements > 0
-                    ω, d, stepsize = compute_descent_direction(Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent)
+                    ω, d, stepsize = compute_descent_direction(Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent, ideal_point, image_direction )
                 end
             end
 
@@ -187,7 +187,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
                     # NOTE matlab version able to set exit flag here when eval budget is exhausted -> then breaks
                     changed = make_linear!(rbf_model, config_struct, Val(true), is_constrained);
                     if changed
-                        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent)
+                        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent, ideal_point, image_direction )
                         exit_flag = !Δ_big_enough(Δ, stepsize)
                     else
                         @info "\t\t\tModel is still linear"
