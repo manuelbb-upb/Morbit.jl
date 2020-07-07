@@ -49,17 +49,17 @@ function intersect_bounds(x :: T,d :: T,lb::T,ub::T ) where {T}# = Array{Float64
         σ_lb = (lb[non_zero] .- x[non_zero]) ./ d[non_zero];
         σ_ub = (ub[non_zero] .- x[non_zero]) ./ d[non_zero];
 
-        #smallest_largest = sort( [σ_lb σ_ub], dims = 2 );    # first column contains the smallest factor we are allowed to move along each coordinate, second the largest factor
+        smallest_largest = sort( [σ_lb σ_ub], dims = 2 );    # first column contains the smallest factor we are allowed to move along each coordinate, second the largest factor
         #@show smallest_largest
 
-        #σ_pos = minimum( smallest_largest[:, 2] );
-        #σ_neg = maximum( smallest_largest[:, 1] );
-        σ = [σ_lb;σ_ub];
+        σ_pos = minimum( smallest_largest[:, 2] );
+        σ_neg = maximum( smallest_largest[:, 1] );
+        #=σ = [σ_lb;σ_ub];
         σ_plus = findall(σ .> 0);
         σ_minus = findall(σ .< 0);
-        
+
         σ_pos = isempty(σ_plus) ? 0.0 : minimum( σ[σ_plus] )
-        σ_neg = isempty(σ_minus) ? 0.0 : maximum( σ[σ_minus] )
+        σ_neg = isempty(σ_minus) ? 0.0 : maximum( σ[σ_minus] )=#
         return σ_pos, σ_neg
     end
 end

@@ -163,7 +163,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
 
         # compute descent step
         @info("\tComputing descent step.")
-        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained, all_objectives_descent, ideal_point, image_direction )
+        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained, all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
         @info("\t\tCriticality measure ω is $ω.")
 
         # Criticallity Test
@@ -173,7 +173,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
             if !rbf_model.fully_linear
                 n_improvements = make_linear!(rbf_model, config_struct, is_constrained);
                 if n_improvements > 0
-                    ω, d, stepsize = compute_descent_direction(Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent, ideal_point, image_direction )
+                    ω, d, stepsize = compute_descent_direction(Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
                 end
             end
 
@@ -187,7 +187,7 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
                     # NOTE matlab version able to set exit flag here when eval budget is exhausted -> then breaks
                     changed = make_linear!(rbf_model, config_struct, Val(true), is_constrained);
                     if changed
-                        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent, ideal_point, image_direction )
+                        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
                         exit_flag = !Δ_big_enough(Δ, stepsize)
                     else
                         @info "\t\t\tModel is still linear"

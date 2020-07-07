@@ -2,11 +2,11 @@
 
 # Continue Backtracking if true, suppose all_objectives_descent = true (= Val)
 function continue_while( :: Val{true}, m_x₊, f_x, step_size, ω )
-    any( f_x .- m_x₊ .< step_size * 1e-6 * ω )
+    any( f_x .- m_x₊ .< step_size * 1e-5 * ω )
 end
 # Continue Backtracking if true, suppose all_objectives_descent = false (= Val)
 function continue_while( :: Val{false}, m_x₊, f_x, step_size, ω )
-    maximum(f_x) .- maximum(m_x₊) .<  step_size * 1e-6 * ω
+    maximum(f_x) .- maximum(m_x₊) .<  step_size * 1e-5 * ω
 end
 
 # TODO: enable passing of gradients
@@ -75,9 +75,9 @@ function compute_descent_direction(type::Val{:steepest}, m::Union{RBFModel, Name
     compute_descent_direction( Val(:steepest), surrogate_function, x, f_x, Δ, constrained_flag, all_objectives_descent )
 end
 
-function compute_descent_direction( type::Val{:direct_search}, f :: F where {F<:Function}, x :: Vector{Float64}, f_x :: Vector{Float64} = [], Δ :: Float64 = 1.0, constrained_flag :: Bool = false, all_objectives_descent :: Bool = false, ideal_point = [], image_direction = [] )
+function compute_descent_direction( type::Val{:direct_search}, f :: F where {F<:Function}, x :: Vector{Float64}, f_x :: Vector{Float64} = [], Δ :: Float64 = 1.0, constrained_flag :: Bool = false, all_objectives_descent :: Bool = false, ideal_point = [], image_direction = [], θ_enlarge_1 = 1.0 )
     n_vars = length(x);
-    ε_pinv = 0.0#1e-10;  # distance from bounds up to which pseudo-inverse is used
+    ε_pinv = 1e-7;  # distance from bounds up to which pseudo-inverse is used
 
     if isempty( f_x )
         f_x = f(x);
@@ -87,10 +87,10 @@ function compute_descent_direction( type::Val{:direct_search}, f :: F where {F<:
 
     # local lower and upper boundaries
     if constrained_flag
-        lb, ub = effective_bounds_vectors( x, Δ);
+        lb, ub = effective_bounds_vectors( x, θ_enlarge_1 * Δ);
     else
-        lb = x .- Δ;
-        ub = x .+ Δ;
+        lb = x .- θ_enlarge_1 * Δ;
+        ub = x .+ θ_enlarge_1 * Δ;
     end
 
     if isempty( image_direction )
@@ -127,7 +127,7 @@ function compute_descent_direction( type::Val{:direct_search}, f :: F where {F<:
         dir = zeros(n_vars);
         step_size = 0;
     else
-        pinv_flag = !constrained_flag || (all( x .- lb .>= ε_pinv ) && all( ub .- x .>= ε_pinv ));
+        pinv_flag = !constrained_flag || (all( x .- lb .>= ε_pinv ) && all( ub .- x .>= ε_pinv )); # TODO check wheter boundaries have to be adapted (/θ_enlarge_1)
         if pinv_flag
             # as long as we are not on decision space boundary, pseudo inverse suffices
             ∇f_pinv = pinv( ∇f );
@@ -149,7 +149,7 @@ function compute_descent_direction( type::Val{:direct_search}, f :: F where {F<:
             @variable(dir_prob, d[1:n_vars] )
 
             @objective(dir_prob, Min, .5 * sum( d.^2 ) +  sum( (∇f * d .- image_direction).^2 ) );
-            @constraint(dir_prob, df_constraint, image_direction .<= ∇f*d .<= max( .5 * maximum(image_direction), -1e-12  ));
+            @constraint(dir_prob, df_constraint, image_direction .<= ∇f*d .<= max( .5 * maximum(image_direction), -1e-7  ));
             @constraint(dir_prob, global_const, 0.0 .- x .<= d .<= 1.0 .- x )   # honor global constraints
 
             JuMP.optimize!(dir_prob)
@@ -189,7 +189,7 @@ end
 
 function compute_descent_direction( type::Val{:direct_search}, m::Union{RBFModel, NamedTuple}, f:: F where {F<:Function},
     x :: Vector{Float64}, f_x :: Vector{Float64} = [], Δ :: Float64 = 1.0, constrained_flag :: Bool = false,
-    all_objectives_descent :: Bool = false, ideal_point = [], image_direction = [] )
+    all_objectives_descent :: Bool = false, ideal_point = [], image_direction = [], θ_enlarge_1 = 1.0 )
     surrogate_function = x -> vcat( m.function_handle(x), f(x));
-    compute_descent_direction( Val(:direct_search), surrogate_function, x, f_x, Δ, constrained_flag , all_objectives_descent, ideal_point, image_direction)
+    compute_descent_direction( Val(:direct_search), surrogate_function, x, f_x, Δ, constrained_flag , all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
 end

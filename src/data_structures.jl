@@ -125,7 +125,7 @@ end
 
     θ_enlarge_1 :: Float64 = 10;        # as in ORBIT according to Wild
     θ_enlarge_2 :: Float64 = 0.0;     # is reset during optimization
-    θ_pivot :: Float64 = 1e-3;# 1 / θ_enlarge_1;
+    θ_pivot :: Float64 = 1e-2;# 1 / θ_enlarge_1;
     θ_pivot_cholesky :: Float64 = 1e-7;
 
     # additional stopping criteria (mostly inspired by thoman)

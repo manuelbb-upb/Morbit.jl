@@ -5,8 +5,8 @@ function sample_new(constrained_flag, x, Δ, direction, min_pivot_value, max_fac
 
     #@assert isapprox(norm(direction, Inf),1) # TODO remove
     if constrained_flag
-        σ₊, σ₋ = intersect_bounds(x, direction, Δ)      # how much to move into positive, negative direction?
-
+        σ₊, σ₋ = .9999 .* intersect_bounds(x, direction, Δ)      # how much to move into positive, negative direction?
+        
         cap(σ) = abs(σ) > abs(max_factor) ? sign(σ) * abs(max_factor) : σ;
 
         # check whether we have sufficient independence in either admitted direction
@@ -145,7 +145,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
         # determine 'fully_linear' and 'new_tdata'
         if !isempty(Z1)
             if Y1 == Y2
-                @info("\tFound no points in second round, model is made fully linear.")
+                @info("\tNo second round points, model is made fully linear.")
                 fully_linear = true;
                 Y = Y1;
                 Z = Z2;
@@ -170,7 +170,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
         size_Z = size(Z,2);
         n_missing = Int64(min( size_Z , n_evals_left ));
         min_pivot = sqrt(n_vars) * Δ * θ_pivot;
-        n_missing > 0 && @info("\t Sampling at $(n_missing) new sites, pivot value is $min_pivot.")
+        n_missing > 0 && @info("\t $(length(sites_db)) evals so far. Sampling at $(n_missing) new sites, pivot value is $min_pivot.")
         for i = 1 : n_missing
             factor = rand([-1.0, 1.0]) * Δ_1;# (fully_linear ? Δ_1 : (Δ_1 + ( Δ_2 - Δ_1) * randquad()));   # TODO check if sensible: if model is *not* fully linear then samples are generated in a larger region
             new_site = sample_new(constrained_flag, x, Δ_1, Z[:,1], min_pivot, factor )
@@ -235,7 +235,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
         else
             train!(m)   # look for least squares solution of underdetermined model
         end
-        @info("\tModel$(fully_linear ? " " : " not ")linear")
+        @info("\tModel$(fully_linear ? " " : " not ")linear!")
 
         return m
     else
@@ -265,7 +265,7 @@ function make_linear!(m :: RBFModel, config_struct, crit :: Val{true}, constrain
     Δ_1 = Δ * θ_enlarge_1;
     Δ_2 = Δ_max * θ_enlarge_2;
     allowed_flags_Y = norm.( eachcol(m.tdata.Y), Inf ) .<= Δ_1    # are the 'linearizing' sites within Δ_1?
-    @show Δ_1
+    #@show Δ_1
 
     if !all(allowed_flags_Y)
         new_model = build_model( config_struct, constrained_flag, true );   # build a new fully linear model for smaller trust region

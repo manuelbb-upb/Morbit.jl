@@ -74,49 +74,26 @@ opt_settings = AlgoConfig(
 opt_settings = AlgoConfig(
     descent_method = :direct_search,
     rbf_kernel = :multiquadric,
-    rbf_shape_parameter = Δ -> 10/Δ,
+    #rbf_shape_parameter = Δ -> 10;
     ε_crit = 1e-15,
     max_evals = 150,
     #max_model_points = 150,
     ν_accept = 0.0,
     ν_success = 0.2,
-    Δ₀ = .1,
+    Δ₀ = .5,
     Δ_max = 1,
-    θ_enlarge_1 = 10,
-    θ_enlarge_2 = 3,
+    θ_enlarge_1 = 4,
+    θ_enlarge_2 = 4,
     all_objectives_descent = false,
-    γ_shrink = 1,
-    γ_crit = 0.85,
-    γ_shrink_much = 0.75,
-    #ideal_point = [0;0]
+    γ_shrink = .95,
+    γ_grow = 2,
+    γ_crit = 0.5,
+    γ_shrink_much = 0.65,
+    #ideal_point = [-1;-1]
 )
 
-for i = 1
-    global x_0, problem_instance, opt_settings
-
-    opt_settings = AlgoConfig(
-        descent_method = :direct_search,
-        rbf_kernel = :multiquadric,
-        rbf_shape_parameter = Δ -> 10;
-        ε_crit = 1e-15,
-        max_evals = 50,
-        #max_model_points = 150,
-        ν_accept = 0.0,
-        ν_success = 0.2,
-        Δ₀ = .1,
-        Δ_max = 1,
-        θ_enlarge_1 = 10,
-        θ_enlarge_2 = 3,
-        all_objectives_descent = false,
-        γ_shrink = 1,
-        γ_crit = 0.85,
-        γ_shrink_much = 0.75,
-        #ideal_point = [0;0]
-    )
-
-    optimize!(opt_settings, problem_instance, x_0 );
-    x_0 = opt_settings.iter_data.x
-end
+optimize!(opt_settings, problem_instance, x_0 );
+x_0 = opt_settings.iter_data.x
 
 using Plots
 
