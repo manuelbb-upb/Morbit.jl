@@ -17,8 +17,8 @@ export AlgoConfig, IterData, MOP, HeterogenousMOP
 
 include("data_structures.jl")
 include("rbf.jl")
+include("sampling.jl")
 include("training.jl")
-include("utilities.jl")
 include("constraints.jl")
 include("descent.jl")
 include("plotting.jl")
