@@ -1,5 +1,5 @@
 export ParetoSet, ParetoFrontier
-export MixedMOP, add_objective!
+export MixedMOP, add_objective!, add_vector_objective!
 
 @with_kw struct ParetoSet
     n_vars :: Int64 = 0;
@@ -46,6 +46,109 @@ function ParetoFrontier( f :: T where{T <: Function}, pset :: ParetoSet )
     ParetoFrontier( eval_matrix )
 end
 
+
+# ##### MOP structs #####
+
+# wrapper for a multiobjective optimization problem.
+# does not provide many benefits as for now, but will be usefull for constrained problems
+@with_kw struct MOP
+    f::Function     # objective function, vector valued
+    x_0 :: Array{Float64,1} = [];
+    lb :: Array{Float64, 1} = [];   # lower variable boundaries, empty = -Inf for each variable
+    ub :: Array{Float64, 1} = [];   # upper variable boundaries, empty = Inf for each variable
+    @assert isempty(lb) & isempty(ub) || all( isinf.(lb) .& isinf.(ub) ) || all( isfinite.(lb) .& isfinite.(ub) ) "Problem must either be unconstraint or fully box constrained."
+end
+
+@with_kw mutable struct MixedMOP
+    vector_of_expensive_funcs :: Vector{Function} = [];
+    vector_of_cheap_funcs :: Vector{Function} = [];
+
+    n_exp :: Int64 = 0;
+    n_cheap :: Int64 = 0;
+
+    internal_sorting :: Vector{Int64} = [];
+
+    vector_of_gradient_funcs :: Vector{Function} = [];
+
+    x_0 :: Vector{Float64} = [];
+    lb :: Vector{Float64} = [];
+    ub :: Vector{Float64} = [];
+    is_constrained = !( isempty(lb) || isempty( ub ) ) && ( all( isfinite.(lb) .& isfinite.(ub) ) )
+    @assert isempty(lb) & isempty(ub) || all( isinf.(lb) .& isinf.(ub) ) || all( isfinite.(lb) .& isfinite.(ub) ) "Problem must either be unconstraint or fully box constrained."
+end
+
+Broadcast.broadcastable(m::MixedMOP) = Ref(m);
+
+@doc """
+    add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, type :: Symbol = :expensive, n_out :: Int64 = 1 )
+
+Add scalar-valued objective function `func` to `problem` structure.
+`func` must take an `Vector{Float64}` as its (first) argument, i.e. represent a function ``f: ℝ^n → ℝ``.
+`type` must either be `:expensive` or `:cheap` to determine whether the function is replaced by a surrogate model or not.
+
+If `type` is `:cheap` and `func` takes 1 argument only then its gradient is calculated by ForwardDiff.
+A cheap function `func` with custom gradient function `grad` (representing ``∇f : ℝ^n → ℝ^n``) can by
+
+    add_objective!(problem, func, grad)
+
+The last optional argument `n_out` allows for the specification of vector-valued objective functions.
+This is mainly meant to be used for *expensive* functions that are in some sense inter-dependent.
+
+# Examples
+```jldoctest
+# Define 2 scalar objective functions and a MOP ℝ^2 → ℝ^2
+
+f1(x) =  x[1]^2 + x[2]
+
+f2(x) = exp(sum(x))
+∇f2(x) = exp(sum(x)) .* ones(2);
+
+mop = MixedMOP()
+add_objective!(mop, f1, :cheap)     # gradient will be calculated using ForwardDiff
+add_objective!(mop, f2, ∇f2 )       # gradient is provided
+```
+"""
+function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, type :: Symbol = :expensive, n_out = 1 )
+    n_objfs = problem.n_exp + problem.n_cheap;
+    func_indices = collect((n_objfs + 1) : (n_objfs + n_out ));
+    if type == :expensive
+        push!( problem.vector_of_expensive_funcs, func);
+        insert_position = problem.n_exp + 1;
+        for ℓ = 1 : n_out
+            insert!( problem.internal_sorting, insert_position, func_indices[ℓ] )
+            insert_position += 1
+        end
+        problem.n_exp += n_out;
+        println("Added $n_out expensive objective(s) with indices $func_indices.")
+    else
+        push!( problem.vector_of_cheap_funcs, func );
+        push!( problem.internal_sorting, func_indices... )
+        for ℓ = 1 : n_out
+            grad_fn = function (x :: Vector{Float64} )
+                gradient(X -> func(X)[ℓ], x)  # for n_out > 1 this is not super effective but to be honest it is not meant to be
+            end
+            push!( problem.vector_of_gradient_funcs, grad_fn)
+        end
+        problem.n_cheap += n_out;
+        println("Added $n_out cheap (autodiff) objective(s) with indices $func_indices.")
+    end
+end
+
+@doc """
+    add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, grad :: T where{T <: Function})
+
+Add scalar-valued objective function `func` and its vector-valued gradient `grad` to `problem` struture.
+"""
+function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, grad :: T where{T <: Function})
+    push!( problem.vector_of_cheap_funcs, func);
+    push!( problem.vector_of_gradient_funcs, grad);
+    push!( problem.internal_sorting, problem.n_exp + problem.n_cheap + 1 );
+    problem.n_cheap += 1;
+    println("Added an cheap objective (and its gradient) with internal index $(problem.n_exp + problem.n_cheap).")
+end
+# =====================================================================================
+
+
 @with_kw mutable struct TrainingData
     Y :: Array{Float64,2} = Matrix{Float64}(undef, 0,0);   # matrix of other sites, translated by -x
     Z :: Array{Float64,2} = Matrix{Float64}(undef, 0,0);;   # first column of orthogonal basis to improve non linear model
@@ -87,9 +190,11 @@ end
     n_exp :: Int64 = 0; # number of expensive objectives
     n_cheap :: Int64 = 0; # number of cheap objectives
 
-    ε_bounds = 0.0;   # minimum distance to boundaries if problem is constraint, needed for functions undefined outside bounds
+    #ε_bounds = 0.0;   # minimum distance to boundaries if problem is constraint, needed for functions undefined outside bounds
 
-    f :: Union{Function, Nothing} = nothing;    # reset during algorithm initilization
+    problem :: Union{MixedMOP,Nothing} = nothing;
+    #f :: Union{Function, Nothing} = nothing;    # reset during algorithm initilization
+    #index_permutation :: Vector{Int64} = [];    # used to interally reorder ideal point and image direction for MixedMOP
 
     rbf_kernel :: Symbol = :multiquadric;
     rbf_poly_deg :: Int64 = 1;
@@ -120,12 +225,12 @@ end
     γ_shrink :: Float64 = 0.9;
     γ_shrink_much :: Float64 = 0.5;
 
-    Δ₀ :: Float64 = 0.1;
+    Δ₀ :: Float64 = 0.4;
     Δ_max :: Float64 = 1;
 
-    θ_enlarge_1 :: Float64 = 10;        # as in ORBIT according to Wild
-    θ_enlarge_2 :: Float64 = 0.0;     # is reset during optimization
-    θ_pivot :: Float64 = 1e-2;# 1 / θ_enlarge_1;
+    θ_enlarge_1 :: Float64 = 4;        # as in ORBIT according to Wild
+    θ_enlarge_2 :: Float64 = 4.0;     # is probably reset during optimization
+    θ_pivot :: Float64 = 1 / (2 * θ_enlarge_1);
     θ_pivot_cholesky :: Float64 = 1e-7;
 
     # additional stopping criteria (mostly inspired by thoman)
@@ -152,59 +257,3 @@ end
 
 # Outer Constructor to obtain default configuration adapted for n_vars input variables.
 AlgoConfig( n_vars ) = AlgoConfig( θ_enlarge_2 = max(sqrt(n_vars), 4) )
-
-# wrapper for a multiobjective optimization problem.
-# does not provide many benefits as for now, but will be usefull for constrained problems
-@with_kw struct MOP
-    f::Function     # objective function, vector valued
-    x_0 :: Array{Float64,1} = [];
-    lb :: Array{Float64, 1} = [];   # lower variable boundaries, empty = -Inf for each variable
-    ub :: Array{Float64, 1} = [];   # upper variable boundaries, empty = Inf for each variable
-    @assert isempty(lb) & isempty(ub) || all( isinf.(lb) .& isinf.(ub) ) || all( isfinite.(lb) .& isfinite.(ub) ) "Problem must either be unconstraint or fully box constrained."
-
-    # TODO enable passing of gradients so that no forwarddiff is needed
-    # TODO define constraints
-end
-
-@with_kw struct HeterogenousMOP
-    f_expensive :: Function = x -> Array{Float64,1}();
-    f_cheap :: Function = x -> Array{Float64,1}();            # don't build surrogate models for this objective function (vector-valued)
-    x_0 :: Array{Float64,1} = [];
-    lb :: Array{Float64, 1} = [];   # lower variable boundaries, empty = -Inf for each variable
-    ub :: Array{Float64, 1} = [];
-
-    @assert isempty(lb) & isempty(ub) || all( isinf.(lb) .& isinf.(ub) ) || all( isfinite.(lb) .& isfinite.(ub) ) "Problem must either be unconstraint or fully box constrained."
-end
-
-@with_kw struct MixedMOP
-    vector_of_funcs :: Vector{Function} = [];
-    vector_of_cheap_gradients :: Vector{ Function } = [];   # TODO Implement
-    expensive_indices :: Vector{Int64} = [];
-    cheap_indices :: Vector{Int64} = [];
-    cheap_has_gradient_flags :: Vector{Bool} = [];
-    x_0 :: Vector{Float64} = [];
-    lb :: Vector{Float64} = [];
-    ub :: Vector{Float64} = [];
-    @assert isempty(lb) & isempty(ub) || all( isinf.(lb) .& isinf.(ub) ) || all( isfinite.(lb) .& isfinite.(ub) ) "Problem must either be unconstraint or fully box constrained."
-end
-
-function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, type ::Symbol = :expensive )
-    push!( problem.vector_of_funcs, func );
-    if type == :expensive
-        push!(problem.expensive_indices, length(problem.vector_of_funcs) )
-        println("Added an expensive objective with internal index $(length(problem.vector_of_funcs)).")
-    else
-        push!(problem.cheap_indices, length( problem.vector_of_funcs) )
-        push!(problem.cheap_has_gradient_flags, false)
-        println("Added an cheap objective (autodiff enabled) with internal index $(length(problem.vector_of_funcs)).")
-    end
-end
-
-function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, grad :: T where{T <: Function})
-    push!( problem.vector_of_funcs, func );
-    push!( problem.vector_of_cheap_gradients, func );
-    # only cheap functions have gradient
-    push!(cheap_indices, length( problem.vector_of_funcs) )
-    push!(problem.cheap_has_gradient_flags, true)
-    println("Added an cheap objective (and its gradient) with internal index $(length(problem.vector_of_funcs)).")
-end

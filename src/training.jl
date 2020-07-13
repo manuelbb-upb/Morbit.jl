@@ -6,7 +6,7 @@ function sample_new(constrained_flag, x, Δ, direction, min_pivot_value, max_fac
     #@assert isapprox(norm(direction, Inf),1) # TODO remove
     if constrained_flag
         σ₊, σ₋ = .9999 .* intersect_bounds(x, direction, Δ)      # how much to move into positive, negative direction?
-        
+
         cap(σ) = abs(σ) > abs(max_factor) ? sign(σ) * abs(max_factor) : σ;
 
         # check whether we have sufficient independence in either admitted direction
@@ -29,7 +29,9 @@ end
 
 function rebuild_model( config_struct :: AlgoConfig )
     @info "\tREBUILDING model along coordinate axes."
-    @unpack f, n_vars, Δ_max, n_exp, n_cheap, θ_pivot, θ_enlarge_1, θ_enlarge_2, θ_pivot_cholesky, max_model_points, max_evals, rbf_poly_deg, rbf_kernel, rbf_shape_parameter = config_struct;
+    @unpack n_vars, Δ_max, n_exp, n_cheap, θ_pivot, θ_enlarge_1, θ_enlarge_2, θ_pivot_cholesky, max_model_points, max_evals, rbf_poly_deg, rbf_kernel, rbf_shape_parameter = config_struct;
+
+    @unpack problem = config_struct;
 
     @unpack iter_data = config_struct;
     @unpack x, f_x, Δ, sites_db, values_db = iter_data;
@@ -43,7 +45,7 @@ function rebuild_model( config_struct :: AlgoConfig )
 
     Δ_1 = θ_enlarge_1 * Δ;
     Δ_2 = θ_enlarge_2 * Δ_max;
-    min_pivot = sqrt(n_vars) * Δ * θ_pivot;
+    min_pivot = Δ*θ_pivot;#sqrt(n_vars) * Δ * θ_pivot;
 
     # sample along carthesian coordinates
     Y = Matrix{Float64}(undef, n_vars, 0);
@@ -54,7 +56,7 @@ function rebuild_model( config_struct :: AlgoConfig )
         direction[i] = 1.0;
         new_site = sample_new(true, x, Δ_1, direction, min_pivot, rand([-1.0, 1.0]) * Δ_1 )
         if !isempty(new_site)
-            new_val = f(new_site);
+            new_val = eval_all_objectives(problem, new_site);
             Y = hcat(Y, new_site .- x);
             push!(sites_db, new_site);
             push!(values_db, new_val );
@@ -102,7 +104,8 @@ end
     Newly sampled sites/values are added to the respective arrays.
 """
 function build_model( config_struct :: AlgoConfig, constrained_flag = false, criticality_round = false )
-    @unpack f, n_exp, n_cheap, max_evals = config_struct;
+    @unpack problem = config_struct;
+    @unpack n_exp, n_cheap, max_evals = config_struct;
 
     @unpack iter_data = config_struct;
     @unpack x, f_x, Δ, sites_db, values_db = iter_data;
@@ -194,7 +197,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
             end
         end
 
-        additional_values = f.( additional_sites );
+        additional_values = eval_all_objectives.( problem, additional_sites );
         additional_site_indices = length( sites_db ) + 1 : length( sites_db ) + length( additional_sites )  # for filtering out the new sites in 3rd search below
 
         push!(sites_db, additional_sites...)    # push new samples into database
@@ -304,7 +307,9 @@ end
 The model parameters 'Y' and 'z' and its fully_linear flag are potentially modified.
 Returns the newly sampled site and its value vector as given by f."
 function improve!( m::RBFModel, config_struct :: AlgoConfig, constrained_flag = false )
-    @unpack f, n_vars, n_exp, θ_pivot, θ_enlarge_1 = config_struct;
+    @unpack n_vars, n_exp, θ_pivot, θ_enlarge_1 = config_struct;
+
+    @unpack problem = config_struct;
 
     @unpack iter_data = config_struct;
     @unpack x, f_x, Δ, sites_db, values_db = iter_data;
@@ -334,7 +339,7 @@ function improve!( m::RBFModel, config_struct :: AlgoConfig, constrained_flag = 
         @pack! m.tdata = Y, Z;
 
         # update rbf model
-        new_val = f( new_site );
+        new_val = eval_all_objectives(problem, new_site );
         if isempty(size(new_val))
             new_val = [ new_val, ];
         end

@@ -22,55 +22,37 @@ include("training.jl")
 include("constraints.jl")
 include("descent.jl")
 include("plotting.jl")
+include("objectives.jl")
 
-ε_bounds = 0.0;
+function optimize!( config_struct :: AlgoConfig, problem::MOP, x₀::Array{Float64,1} )
+    f_x_0 = problem.f(x_0)
+    n_out = length( f_x_0 )
+    mixed_mop = MixedMOP( lb = problem.lb, ub = problem.ub )
+    add_objective!(mixed_mop, problem.f, :expensive, n_out )
 
-function optimize!( config_struct :: AlgoConfig, prob::MOP, x₀::Array{Float64,1} )
-    heterogenous_mop = HeterogenousMOP(
-    f_expensive = prob.f,
-    f_cheap = x -> Array{Float64,1}(),      # assume all objectives to be expensive
-    lb = prob.lb,
-    ub = prob.ub,
-    )
-    optimize!( config_struct, heterogenous_mop, x₀);
+    optimize!( config_struct, mixed_mop, x₀, f_x_0);
 end
 
-function optimize!( config_struct :: AlgoConfig, prob::MixedMOP, x₀::Array{Float64,1} )
-
-    f_expensive(x) = isempty(prob.expensive_indices) ? Array{Float64,1}() : [ f(x) for f ∈ prob.vector_of_funcs[ prob.expensive_indices ]  ];
-    f_cheap(x) = isempty(prob.cheap_indices) ? Array{Float64,1}() : [ f(x) for f ∈ prob.vector_of_funcs[ prob.cheap_indices ]  ];
-
-    heterogenous_mop = HeterogenousMOP(
-    f_expensive = f_expensive,
-    f_cheap = f_cheap,      # assume all objectives to be expensive
-    lb = prob.lb,
-    ub = prob.ub,
-    )
-    optimize!( config_struct, heterogenous_mop, x₀);
-
-    sorting_indices = sortperm( [ prob.expensive_indices; prob.cheap_indices ] );
-    config_struct.iter_data.values_db[:] = [ value[sorting_indices] for value ∈ config_struct.iter_data.values_db ];
-    return true;
-end
-
-function optimize!( config_struct :: AlgoConfig, prob::Union{MOP, HeterogenousMOP, MixedMOP} )
-    if !isempty( prob.x_0 )
-        optimize(prob, prob.x_0, config_struct)
+function optimize!( config_struct :: AlgoConfig, problem::Union{MOP, MixedMOP} )
+    if !isempty( problem.x_0 )
+        optimize!(config_struct, problem, problem.x_0)
     else
-        error("Set x_0 for problem instance.")
+        error("Set vector x_0 for problem instance or provide it as 3rd argument.")
     end
 end
 
-function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Array{Float64,1} )
-    #global x, f_x, Δ, sites_db, values_db, rbf_model; # so that redefinitions within this function are understood to be affect global vars
-    global ε_bounds;
+function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector{Float64}, f_x₀ :: Vector{Float64} = Float64[])
 
     # unpack parameters from settings
-    @unpack verbosity, n_vars, rbf_kernel, ε_bounds, rbf_shape_parameter, max_model_points, max_iter, max_evals,
-    μ, β, ε_crit, max_critical_loops, ν_success, ν_accept, all_objectives_descent, descent_method,
-    γ_crit, γ_grow, γ_shrink, γ_shrink_much, Δ₀, Δ_max, θ_enlarge_1, θ_enlarge_2, θ_pivot, θ_pivot_cholesky,
-    Δ_critical, Δ_min, stepsize_min = config_struct;
-    @unpack ideal_point, image_direction = config_struct;
+    @unpack n_vars, Δ₀ = config_struct;
+    @unpack max_iter, max_evals, max_critical_loops, Δ_critical, Δ_min, stepsize_min = config_struct;   # stopping criteria parameters
+    @unpack μ, β, ε_crit, ν_success, ν_accept, γ_crit, γ_grow, γ_shrink, γ_shrink_much = config_struct; # algorithm parameters
+    @unpack Δ_max, θ_enlarge_1, θ_enlarge_2, θ_pivot, θ_pivot_cholesky = config_struct                  # sampling parameters
+    @unpack all_objectives_descent, descent_method = config_struct;                                     # descent step parameter
+    @unpack rbf_kernel, rbf_shape_parameter, max_model_points = config_struct;                          # rbf model parameters
+    @unpack ideal_point, image_direction = config_struct;                            # objective related parameters
+
+    @pack! config_struct = problem   # so that subroutines can evaluate the objectives etc.
 
     # set n_vars dependent variables
     if n_vars == 0
@@ -86,9 +68,11 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
         config_struct.θ_enlarge_2 = θ_enlarge_2;
     end
 
-    is_constrained, prob, f, f_expensive, f_cheap, scaling_func, unscaling_func = init_objectives( prob, config_struct )
+    # reorder ideal_point and image_direction if indices are different
+    if !isempty(ideal_point) ideal_point[:] = apply_internal_sorting( problem, ideal_point) end
+    if !isempty(image_direction) image_direction[:] = apply_internal_sorting( problem, image_direction ) end
 
-    is_constrained && @info("CONSTRAINED PROBLEM")
+    problem.is_constrained && @info("CONSTRAINED PROBLEM")
 
     # setup stopping functions
     Δ_big_enough( Δ, stepsize ) = Δ >= Δ_min || ( stepsize >= stepsize_min && Δ >= Δ_critical )
@@ -109,25 +93,38 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
 
     # initialize iteration sites/values and databases
     Δ = Δ₀ #maximum( scaling_func( Δ₀ ) ); # TODO THINK ABOUT THIS
-    x = scaling_func( x₀ );
+    x = scale(problem, x₀ );
     @info "Starting at x₀ = $x with Δ₀= $Δ (scaled to unit hypercube [0,1]^n)."
 
-    f_x_exp = f_expensive(x);
-    f_x_cheap = f_cheap(x);
-    n_objectives( y ) = ndims( y ) == 0 ? 1 : max( size( y )... );
-    config_struct.n_exp = n_objectives( f_x_exp );    # set number of expensive objectives
-    config_struct.n_cheap = n_objectives( f_x_cheap ); # set number of cheap objectives
+    config_struct.n_exp = problem.n_exp        # set number of expensive objectives    TODO remove from config_struct
+    config_struct.n_cheap = problem.n_cheap;   # set number of cheap objectives
 
-    f_x = vcat( f_x_exp, f_x_cheap );
+    if isempty( f_x₀ )
+        f_x = eval_all_objectives( problem, x )
+    else
+        if length(f_x₀) == problem.n_exp + problem.n_cheap
+            f_x = f_x₀
+        else
+            error("f_x₀ has wrong length.")
+        end
+    end
 
-    sites_db = [x];    # "database" of all evaluation sites
-    values_db = [f_x];
+    if isnothing( config_struct.iter_data )
+        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = [], values_db = []);   # make values available to subroutines
+    else
+        # re-use old database entries
+        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = config_struct.iter_data.sites_db, values_db = config_struct.iter_data.values_db);
+    end
+    @pack! config_struct = iter_data;
+    @unpack sites_db, values_db = iter_data;
+    if !(x ∈ sites_db)
+        push!(sites_db , x )
+        push!(values_db, f_x)
+    end
 
     # initialize surrogate model
-    iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = sites_db, values_db = values_db);   # make values available to subroutines
-    @pack! config_struct = iter_data;
     @info("Initializing model.")
-    rbf_model = build_model( config_struct, is_constrained )
+    rbf_model = build_model( config_struct, problem.is_constrained )
 
     # enter optimization loop
     exit_flag = false;
@@ -154,16 +151,16 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
         if iter_index > 1   # model is initialized outside of while to store it in iter data; update not at end of while to save computation if no more iterations are comming
             if improvement_step
                 @info("\tImproving model.")
-                improve!(rbf_model, config_struct, is_constrained);
+                improve!(rbf_model, config_struct, problem.is_constrained);
             else
                 @info("\tUpdating model")
-                rbf_model = build_model( config_struct, is_constrained ) # "update" model (actually constructs a new model instance)
+                rbf_model = build_model( config_struct, problem.is_constrained ) # "update" model (actually constructs a new model instance)
             end
         end
 
         # compute descent step
         @info("\tComputing descent step.")
-        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained, all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
+        ω, d, stepsize = compute_descent_direction( config_struct, rbf_model ) ;#Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, problem.is_constrained, all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
         @info("\t\tCriticality measure ω is $ω.")
 
         # Criticallity Test
@@ -171,9 +168,9 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
         if ω <= ε_crit      # analog to small gradient
             @info("\tEntered criticallity test!")
             if !rbf_model.fully_linear
-                n_improvements = make_linear!(rbf_model, config_struct, is_constrained);
+                n_improvements = make_linear!(rbf_model, config_struct, problem.is_constrained);
                 if n_improvements > 0
-                    ω, d, stepsize = compute_descent_direction(Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
+                    ω, d, stepsize = compute_descent_direction( config_struct, rbf_model ) ;#compute_descent_direction(Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, problem.is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
                 end
             end
 
@@ -185,9 +182,9 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
                     @pack! iter_data = Δ;
                     @info("\t\tCritical loop no. $num_critical_loops with Δ = $Δ > $μ * $ω = $(μ*ω)")
                     # NOTE matlab version able to set exit flag here when eval budget is exhausted -> then breaks
-                    changed = make_linear!(rbf_model, config_struct, Val(true), is_constrained);
+                    changed = make_linear!(rbf_model, config_struct, Val(true), problem.is_constrained);
                     if changed
-                        ω, d, stepsize = compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
+                        ω, d, stepsize = compute_descent_direction( config_struct, rbf_model ) ;#compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, problem.is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
                         exit_flag = !Δ_big_enough(Δ, stepsize)
                     else
                         @info "\t\t\tModel is still linear"
@@ -210,19 +207,24 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
         # apply step and evaluate at new sites
         @info("\tAttempting descent of length $stepsize.")
 
-        f̃(x) = vcat( rbf_model.function_handle(x), f_cheap(x) );
         x₊ = x + d;
-        m_x = f̃( x );    # for printing purposes only
-        m_x₊ = f̃( x₊ );
+        m_x = eval_surrogates( problem, rbf_model, x )
+        m_x₊ = eval_surrogates( problem, rbf_model, x₊ )
+        f_x₊ = eval_all_objectives(problem, x₊)
+
         @info("\t\tm_x   = $m_x")
         @info("\t\tm_x_+ = $m_x₊")
-        f_x₊ = f( x₊ )
+        @info "\t\tf_x_+ = $f_x₊"
+
         # acceptance test ratio
         if all_objectives_descent
-            @show (f_x .- f_x₊) ./ (f_x .- m_x₊)
-            ρ = minimum( (f_x .- f_x₊) ./ (f_x .- m_x₊)  )
+            check_index = problem.n_exp != 0 ? problem.n_exp : problem.n_cheap; # TODO check whether this is sensible
+            @show (f_x[1:check_index] .- f_x₊[1:check_index]) ./ (f_x[1:check_index] .- m_x₊[1:check_index])
+            ρ = minimum( (f_x[1:check_index] .- f_x₊[1:check_index]) ./ (f_x[1:check_index] .- m_x₊[1:check_index])  )
         else
             max_f_x = maximum( f_x );
+            @show max_f_x - maximum( f_x₊ )
+            @show max_f_x - maximum( m_x₊ )
             ρ = ( max_f_x - maximum( f_x₊ ) ) / ( max_f_x - maximum( m_x₊ ) )
         end
 
@@ -280,13 +282,20 @@ function optimize!( config_struct :: AlgoConfig, prob::HeterogenousMOP, x₀::Ar
         # update iteration data for subsequent subroutines
         @pack! iter_data = x, f_x, Δ
     end
+
+    # Finished!
     @info("\n\n--------------------------")
     @info("Finished optimization after $iter_index iterations and $(length(sites_db)) evaluations.")
-    @info("Final (unscaled) x  = $(unscaling_func(x)).")
+    @info("Final (unscaled) x  = $(unscale(problem, x)).")
     @info("Final fx = $f_x.")
 
-    sites_db[:] = unscaling_func.( sites_db )
-    return true #(unscaling_func(x) , f_x, unscaling_func.(sites_db), values_db, iterate_indices)
+    # Reverse scaling on all decision vectors
+    sites_db[:] = unscale.(problem, sites_db )
+    # Reverse sorting on all value vectors
+    if !isempty(ideal_point) ideal_point[:] = reverse_internal_sorting( problem, ideal_point) end
+    if !isempty(image_direction) image_direction[:] = reverse_internal_sorting( problem, image_direction ) end
+    values_db[:] = reverse_internal_sorting( problem, values_db )
+    return true
 end
 
 end

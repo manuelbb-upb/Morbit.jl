@@ -1,13 +1,16 @@
 # plotting recipes
 using RecipesBase
-import Plots: palette, plot
+import Plots: palette, plot, RGB
+
+import Base: +
++(c::RGB, v :: Float64) = RGB( min(c.r + v, 1.0), min(c.g + v, 1.0), min(c.b + v,1.0) )
 
 export plot_decision_space, plot_objective_space
 
 default_line_color = :cornflowerblue
 default_pareto_color = :mediumseagreen
 default_data_color = :lightgoldenrod
-default_palette(n) = palette( :oslo, n; rev = false )
+default_palette(n) = n > 1 ? palette( :oslo, n; rev = false ) : [RGB(zeros(3)...)]
 markersizes_fn(n) = n > 1 ? map( x -> 3 + 3 * x^1.1, range(1,0; length = n ) ) : 3;
 
 # Decision Space Plotting
@@ -29,10 +32,17 @@ markersizes_fn(n) = n > 1 ? map( x -> 3 + 3 * x^1.1, range(1,0; length = n ) ) :
     all_sites = iter_data.sites_db;
     iter_ind = iter_data.iterate_indices;
 
+    n_vars = length( all_sites[1] )
+
     decision_x = [ site[ind_1] for site ∈ all_sites ];
-    decision_y = [ site[ind_2] for site ∈ all_sites ];
     d_iter_x = reverse(decision_x[ iter_ind ]);
-    d_iter_y = reverse(decision_y[ iter_ind ]);
+    if n_vars >= 2
+        decision_y = [ site[ind_2] for site ∈ all_sites ];
+        d_iter_y = reverse(decision_y[ iter_ind ]);
+    else
+        decision_y = zeros( length(all_sites) );
+        d_iter_y = zeros( length(iter_ind) );
+    end
 
     framestyle := :axes
     grid := true
@@ -103,10 +113,18 @@ end
     all_values = iter_data.values_db;
     iter_ind = iter_data.iterate_indices;
 
+    n_out = length( all_values[1] )
+
     f_1 = [ val[ind_1] for val ∈ all_values ];
-    f_2 = [ val[ind_2] for val ∈ all_values ];
     f_iter_1 = reverse(f_1[ iter_ind ]);
-    f_iter_2 = reverse(f_2[ iter_ind ]);
+
+    if n_out >= 2
+        f_2 = [ val[ind_2] for val ∈ all_values ];
+        f_iter_2 = reverse(f_2[ iter_ind ]);
+    else
+        f_2 = zeros( length(all_values) )
+        f_iter_2 = zeros(length(iter_ind))
+    end
 
     framestyle := :axes
     grid := true
@@ -183,7 +201,7 @@ end
     linear_flags = [mi.fully_linear for mi ∈ iter_data.model_info_array];
     iterations = 1:length(stepsizes)
 
-    title := "Step Size"
+    title := "Step Sizes."
     @series begin
         seriestype := :path
         markerstrokewidth := 0.1
@@ -225,5 +243,65 @@ end
         label := "model improving"
         marker := :diamond
         red_diamonds, stepsizes[red_diamonds]
+    end
+end
+
+@userplot PlotFunctionValues
+@recipe function f( d::PlotFunctionValues )
+    if !( isa( d.args[1], AlgoConfig ) )
+        error("plotstepsizes needs an 'AlgoConfig' object as the first argument.")
+    end
+
+    iter_data = d.args[1].iter_data;
+    iterate_indices = iter_data.iterate_indices;
+    n_iters = length(iterate_indices);
+
+    iter_colors = default_palette( n_iters );
+
+    if length( d.args ) >= 2 && isa( d.args[2], Vector{Int64} )
+        plot_iter_indices = d.args[2][:];
+        plot_iter_indices = plot_iter_indices[ 1 .<= plot_iter_indices .<= n_iters ]
+    else
+        n = min( n_iters, 6 )
+
+        plot_iter_indices = n_iters == 1 ? [1] : unique(ceil.(Int64, exp10.(range(0, log10(n_iters); length=n))))
+        plot_iter_indices = plot_iter_indices[ 1 .<= plot_iter_indices .<= n_iters ]
+        if length(plot_iter_indices) < 3
+            if n_iters >= 2 plot_iter_indices = [1; n_iters]; end
+            if n_iters >= 3
+                push!(plot_iter_indices, ceil(Int64, n_iters./2) )
+            end
+        end
+    end
+    sort!(plot_iter_indices)
+
+    extrema_tuples = extrema( hcat( iter_data.values_db[iterate_indices]... ), dims = 2 )
+    MAX = [e[2] for e in extrema_tuples]
+    MIN = [e[1] for e in extrema_tuples]
+    vals = [(v .- MIN)./(MAX .- MIN) for v in iter_data.values_db[iterate_indices[plot_iter_indices]] ]
+
+    n_out = length( vals[1] )
+    if n_out == 1
+        vals = [ [v[1]; v[1]] for v in vals ]
+    end
+
+    title := "(Scaled) Objective Values."
+    grid := true
+    xguide := "Function index."
+
+    @series begin
+        seriestype := :path;
+        #fillcolor := :match;
+        fillrange := 0;
+        #fillalpha := .25
+
+        seriescolor := reverse(iter_colors)[ plot_iter_indices ]'
+        linecolor := length(plot_iter_indices) > 1 ? palette( :grayC, length(plot_iter_indices), rev = true ) : :lightgray
+
+        ticks := n_out == 1 ? [1] : collect( 1 : n_out )
+
+        label := reshape( ["it. $i" for i in plot_iter_indices], (1, length(plot_iter_indices)) )
+
+        vals
     end
 end

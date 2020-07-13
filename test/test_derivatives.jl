@@ -11,8 +11,8 @@ vals = f.(sites);
 m = RBFModel(
     training_sites = [[s] for s in sites],
     training_values = vals,
-    kernel = :multiquadric,
-    shape_parameter = 1e-1,
+    kernel = :cubic,
+    shape_parameter = 1,
     polynomial_degree = 1,
 );
 train!(m);
@@ -42,7 +42,7 @@ z2′ = g2_m.(x)
 y1′ = gf1.(x);
 y2′ = gf2.(x);
 
-Jm = Morbit.Jacobian(m, x[1])
+Jm = Morbit.jac(m, x[1])
 
 @assert isapprox(z1_fwd′[1], z1′[1])
 @assert isapprox(z1′[1], Jm[1, 1])
