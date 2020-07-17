@@ -201,7 +201,7 @@ end
     rbf_shape_parameter :: T where T<:Function = Δ -> 1;
     max_model_points ::Int64 = 2*n_vars^2 + 1;  # maximum number of points to be included in the construction of 1 model
 
-    max_iter :: Float64 = 1000;
+    max_iter :: Int64 = 1000;
     max_evals :: Union{Int64,Float64} = Inf;    # maxiumm number of expensive function evaluations
 
     descent_method :: Symbol = :steepest # :steepest or :direct_search ( TODO implement local Pascoletti-Serafini )

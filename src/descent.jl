@@ -69,7 +69,7 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
     # step size has to suffice a sufficient decrease condition
     ## perform armijo like backtracking
     if !constrained_flag
-        dir = dir ./ init_norm; # TODO necessary?
+        dir = dir ./ norm(dir, Inf); # TODO necessary?
         step_size = Δ;
     else
         step_size, _ = intersect_bounds( x, dir, Δ );
