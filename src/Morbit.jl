@@ -21,7 +21,7 @@ include("sampling.jl")
 include("training.jl")
 include("constraints.jl")
 include("descent.jl")
-include("plotting.jl")
+#include("plotting.jl")
 include("objectives.jl")
 
 function optimize!( config_struct :: AlgoConfig, problem::MOP, x₀::Array{Float64,1} )
