@@ -1,5 +1,5 @@
 
-export RBFModel, train!, output, grad
+#export RBFModel, train!, output, grad
 
 @with_kw mutable struct RBFModel
     training_sites :: Array{Array{Float64, 1},1} = [];
@@ -66,11 +66,11 @@ end
 
 @doc "Return k-vector of *all* RBF model outputs at site x."
 function rbf_output( m::RBFModel, x :: Vector{T} where{T<:Real} )
-    φ(m, x)'m.rbf_coefficients
+    vec(φ(m, x)'m.rbf_coefficients) # wrapped in vector for addition with polynomial part
 end
 
 # partial derivatives, all missing the factor 2 * ( x_i - c_i ) where c is center site of a single basis function
-∂kernel( ::Val{:exp}, r, s = 1.0 ) = - s^2 * kernel( Val(:exp), r, s )
+∂kernel( ::Val{:exp}, r, s = 1.0 ) = - (1/s^2) * kernel( Val(:exp), r, s )
 ∂kernel( ::Val{:multiquadric}, r, s = 1.0 ) = s^2 / (2 * kernel( Val(:multiquadric), r, s ) );
 ∂kernel( ::Val{:cubic}, r, s = 1.0 ) = s^3 * ( r + r/2 ) ;
 ∂kernel( ::Val{:thin_plate_spline}, r, s = 1.0 ) = r == 0 ? 0.0 : log(r) + 1/2;
@@ -89,7 +89,7 @@ function grad_prefix( m :: RBFModel, x :: Vector{T} where{T<:Real} )
         grad_pref_ℓ = 2 .* hcat( [  m.rbf_coefficients[ i, ℓ ] * differences[i] for i = eachindex(differences) ] ... )
         push!(grad_prefix_matrices, grad_pref_ℓ)
     end
-    return grad_prefix_matrices
+    return grad_prefix_matrices, differences
 end
 
 @doc "Compute gradient term of ℓ-th RBF (scalar) model output and return n-vector."
@@ -99,16 +99,18 @@ end
 
 @doc "Compute the Jacobian matrix of the RBF part of the model"
 function rbf_jacobian( m::RBFModel, x :: Vector{T} where{T<:Real} )
-    grad_prefix_matrices = grad_prefix(m, x)
-    ∂kernel_eval = ∂kernel.( Val(m.kernel), center_distances( m, x ), m.shape_parameter )
+    grad_prefix_matrices, differences = grad_prefix(m, x)
+    center_dists = norm.( differences, 2 );
+    ∂kernel_eval = ∂kernel.( Val(m.kernel), center_dists, m.shape_parameter )
     gradient_array = [];
     for ℓ = 1 : length(m.training_values[1])
         grad_prefix_ℓ = grad_prefix_matrices[ℓ]
-        grad_ℓ = (grad_prefix_ℓ * ∂kernel_eval)[:]
+        grad_ℓ = vec(grad_prefix_ℓ * ∂kernel_eval)
         push!(gradient_array, grad_ℓ);
     end
     hcat( gradient_array... )'  # each gradient is a column vector -> stack horizontally and then transpose
 end
+rbf_jacobian( m::RBFModel, x :: T where{T<:Real} ) = rbf_jacobian( m, [x])
 
 # === Evaluate polynomial part of the model ===
 poly(m::RBFModel, ℓ, x, ::Val{-1} ) = 0.0                       # degree -1 ⇒ No polynomial part (ℓ-th output)
@@ -116,7 +118,7 @@ poly(m::RBFModel, x, ::Val{-1} ) = 0.0                          # degree -1 ⇒ 
 poly(m::RBFModel, ℓ, x, ::Val{0} ) = m.poly_coefficients[ℓ]     # degree 0 ⇒ constant (ℓ-th output)
 poly(m::RBFModel, x, ::Val{0} ) = m.poly_coefficients[:]        # degree 0 ⇒ constant (all outputs)
 poly(m::RBFModel, ℓ, x, ::Val{1} ) = [x;1.0]'m.poly_coefficients[:, ℓ] # affin linear tail (ℓ-th output)
-poly(m::RBFModel, x, ::Val{1} ) = [x;1.0]'m.poly_coefficients    # affin linear tail (all outputs)
+poly(m::RBFModel, x, ::Val{1} ) = vec([x;1.0]'m.poly_coefficients)    # affin linear tail (all outputs)
 
 @doc "Evaluate polynomial tail for output ℓ."
 function poly_output( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
@@ -207,6 +209,7 @@ function set_coefficients!( m :: RBFModel, coefficients )
         m.rbf_coefficients = reshape(coefficients[1 : n_sites, :], n_sites, n_out);
         m.poly_coefficients = reshape(coefficients[ n_sites + 1 : end, : ], (n_vars + 1, n_out) );
     end # NOTE everything wrapped in reshape for the case that n_out == 1, n_vars == 1
+
 end
 
 @doc "Train (and fully instanciate) a RBFModel instance to best fit its training data."
