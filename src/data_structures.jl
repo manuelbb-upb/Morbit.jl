@@ -1,6 +1,8 @@
 export ParetoSet, ParetoFrontier
 export MixedMOP, add_objective!, add_vector_objective!
 
+import Base: push!
+
 @with_kw struct ParetoSet
     n_vars :: Int64 = 0;
     coordinate_arrays :: Vector{ Vector{Float64} } = [];
@@ -173,6 +175,10 @@ end
     sites_db :: Vector{Vector{Float64}} = []; # array of all sites that have been evaluated.
     values_db :: Vector{Vector{Float64}} = []; # array of all true values computed so far
 
+    min_value :: Vector{Float64} = isempty(values_db) ? [] : vec(minimum( hcat( values_db... ), dims = 2 ));
+    max_value :: Vector{Float64} = isempty(values_db) ? [] : vec(maximum( hcat( values_db... ), dims = 2 ));
+    update_extrema :: Bool = false;
+
     # Arrays (1 entry per iteration)
     iterate_indices :: Vector{ Int64 } = [];
     model_info_array :: Vector{ModelInfo} = [];
@@ -181,6 +187,26 @@ end
     ω_array :: Vector{Float64} = [];
     ρ_array :: Vector{Float64} = [];
     num_crit_loops_array :: Vector{Int64} = [];
+end
+
+function push!( id :: IterData, new_vals... )
+    if !isempty(new_vals)
+        push!(id.values_db, new_vals... )
+        if id.update_extrema
+            if isempty(id.min_value)
+                id.min_value = isempty(id.values_db) ? [] : vec(minimum( hcat( id.values_db... ), dims = 2 ));
+            else
+                new_vals_min = vec(minimum( hcat( new_vals... ), dims = 2 ));
+                id.min_value = vec(minimum( hcat( id.min_value, new_vals_min ), dims = 2 ));
+            end
+            if isempty(id.max_value)
+                id.max_value = isempty(id.values_db) ? [] : vec(maximum( hcat( id.values_db... ), dims = 2 ));
+            else
+                new_vals_max = vec(maximum( hcat( new_vals... ), dims = 2 ));
+                id.max_value = vec(maximum( hcat( id.max_value, new_vals_max ), dims = 2 ));
+            end
+        end
+    end
 end
 
 @with_kw mutable struct AlgoConfig
@@ -208,6 +234,7 @@ end
     ideal_point :: Vector{Float64} = [];
     image_direction :: Vector{Float64} = [];
 
+    scale_values :: Bool = true;    # scale_values internally
     all_objectives_descent :: Bool = false;  # compute ρ as the minimum of descent ratios for ALL objetives
 
     # criticallity parameters

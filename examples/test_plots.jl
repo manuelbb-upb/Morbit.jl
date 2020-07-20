@@ -16,13 +16,14 @@ pset = ParetoSet( points_x, points_x )
 pfront = ParetoFrontier(f, pset);
 
 opt_settings = AlgoConfig(
-    rbf_kernel = :cubic,
-    max_iter = 20,
+    rbf_kernel = :exp,
+    max_iter = 10,
     descent_method = :direct_search,
-    rbf_shape_parameter = Δ -> 1/Δ,
+    rbf_shape_parameter = Δ -> 50/Δ,
     all_objectives_descent = true,
     ν_success = 0.25,
-    Δ₀ = .1,
+    Δ₀ = .2,
+    scale_values = true,
     #ideal_point = [0,0],
     #ε_crit = 0.0
 );

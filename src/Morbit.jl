@@ -21,7 +21,7 @@ include("sampling.jl")
 include("training.jl")
 include("constraints.jl")
 include("descent.jl")
-#include("plotting.jl")
+include("plotting.jl")
 include("objectives.jl")
 
 function optimize!( config_struct :: AlgoConfig, problem::MOP, x₀::Array{Float64,1} )
@@ -110,16 +110,16 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     end
 
     if isnothing( config_struct.iter_data )
-        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = [], values_db = []);   # make values available to subroutines
+        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = [], values_db = [], update_extrema = config_struct.scale_values);   # make values available to subroutines
     else
         # re-use old database entries
-        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = config_struct.iter_data.sites_db, values_db = config_struct.iter_data.values_db);
+        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = config_struct.iter_data.sites_db, values_db = config_struct.iter_data.values_db, update_extrema = config_struct.scale_values);
     end
     @pack! config_struct = iter_data;
     @unpack sites_db, values_db = iter_data;
     if !(x ∈ sites_db)
         push!(sites_db , x )
-        push!(values_db, f_x)
+        push!(iter_data, f_x)
     end
 
     # initialize surrogate model
@@ -212,27 +212,33 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         m_x₊ = eval_surrogates( problem, rbf_model, x₊ )
         f_x₊ = eval_all_objectives(problem, x₊)
 
-        @info("\t\tm_x   = $m_x")
-        @info("\t\tm_x_+ = $m_x₊")
-        @info "\t\tf_x_+ = $f_x₊"
+        if config_struct.scale_values
+            M_x = scale(iter_data, m_x)
+            M_x₊ = scale( iter_data, m_x₊)
+            F_x₊ = scale( iter_data, f_x₊)
+            F_x = scale( iter_data, f_x )
+        else
+            M_x, M_x₊, F_x₊, F_x = m_x, m_x₊, f_x₊, f_x
+        end
+
+        @info("\t\tm_x   = $M_x")
+        @info("\t\tm_x_+ = $M_x₊")
+        @info "\t\tf_x_+ = $F_x₊"
 
         # acceptance test ratio
         if all_objectives_descent
-            check_index = problem.n_exp != 0 ? problem.n_exp : problem.n_cheap; # TODO check whether this is sensible
-            @show (f_x[1:check_index] .- f_x₊[1:check_index]) ./ (f_x[1:check_index] .- m_x₊[1:check_index])
-            ρ = minimum( (f_x[1:check_index] .- f_x₊[1:check_index]) ./ (f_x[1:check_index] .- m_x₊[1:check_index])  )
+            ρ = minimum( (F_x .- F_x₊) ./ (F_x .- M_x₊) )
         else
-            max_f_x = maximum( f_x );
-            @show max_f_x - maximum( f_x₊ )
-            @show max_f_x - maximum( m_x₊ )
-            ρ = ( max_f_x - maximum( f_x₊ ) ) / ( max_f_x - maximum( m_x₊ ) )
+            max_f_x = maximum( F_x );
+            ρ = ( max_f_x - maximum( F_x₊ ) ) / ( max_f_x - maximum( M_x₊ ) )
         end
 
         @info("\tρ is $ρ")
 
         # save values to database
         push!(sites_db, x₊)
-        push!(values_db, f_x₊)
+        #push!(values_db, f_x₊)
+        push!(iter_data, f_x₊)
 
         # Update iter data components (I)
         push!( Δ_array, Δ);

@@ -59,7 +59,8 @@ function rebuild_model( config_struct :: AlgoConfig )
             new_val = eval_all_objectives(problem, new_site);
             Y = hcat(Y, new_site .- x);
             push!(sites_db, new_site);
-            push!(values_db, new_val );
+            #push!(values_db, new_val );
+            push!(iter_data, new_val);
         else
             @info "Cannot rebuild a fully linear model, too near to boundary."
         end
@@ -201,7 +202,9 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
         additional_site_indices = length( sites_db ) + 1 : length( sites_db ) + length( additional_sites )  # for filtering out the new sites in 3rd search below
 
         push!(sites_db, additional_sites...)    # push new samples into database
-        push!(values_db, additional_values...)
+        #push!(values_db, additional_values...)
+        push!(iter_data, additional_values...);
+
 
         round1_indices = model_point_indices;
         model_point_indices = [ model_point_indices..., additional_site_indices... ];
@@ -346,7 +349,8 @@ function improve!( m::RBFModel, config_struct :: AlgoConfig, constrained_flag = 
         push!(m.training_sites, new_site);
         push!(m.training_values, new_val[1:n_exp]);
         push!(sites_db, new_site);
-        push!(values_db, new_val);
+        #push!(values_db, new_val);
+        push!(iter_data, new_val);
 
         if size(Z,2) == 0
             m.fully_linear = true;

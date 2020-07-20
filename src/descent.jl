@@ -77,6 +77,11 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
     x₊ = intobounds(x + step_size * dir);           # 'intobounds' for tiny errors
     m_x₊ = eval_surrogates(problem, m, x₊);
 
+    if config_struct.scale_values
+        m_x₊ = scale( config_struct.iter_data, m_x₊ )
+        f_x = scale( config_struct.iter_data, f_x )
+    end
+
     backtrack!( x₊, m_x₊, dir, x, f_x, step_size, ω, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
 
     step_size = norm( dir );
@@ -144,9 +149,6 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             ∇f_pinv = pinv( ∇f );
             dir = ∇f_pinv * image_direction;
 
-            @show -maximum(∇f*dir)
-            @show -minimum(∇f*dir)
-
             #@info "theoretical" minimum(-image_direction) / norm( dir, Inf );
             ω_backtrack_scaling = norm(dir, Inf);
             dir ./= ω_backtrack_scaling;
@@ -179,6 +181,11 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
         x₊ = intobounds(x + step_size * dir);           # 'intobounds' for tiny errors
         m_x₊ = eval_surrogates(problem, m, x₊);
 
+        if config_struct.scale_values
+            m_x₊ = scale( config_struct.iter_data, m_x₊ )
+            f_x = scale( config_struct.iter_data, f_x )
+        end
+
         backtrack!( x₊, m_x₊, dir, x, f_x, step_size, ω , all_objectives_descent, X -> eval_surrogates(problem, m, X) )
 
         step_size = norm( dir );
@@ -202,13 +209,9 @@ function compute_descent_direction(type::Val{:steepest}, m::Union{RBFModel, Name
     compute_descent_direction( Val(:steepest), surrogate_function, x, f_x, Δ, constrained_flag, all_objectives_descent )
 end
 
-
 function compute_descent_direction( config_struct::AlgoConfig, m::Union{RBFModel, NamedTuple})
 
     @unpack descent_method = config_struct;     # method parameters
-
-    #ω_compare, _, _ = compute_descent_direction( Val(:steepest), config_struct, m)
-    #@show ω_compare
 
     compute_descent_direction( Val(descent_method), config_struct, m )
 

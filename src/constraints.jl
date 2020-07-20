@@ -43,3 +43,8 @@ function intersect_bounds( x :: Array{Float64,1}, d :: Array{Float64,1}, Δ :: F
     lb, ub = effective_bounds_vectors( x, Δ );
     intersect_bounds(x , d, lb, ub)
 end
+
+@doc "Scale a value vector via min-max-scaling."
+function scale( id :: IterData, y )
+    return ( y .- id.min_value ) ./( id.max_value .- id.min_value )
+end
