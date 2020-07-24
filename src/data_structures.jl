@@ -234,7 +234,7 @@ end
     ideal_point :: Vector{Float64} = [];
     image_direction :: Vector{Float64} = [];
 
-    scale_values :: Bool = true;    # scale_values internally
+    scale_values :: Bool = false;    # scale_values internally
     all_objectives_descent :: Bool = false;  # compute ρ as the minimum of descent ratios for ALL objetives
 
     # criticallity parameters
@@ -255,8 +255,8 @@ end
     Δ₀ :: Float64 = 0.4;
     Δ_max :: Float64 = 1;
 
-    θ_enlarge_1 :: Float64 = 4;        # as in ORBIT according to Wild
-    θ_enlarge_2 :: Float64 = 4.0;     # is probably reset during optimization
+    θ_enlarge_1 :: Float64 = 4.0;        # as in ORBIT according to Wild
+    θ_enlarge_2 :: Float64 = 0.0;     # is probably reset during optimization
     θ_pivot :: Float64 = 1 / (2 * θ_enlarge_1);
     θ_pivot_cholesky :: Float64 = 1e-7;
 
