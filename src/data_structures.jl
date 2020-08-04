@@ -3,6 +3,30 @@ export MixedMOP, add_objective!, add_vector_objective!
 
 import Base: push!
 
+# ##### Objective structs #####
+
+# a custom wrapper for objective functions …
+@with_kw struct ObjectiveFunction <: Function
+    function_handle :: Union{T, Nothing} where{T<:Function} = nothing
+end
+
+# … to allow for batch evaluation outside of julia or to exploit parallelized objective functions
+@with_kw struct BatchObjectiveFunction <: Function
+    function_handle :: Union{T, Nothing} where{T<:Function} = nothing
+end
+
+# for 'usual' function evaluation calls (args = single vector), simply delegate to function_handle
+function (objf::Union{ObjectiveFunction, BatchObjectiveFunction})(args...)
+    objf.function_handle(args...)
+end
+
+# overload broadcasting for BatchObjectiveFunction who are assumed to handle arrays themselves
+function broadcasted( objf::BatchObjectiveFunction, args... )
+    objf.function_handle( args... )
+end
+
+# ##### Convenience structs for plotting #####
+
 @with_kw struct ParetoSet
     n_vars :: Int64 = 0;
     coordinate_arrays :: Vector{ Vector{Float64} } = [];
@@ -82,19 +106,23 @@ end
 Broadcast.broadcastable(m::MixedMOP) = Ref(m);
 
 @doc """
-    add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, type :: Symbol = :expensive, n_out :: Int64 = 1 )
+    add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, type :: Symbol = :expensive, n_out :: Int64 = 1, can_batch :: Bool = false )
 
 Add scalar-valued objective function `func` to `problem` structure.
 `func` must take an `Vector{Float64}` as its (first) argument, i.e. represent a function ``f: ℝ^n → ℝ``.
 `type` must either be `:expensive` or `:cheap` to determine whether the function is replaced by a surrogate model or not.
 
 If `type` is `:cheap` and `func` takes 1 argument only then its gradient is calculated by ForwardDiff.
-A cheap function `func` with custom gradient function `grad` (representing ``∇f : ℝ^n → ℝ^n``) can by
+A cheap function `func` with custom gradient function `grad` (representing ``∇f : ℝ^n → ℝ^n``) is added by
 
     add_objective!(problem, func, grad)
 
-The last optional argument `n_out` allows for the specification of vector-valued objective functions.
+The optional argument `n_out` allows for the specification of vector-valued objective functions.
 This is mainly meant to be used for *expensive* functions that are in some sense inter-dependent.
+
+The flag `can_batch` defaults to false so that the objective function is simply looped over a bunch of arguments if required.
+If `can_batch == true` then the objective function must be able to return an array of results when provided an array of input vectors
+(whilst still returning a single result, not a singleton array containing the result, for a single input vector).
 
 # Examples
 ```jldoctest
@@ -110,11 +138,17 @@ add_objective!(mop, f1, :cheap)     # gradient will be calculated using ForwardD
 add_objective!(mop, f2, ∇f2 )       # gradient is provided
 ```
 """
-function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, type :: Symbol = :expensive, n_out = 1 )
+function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, type :: Symbol = :expensive, n_out :: Int64 = 1, can_batch :: Bool = false )
     n_objfs = problem.n_exp + problem.n_cheap;
     func_indices = collect((n_objfs + 1) : (n_objfs + n_out ));
+
+    if can_batch == false
+        wrapped_func = ObjectiveFunction( func )
+    else
+        wrapped_func = BatchObjectiveFunction( func )
+    end
     if type == :expensive
-        push!( problem.vector_of_expensive_funcs, func);
+        push!( problem.vector_of_expensive_funcs, wrapped_func);
         insert_position = problem.n_exp + 1;
         for ℓ = 1 : n_out
             insert!( problem.internal_sorting, insert_position, func_indices[ℓ] )
@@ -123,11 +157,11 @@ function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, ty
         problem.n_exp += n_out;
         println("Added $n_out expensive objective(s) with indices $func_indices.")
     else
-        push!( problem.vector_of_cheap_funcs, func );
+        push!( problem.vector_of_cheap_funcs, wrapped_func );
         push!( problem.internal_sorting, func_indices... )
         for ℓ = 1 : n_out
             grad_fn = function (x :: Vector{Float64} )
-                gradient(X -> func(X)[ℓ], x)  # for n_out > 1 this is not super effective but to be honest it is not meant to be
+                gradient(X -> wrapped_func(X)[ℓ], x)  # for n_out > 1 this is not super effective but to be honest it is not meant to be
             end
             push!( problem.vector_of_gradient_funcs, grad_fn)
         end

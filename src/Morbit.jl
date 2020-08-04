@@ -9,7 +9,7 @@ using NLopt
 #using Ipopt
 using Random: shuffle!
 using Parameters: @with_kw, @unpack, @pack!, reconstruct   # use Parameters package for structs with default values and keyword initializers
-import Base: isempty, Broadcast
+import Base: isempty, Broadcast, broadcasted
 
 export RBFModel, train!, improve!
 export optimize!

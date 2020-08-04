@@ -12,15 +12,35 @@ function eval_expensive_objectives( problem :: MixedMOP, x :: Vector{Float64} )
     return vcat( [ f(X) for f ∈ problem.vector_of_expensive_funcs ]... );
 end
 
+eval_expensive_objectives( problem :: MixedMOP, X :: Vector{Vector{Float64}} ) = let mat = hcat( [ f.(X) for f ∈ problem.vector_of_expensive_funcs ]... )
+    collect( mat[i,:] for i = 1 : size(mat,1) )
+end
+
 function eval_cheap_objectives( problem :: MixedMOP, x :: Vector{Float64} )
     X = unscale( problem, x );
     return vcat( [ f(X) for f ∈ problem.vector_of_cheap_funcs  ]... );
+end
+
+eval_cheap_objectives( problem :: MixedMOP, X :: Vector{Vector{Float64}} ) = let mat = hcat( [ f.(X) for f ∈ problem.vector_of_cheap_funcs ]... )
+    collect( mat[i,:] for i = 1 : size(mat,1) )
 end
 
 function eval_all_objectives( problem :: MixedMOP, x :: Vector{Float64} )
     X = unscale( problem, x );
     return vcat( [ f(X) for f ∈ [problem.vector_of_expensive_funcs; problem.vector_of_cheap_funcs] ]... );
 end
+
+eval_all_objectives( problem :: MixedMOP, X :: Vector{Vector{Float64}} ) = let mat = hcat( [ f.(X) for f ∈ [problem.vector_of_expensive_funcs; problem.vector_of_cheap_funcs] ]... )
+    collect( mat[i,:] for i = 1 : size(mat,1) )
+end
+
+# custom broadcasts to exploit parallelized objectives
+
+function broadcasted( f::Union{typeof(eval_expensive_objectives),typeof(eval_cheap_objectives), typeof(eval_all_objectives) }, problem :: MixedMOP, x, args... )
+    X = unscale.( problem, x )
+    f( problem, X);
+end
+
 
 @doc "Sort image vector `y` to correspond to internal objective sorting."
 function apply_internal_sorting(problem :: MixedMOP, y :: Vector{Float64} )
