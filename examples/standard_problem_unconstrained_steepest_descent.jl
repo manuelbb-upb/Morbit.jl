@@ -15,7 +15,8 @@ opt_settings = AlgoConfig(
     max_evals = 10,
     max_critical_loops = 10,
     ε_crit = 0.1,
-    all_objectives_descent = true
+    all_objectives_descent = true,
+    sampling_algorithm = :monte_carlo
 );    # use default settings
 
 problem_instance = MixedMOP();

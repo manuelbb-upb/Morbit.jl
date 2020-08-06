@@ -284,8 +284,8 @@ end
     # trust region update parameters
     γ_crit :: Float64 = 0.5; # scaling factor for Δ in criticallity test
     γ_grow :: Float64 = 2;
-    γ_shrink :: Float64 = 0.9;
-    γ_shrink_much :: Float64 = 0.5;
+    γ_shrink :: Float64 = 0.6;
+    γ_shrink_much :: Float64 = 0.3;
 
     Δ₀ :: Float64 = 0.4;
     Δ_max :: Float64 = 1;
@@ -293,7 +293,8 @@ end
     θ_enlarge_1 :: Float64 = 4.0;        # as in ORBIT according to Wild
     θ_enlarge_2 :: Float64 = 0.0;     # is probably reset during optimization
     θ_pivot :: Float64 = 1 / θ_enlarge_1;
-    θ_pivot_cholesky :: Float64 = 1e-7;
+    θ_pivot_cholesky :: Float64 = 1e-9;
+    use_max_points :: Bool = true;
 
     sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
 
@@ -306,7 +307,7 @@ end
     iter_data :: Union{Nothing,IterData} = nothing;
 
     # assertions for parameter consistency
-    @assert 0 <= θ_pivot <= 1/θ_enlarge_1 "θ_pivot = $θ_pivot must be in range [0, $(1/θ_enlarge_1)]."
+    #@assert 0 <= θ_pivot <= 1/θ_enlarge_1 "θ_pivot = $θ_pivot must be in range [0, $(1/θ_enlarge_1)]."
     @assert μ <= β "μ = $μ must be smaller than or equal to β = $β."
     @assert Δ₀ <= Δ_max "Δ_max = $Δ_max is smaller than initial trust region radius Δ₀ = $Δ₀."
     @assert 0 <= ν_accept <= ν_success "Acceptance parameters must be 0<= ν_accept <= ν_success."

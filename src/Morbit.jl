@@ -15,6 +15,9 @@ export RBFModel, train!, improve!
 export optimize!
 export AlgoConfig, IterData, MOP, HeterogenousMOP
 
+include("PointSampler.jl")
+using .PointSampler: monte_carlo_th
+
 include("data_structures.jl")
 include("rbf.jl")
 include("sampling.jl")

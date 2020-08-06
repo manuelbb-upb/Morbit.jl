@@ -109,7 +109,7 @@ end
 function build_model( config_struct :: AlgoConfig, constrained_flag = false, criticality_round = false )
     @unpack problem = config_struct;
     @unpack n_vars, n_exp, n_cheap, max_evals = config_struct;
-
+    @unpack sampling_algorithm, use_max_points = config_struct;
     @unpack iter_data = config_struct;
     @unpack x, f_x, Δ, sites_db, values_db = iter_data;
 
@@ -178,23 +178,48 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
 
             fully_linear = n_missing <= n_evals_left;
 
+            min_pivot = sqrt(n_vars) * Δ * θ_pivot;
             additional_sites = Array{Array{Float64,1},1}();
 
-            min_pivot = sqrt(n_vars) * Δ * θ_pivot;
-            @info("\t $(length(sites_db)) evals so far. Sampling at $(n_missing) new sites, pivot value is $min_pivot.")
-            for i = 1 : n_missing
-                factor = rand([-1.0, 1.0]) * Δ_1;# (fully_linear ? Δ_1 : (Δ_1 + ( Δ_2 - Δ_1) * randquad()));   # TODO check if sensible: if model is *not* fully linear then samples are generated in a larger region
-                new_site = sample_new(constrained_flag, x, Δ_1, Z[:,1], min_pivot, factor )
-                if isempty( new_site )
-                    return rebuild_model( config_struct );  # delegate to rebuild function
+            if sampling_algorithm == :orthogonal
+
+                @info("\t $(length(sites_db)) evals so far. Sampling at $(n_missing) new sites, pivot value is $min_pivot.")
+                for i = 1 : n_missing
+                    factor = rand([-1.0, 1.0]) * Δ_1;# (fully_linear ? Δ_1 : (Δ_1 + ( Δ_2 - Δ_1) * randquad()));   # TODO check if sensible: if model is *not* fully linear then samples are generated in a larger region
+                    new_site = sample_new(constrained_flag, x, Δ_1, Z[:,1], min_pivot, factor )
+                    if isempty( new_site )
+                        return rebuild_model( config_struct );  # delegate to rebuild function
+                    end
+
+                    push!(additional_sites, new_site);
+                    Y = hcat( Y, new_site - x );
+                    Z = Z[:, 2 : end];
+                end
+                if !fully_linear
+                    @warn "\tNot enough computational budget left to garantuee a unique model."
                 end
 
-                push!(additional_sites, new_site);
-                Y = hcat( Y, new_site - x );
-                Z = Z[:, 2 : end];
-            end
-            if !fully_linear
-                @warn "\tNot enough computational budget left to garantuee a unique model."
+            elseif sampling_algorithm == :monte_carlo
+                max_rounds = n_missing * 100;   #TODO sensible?
+                seeds = sites_db[model_point_indices];
+                lb_eff, ub_eff = effective_bounds_vectors(x, Δ);
+                n_rounds = 0
+                while n_missing > 0 && n_rounds <= max_rounds
+                    site = monte_carlo_th( length(seeds) + 1, lb_eff, ub_eff; seeds = seeds )[end] .- x # TODO this could really really really be optimized by using iterations instead of recaluting distances every time!!!
+                    if norm(Z*(Z'site),Inf) >= min_pivot
+                        Y = hcat(Y, site )
+                        Q,_ = qr(Y);
+                        Z = Q[:, size(Y,2) + 1 : end];
+                        site .+= x;
+                        push!(additional_sites, site);
+                        push!(seeds, site);
+                        n_missing -= 1
+                    end
+                    n_rounds += 1
+                end
+                if n_missing > 0
+                    return rebuild_model( config_struct );
+                end
             end
             new_tdata = TrainingData( Y= Y, Z = Z); # TODO does it make sense for !fully_linear???
 
@@ -235,10 +260,25 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
             more_site_indices, Y3, Π, Q, R, Z3, L = additional_points!( m, x, n_exp, sites_db[ unexplored_indices ], values_db[ unexplored_indices ], Δ_2, θ_pivot_cholesky, max_model_points ); # sites are added to m in-place
             @info("\tFound $(length(more_site_indices)) sites to further enhance the model.")
 
-            m.model_info.round3_indices = more_site_indices;
+            n_points = length(m.training_sites);
+            n_still_missing = Int64(min( max_model_points - n_points, max_evals - length(sites_db) - 1 ));
+            if n_still_missing > 0 && use_max_points == true
+                @info("\tActively sampling to the maximum number of points ($n_still_missing additional evaluations)!")
+                lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2);
+                new_sites = monte_carlo_th( max_model_points, lb_eff, ub_eff; seeds = m.training_sites )[ n_points + 1 : end ];
+                new_values = eval_all_objectives.( problem, new_sites );
 
-            # finally: train!
-            train!(m, Π, Q, R, Z3, L);
+                push!(sites_db, new_sites...);
+                push!(m.training_sites, new_sites...);
+                push!(values_db, new_values...);
+                push!(m.training_values, [ v[1:n_exp] for v in new_values]...)
+                m.model_info.round3_indices = [more_site_indices; length(sites_db) - n_still_missing : length(sites_db)]
+                train!(m)
+            else
+                m.model_info.round3_indices = more_site_indices;
+                # finally: train!
+                train!(m, Π, Q, R, Z3, L);
+            end
         else
             train!(m)   # look for least squares solution of underdetermined model
         end

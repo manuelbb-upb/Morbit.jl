@@ -27,10 +27,7 @@ function find_affinely_independent_points( sites_array::Array{Array{Float64,1},1
         n_missing = n_vars - size(Y,2);
     end
 
-#    println("\t\t\tThere are $(length(candidate_indices)) candidates for radius $Δ.")
-
     min_projected_value = sqrt(n_vars) * Δ * θ_pivot;   # the projected value of any site (scaled by 1/(c_k*Δ) has to be >= θ_pivot)
-#    println("\t\t\tMin projected value must be $min_projected_value")
     for iter = 1 : length(candidate_indices)
 
         largest_value = -Inf

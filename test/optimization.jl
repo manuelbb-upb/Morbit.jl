@@ -25,17 +25,21 @@ using Test
     @test x ≈ [ 0.0 ] atol = 0.01
 
     #II) constrained
+
+    ## 1) treat objective as cheap
     opt_settings = AlgoConfig(
         max_iter = 10
     )
-    ## 1) treat objective as cheap
     mop = MixedMOP( lb = [-8.0], ub = [8.0] );
     add_objective!( mop, f1, :cheap)
     x,fx = optimize!(opt_settings, mop, x0)
 
     @test x ≈ [ 0.0 ] atol=0.5
 
-    ## 1) treat objective as expensive
+    ## 2) treat objective as expensive
+    opt_settings = AlgoConfig(
+        max_iter = 20
+    )
     mop = MixedMOP( lb = [-8.0], ub = [8.0] );
     add_objective!( mop, f1, :expensive)
     x,fx = optimize!(opt_settings, mop, x0)
@@ -51,10 +55,6 @@ end
 
     g1(x) = sum( (x .- 1.0).^2 );
     g2(x) = sum( (x .+ 1.0).^2 );
-
-    opt_settings = AlgoConfig(
-        max_iter = 20
-    )
 
     # unconstrained, cheap
     opt_settings = AlgoConfig(
@@ -103,29 +103,31 @@ end
 
     # constrained, expensive
     opt_settings = AlgoConfig(
-        Δ₀ = 0.4,
+        Δ₀ = 0.2,
         max_iter = 150,
-        rbf_kernel = :thin_plate_spline,
-        rbf_shape_parameter = Δ -> .1/Δ,
-        Δ_min = 1e-10,
-        Δ_critical = 1e-8,
-        stepsize_min = 1e-11,
+        rbf_kernel = :exp,
+        rbf_shape_parameter = Δ -> 10/Δ,
+        θ_pivot = 1e-3,
+        Δ_min = 1e-12,
+        Δ_critical = 1e-10,
+        stepsize_min = 1e-14,
         all_objectives_descent = true,
-        max_model_points = 120,
+        max_model_points = 10,
+        sampling_algorithm = :monte_carlo
     )
     mop = MixedMOP(lb = lb, ub = ub);
     add_objective!(mop, g1, :expensive)
     add_objective!(mop, g2, :expensive)
     x,fx = optimize!( opt_settings, mop, x0 )
 
-    @test x[1] ≈ x[2] atol = .01
+    @test x[1] ≈ x[2] atol = .1
 
     # constrained, heterogenous
     opt_settings = AlgoConfig(
-        Δ₀ = 0.4,
+        Δ₀ = 0.2,
         max_iter = 150,
         rbf_kernel = :thin_plate_spline,
-        rbf_shape_parameter = Δ -> .1/Δ,
+        sampling_algorithm = :monte_carlo,
         Δ_min = 1e-8,
         all_objectives_descent = true
     )
