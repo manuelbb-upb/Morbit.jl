@@ -223,6 +223,7 @@ end
     num_crit_loops_array :: Vector{Int64} = [];
 end
 
+@doc "Specialized push! for IterData instances. Appends `args` to field `values_db` and updates `min_value` and `max_value`."
 function push!( id :: IterData, new_vals... )
     if !isempty(new_vals)
         push!(id.values_db, new_vals... )
@@ -291,11 +292,13 @@ end
 
     θ_enlarge_1 :: Float64 = 4.0;        # as in ORBIT according to Wild
     θ_enlarge_2 :: Float64 = 0.0;     # is probably reset during optimization
-    θ_pivot :: Float64 = 1 / (2 * θ_enlarge_1);
+    θ_pivot :: Float64 = 1 / θ_enlarge_1;
     θ_pivot_cholesky :: Float64 = 1e-7;
 
+    sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
+
     # additional stopping criteria (mostly inspired by thoman)
-    Δ_critical = 1e-3;   # max ub - lb / 10
+    Δ_critical = 1e-2;   # max ub - lb / 10
     Δ_min = Δ_critical * 1e-3;
     stepsize_min = 1e-2 * Δ_critical;   # stop if Δ < Δ_critical & step_size < stepsize_min
     # NOTE thomann uses stepsize in image space due to PS scalarization

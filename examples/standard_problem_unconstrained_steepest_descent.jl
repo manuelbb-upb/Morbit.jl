@@ -11,7 +11,11 @@ f2(x) = (x[1]+1)^2 + (x[2]+1)^2 ;
 
 
 opt_settings = AlgoConfig(
-    max_iter = 3;
+    max_iter = typemax(Int64),
+    max_evals = 10,
+    max_critical_loops = 10,
+    ε_crit = 0.1,
+    all_objectives_descent = true
 );    # use default settings
 
 problem_instance = MixedMOP();
@@ -22,7 +26,7 @@ add_objective!(problem_instance, f2, :expensive)
 optimize!(opt_settings, problem_instance, x_0);
 
 # Uncomment below to plot
-#=
+
 using Plots
 
 # true data for comparison
@@ -37,4 +41,3 @@ plot(
     plotstepsizes(opt_settings),
     plotfunctionvalues(opt_settings),
 )
-# =#

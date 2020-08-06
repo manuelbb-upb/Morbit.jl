@@ -301,7 +301,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     if !isempty(ideal_point) ideal_point[:] = reverse_internal_sorting( problem, ideal_point) end
     if !isempty(image_direction) image_direction[:] = reverse_internal_sorting( problem, image_direction ) end
     values_db[:] = reverse_internal_sorting( problem, values_db )
-    return true
+    return unscale(problem, x), f_x
 end
 
 end

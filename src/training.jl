@@ -51,20 +51,22 @@ function rebuild_model( config_struct :: AlgoConfig )
     Y = Matrix{Float64}(undef, n_vars, 0);
     n_evals_left = max_evals - length(sites_db) - 1;
     n_steps = Int64( min( n_vars, n_evals_left ) );
+    new_sites = Vector{Vector{Float64}}();
     for i = 1 : n_steps
         direction = zeros(Float64, n_vars);
         direction[i] = 1.0;
         new_site = sample_new(true, x, Δ_1, direction, min_pivot, rand([-1.0, 1.0]) * Δ_1 )
         if !isempty(new_site)
-            new_val = eval_all_objectives(problem, new_site);
             Y = hcat(Y, new_site .- x);
-            push!(sites_db, new_site);
-            #push!(values_db, new_val );
-            push!(iter_data, new_val);
+            push!(new_sites, new_site);
         else
             @info "Cannot rebuild a fully linear model, too near to boundary."
         end
     end
+    new_values = eval_all_objectives.(problem, new_sites);
+    push!(sites_db, new_sites...);
+    push!(iter_data, new_values...);
+
     @info("\tSampled $n_steps new sites near variable boundaries.")
 
     if n_vars != n_steps
@@ -106,19 +108,18 @@ end
 """
 function build_model( config_struct :: AlgoConfig, constrained_flag = false, criticality_round = false )
     @unpack problem = config_struct;
-    @unpack n_exp, n_cheap, max_evals = config_struct;
+    @unpack n_vars, n_exp, n_cheap, max_evals = config_struct;
 
     @unpack iter_data = config_struct;
     @unpack x, f_x, Δ, sites_db, values_db = iter_data;
 
-    if n_exp > 0
+    if n_exp > 0    # we only need the complicated sampling procedures for well-defined surrogates
         @unpack n_vars, rbf_kernel, rbf_shape_parameter, rbf_poly_deg, max_model_points, Δ_max, θ_enlarge_1, θ_enlarge_2, θ_pivot, θ_pivot_cholesky = config_struct;
 
         Δ_1 = θ_enlarge_1 * Δ;
         Δ_2 = θ_enlarge_2 * Δ_max;
 
         # ============== Round 1 ======================#
-
         # find good points in database within slightly enlarged trust region
         model_point_indices, Y1, Z1 = find_affinely_independent_points( sites_db, x, Δ_1, θ_pivot = θ_pivot )
         @info("\tFound $(length(model_point_indices)) site(s) in first round with radius $Δ_1.")
@@ -131,28 +132,29 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
         if !isempty( Z1 ) && !criticality_round     # don't enhance in criticallity loop, because we need a fully linear model
             @info("\tMissing $(length(x) - length(model_point_indices)) sites, searching in database for radius $Δ_2.")
 
-            # find additional points in biggest trust region
+            # find additional points in bigger trust region
             other_sites_indices = setdiff(1 : length( sites_db), model_point_indices )   # ignore all points from first round
 
             additional_point_indices_sub, Y2, Z2 = find_affinely_independent_points( sites_db[other_sites_indices], x, Δ_2; θ_pivot = θ_pivot_2, Y = Y1, Z = Z1 )
             additional_point_indices = other_sites_indices[ additional_point_indices_sub ];
 
-            if !isempty( additional_point_indices )
-                model_point_indices = [ model_point_indices..., additional_point_indices... ];
-                @info("\tFound $(length(additional_point_indices)) site(s) in second round.")
-            end
+            @info("\tFound $(length(additional_point_indices)) site(s) in second round.")
+            push!(model_point_indices, additional_point_indices...);
         end
 
         # ============== Round 3 ======================#
+        # if there are still sites missing then sample them now
         min_pivot = sqrt(n_vars) * Δ * θ_pivot;
 
         # determine 'fully_linear' and 'new_tdata'
+        n_missing = 0;
         if !isempty(Z1)
             if Y1 == Y2
                 @info("\tNo second round points, model is made fully linear.")
-                fully_linear = true;
+                #fully_linear = true;
                 Y = Y1;
                 Z = Z2;
+                n_missing = size( Z, 2 );
             else
                 @info("\tThe model is not fully linear.")
                 Y = Y2;
@@ -167,47 +169,46 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
             Z = Z2;
             new_tdata = TrainingData(Y = Y1, Z = Z1);
         end
+
+        if n_missing > 0
         # sample at additional sites to obtain exactly n_vars (+1) training sites_array
-        additional_sites = Array{Array{Float64,1},1}();
 
-        n_evals_left = max_evals - length(sites_db) - 1;
-        size_Z = size(Z,2);
-        n_missing = Int64(min( size_Z , n_evals_left ));
-        min_pivot = sqrt(n_vars) * Δ * θ_pivot;
-        n_missing > 0 && @info("\t $(length(sites_db)) evals so far. Sampling at $(n_missing) new sites, pivot value is $min_pivot.")
-        for i = 1 : n_missing
-            factor = rand([-1.0, 1.0]) * Δ_1;# (fully_linear ? Δ_1 : (Δ_1 + ( Δ_2 - Δ_1) * randquad()));   # TODO check if sensible: if model is *not* fully linear then samples are generated in a larger region
-            new_site = sample_new(constrained_flag, x, Δ_1, Z[:,1], min_pivot, factor )
-            if isempty( new_site )
-                return rebuild_model( config_struct );
+            n_evals_left = max_evals - length(sites_db) - 1;
+            n_missing = Int64(min( n_missing , n_evals_left ));
+
+            fully_linear = n_missing <= n_evals_left;
+
+            additional_sites = Array{Array{Float64,1},1}();
+
+            min_pivot = sqrt(n_vars) * Δ * θ_pivot;
+            @info("\t $(length(sites_db)) evals so far. Sampling at $(n_missing) new sites, pivot value is $min_pivot.")
+            for i = 1 : n_missing
+                factor = rand([-1.0, 1.0]) * Δ_1;# (fully_linear ? Δ_1 : (Δ_1 + ( Δ_2 - Δ_1) * randquad()));   # TODO check if sensible: if model is *not* fully linear then samples are generated in a larger region
+                new_site = sample_new(constrained_flag, x, Δ_1, Z[:,1], min_pivot, factor )
+                if isempty( new_site )
+                    return rebuild_model( config_struct );  # delegate to rebuild function
+                end
+
+                push!(additional_sites, new_site);
+                Y = hcat( Y, new_site - x );
+                Z = Z[:, 2 : end];
             end
-
-            push!(additional_sites, new_site);
-            Y = hcat( Y, new_site - x );
-            Z = Z[:, 2 : end];
-        end
-
-        if fully_linear
-            new_tdata = TrainingData(Y,Z);
-        end
-
-        if n_missing != size_Z
-            @warn "\tNot enough computational budget left to garantuee a unique model."
-            if fully_linear
-                fully_linear = false;
+            if !fully_linear
+                @warn "\tNot enough computational budget left to garantuee a unique model."
             end
+            new_tdata = TrainingData( Y= Y, Z = Z); # TODO does it make sense for !fully_linear???
+
+            additional_values = eval_all_objectives.( problem, additional_sites );
+            additional_site_indices = length( sites_db ) + 1 : length( sites_db ) + length( additional_sites )  # for filtering out the new sites in 3rd search below
+
+            push!(sites_db, additional_sites...)    # push new samples into database
+            push!(iter_data, additional_values...)
+        else
+            additional_site_indices = Vector{Int64}();
         end
 
-        additional_values = eval_all_objectives.( problem, additional_sites );
-        additional_site_indices = length( sites_db ) + 1 : length( sites_db ) + length( additional_sites )  # for filtering out the new sites in 3rd search below
-
-        push!(sites_db, additional_sites...)    # push new samples into database
-        #push!(values_db, additional_values...)
-        push!(iter_data, additional_values...);
-
-
-        round1_indices = model_point_indices;
-        model_point_indices = [ model_point_indices..., additional_site_indices... ];
+        round1_indices = model_point_indices;   # renaming for model info array
+        push!(model_point_indices, additional_site_indices...);
 
         # ============== Round 4 ======================#
         # construct a preliminary (and untrained) rbf model
@@ -229,7 +230,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
         m.model_info.fully_linear = fully_linear;
 
         # look for EVEN MORE model enhancing points in big radius, ignore points considered already
-        if n_missing == size_Z
+        if length(training_sites) >= n_vars + 1
             unexplored_indices = setdiff( 1:length(sites_db), model_point_indices );
             more_site_indices, Y3, Π, Q, R, Z3, L = additional_points!( m, x, n_exp, sites_db[ unexplored_indices ], values_db[ unexplored_indices ], Δ_2, θ_pivot_cholesky, max_model_points ); # sites are added to m in-place
             @info("\tFound $(length(more_site_indices)) sites to further enhance the model.")
@@ -237,7 +238,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
             m.model_info.round3_indices = more_site_indices;
 
             # finally: train!
-            train!(m,  Π, Q, R, Z3, L);
+            train!(m, Π, Q, R, Z3, L);
         else
             train!(m)   # look for least squares solution of underdetermined model
         end
@@ -245,6 +246,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
 
         return m
     else
+        # if there are only cheap objectives return a NamedTuple instead of a surrogate
         return m = (
         function_handle = x -> Array{Float64,1}(),
         fully_linear = true ); # simply return named tuple
@@ -349,7 +351,6 @@ function improve!( m::RBFModel, config_struct :: AlgoConfig, constrained_flag = 
         push!(m.training_sites, new_site);
         push!(m.training_values, new_val[1:n_exp]);
         push!(sites_db, new_site);
-        #push!(values_db, new_val);
         push!(iter_data, new_val);
 
         if size(Z,2) == 0

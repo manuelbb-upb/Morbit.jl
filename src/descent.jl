@@ -2,11 +2,11 @@
 
 # Continue Backtracking if true, suppose all_objectives_descent = true (= Val)
 function continue_while( :: Val{true}, m_x₊, f_x, step_size, ω )
-    any( f_x .- m_x₊ .< step_size * 1e-5 * ω )
+    any( f_x .- m_x₊ .< step_size * 1e-4 * ω )
 end
 # Continue Backtracking if true, suppose all_objectives_descent = false (= Val)
 function continue_while( :: Val{false}, m_x₊, f_x, step_size, ω )
-    maximum(f_x) .- maximum(m_x₊) .<  step_size * 1e-5 * ω
+    maximum(f_x) .- maximum(m_x₊) .<  step_size * 1e-4 * ω
 end
 
 function backtrack!( x₊, m_x₊, dir, x, f_x, step_size, ω, all_objectives_descent, surrogate_handle )
@@ -59,7 +59,8 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
     @constraint(prob, ∇con, ∇f*d .<= α)
     @constraint(prob, unit_con, -1.0 .<= d .<= 1.0);
     if constrained_flag
-        @constraint(prob, global_const, 0.0 .- x .<= d .<= 1 .- x )   # honor global constraints
+        @constraint(prob, global_const, 0.0 .- x .<= Δ .* d .<= 1 .- x )
+        #@constraint(prob, global_const, 0.0 .- x .<= d .<= 1 .- x )   # honor global constraints
     end
 
     JuMP.optimize!(prob)
@@ -69,10 +70,12 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
     # step size has to suffice a sufficient decrease condition
     ## perform armijo like backtracking
     if !constrained_flag
-        dir = dir ./ norm(dir, Inf); # TODO necessary?
+        #dir = dir ./ norm(dir, Inf); # TODO necessary?
         step_size = Δ;
     else
-        step_size, _ = intersect_bounds( x, dir, Δ );
+        #step_size, _ = intersect_bounds( x, dir, Δ );
+        step_size = Δ
+        #@show step_size
     end
     x₊ = intobounds(x + step_size * dir);           # 'intobounds' for tiny errors
     m_x₊ = eval_surrogates(problem, m, x₊);

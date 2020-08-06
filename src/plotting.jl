@@ -275,10 +275,13 @@ end
     end
     sort!(plot_iter_indices)
 
-    extrema_tuples = extrema( hcat( iter_data.values_db[iterate_indices]... ), dims = 2 )
+    unscaled_vals = iter_data.values_db[iterate_indices];
+    n_out = length(unscaled_vals[1])
+
+    extrema_tuples = extrema( hcat( unscaled_vals... ), dims = n_out == 1 ? 1 : 2 )
     MAX = [e[2] for e in extrema_tuples]
     MIN = [e[1] for e in extrema_tuples]
-    vals = [(v .- MIN)./(MAX .- MIN) for v in iter_data.values_db[iterate_indices[plot_iter_indices]] ]
+    vals = [(v .- MIN)./(MAX .- MIN) for v in unscaled_vals[plot_iter_indices] ]
 
     n_out = length( vals[1] )
     if n_out == 1
