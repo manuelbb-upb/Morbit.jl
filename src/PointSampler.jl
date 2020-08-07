@@ -1,7 +1,7 @@
 module PointSampler
 using LinearAlgebra: norm
 
-export monte_carlo_th
+export monte_carlo_th, MonteCarloThDesign
 
 @doc """
 Return the minium projected distance between two point vectors `p1` and `p2`,
@@ -47,8 +47,16 @@ function combined_objective( candidates :: Vector{Vector{Float64}}, P :: Vector{
     [ combined_objective(p1, P; intersite_factor = intersite_factor, pdist_factor = pdist_factor, pdist_threshold = pdist_threshold ) for p1 ∈ candidates ]
 end
 
+function bad_indices( set :: Vector{Vector{Float64}}, lb :: Vector{Float64}, ub = Vector{Float64} )
+    [ any( s .< lb ) || any( s .> ub ) for s ∈ set]
+end
+
+function good_indices( set :: Vector{Vector{Float64}}, lb :: Vector{Float64}, ub = Vector{Float64} )
+    [ all( s .>= lb ) && any( s .<= ub ) for s ∈ set]
+end
+
 function discard_bad_seeds!( seeds :: Vector{Vector{Float64}}, lb :: Vector{Float64}, ub = Vector{Float64} )
-    bad_seeds = [ any( s .< lb ) || any( s .> ub ) for s ∈ seeds]
+    bad_seeds = bad_indices( seeds, lb, ub )
     deleteat!(seeds, bad_seeds)
 end
 
@@ -56,16 +64,35 @@ function scale_to_unit_square( p :: Vector{Float64}, lb :: Vector{Float64}, ub :
     ( p .- lb ) ./ ( ub .- lb )
 end
 
+function scale_to_unit_square!( p :: Vector{Float64}, lb :: Vector{Float64}, ub :: Vector{Float64} )
+     p .-= lb
+     p ./= ( ub .- lb )
+     return p
+end
+
 function scale_to_unit_square( P :: Vector{Vector{Float64}}, lb :: Vector{Float64}, ub :: Vector{Float64} )
     [ scale_to_unit_square( p, lb, ub ) for p ∈ P ]
+end
+
+function scale_to_unit_square!( P :: Vector{Vector{Float64}}, lb :: Vector{Float64}, ub :: Vector{Float64} )
+    [ scale_to_unit_square!( p, lb, ub ) for p ∈ P ]
 end
 
 function unscale_from_unit_square( p :: Vector{Float64}, lb :: Vector{Float64}, ub :: Vector{Float64} )
     lb .+ (ub .- lb) .* p
 end
 
+function unscale_from_unit_square!( p :: Vector{Float64}, lb :: Vector{Float64}, ub :: Vector{Float64} )
+    p .*= (ub .- lb)
+    p .+= lb
+end
+
 function unscale_from_unit_square( P :: Vector{Vector{Float64}}, lb :: Vector{Float64}, ub :: Vector{Float64} )
     [ unscale_from_unit_square(p, lb, ub) for p ∈ P ]
+end
+
+function unscale_from_unit_square!( P :: Vector{Vector{Float64}}, lb :: Vector{Float64}, ub :: Vector{Float64} )
+    [ unscale_from_unit_square!(p, lb, ub) for p ∈ P ]
 end
 
 @doc """
@@ -83,7 +110,7 @@ function monte_carlo_th( n_points :: Int64, n_dims :: Int64 ; seeds :: Vector{Ve
     n_seeds = length(seeds);
     if n_seeds > 0
         if n_seeds < n_points
-            P = seeds;
+            P = deepcopy(seeds);
             if length(P[1]) != n_dims
                 @error "`n_dims` and length of your `seeds` do not match."
             end
@@ -105,8 +132,7 @@ function monte_carlo_th( n_points :: Int64, n_dims :: Int64 ; seeds :: Vector{Ve
 end
 
 @doc "Scale the design returned by the unconstrained version of this function to the box defined by `lb` and `ub`."
-function monte_carlo_th( n_points :: Int64, lb = Vector{Float64}, ub = Vector{Float64}; seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}}(), spawn_factor :: Int64 = 50, pdist_threshold_tolerance :: Float64 = 0.5 )
-
+function monte_carlo_th( n_points :: Int64, lb = Vector{Float64}, ub = Vector{Float64}; seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}}(), spawn_factor :: Int64 = 50, pdist_threshold_tolerance :: Float64 = 0.5, clean_seeds ::Bool = true )
     if isempty( lb ) || isempty(ub)
         @error "Both lower and upper variable boundaries must be provided."
     else
@@ -117,10 +143,99 @@ function monte_carlo_th( n_points :: Int64, lb = Vector{Float64}, ub = Vector{Fl
         end
     end
     copied_seeds = deepcopy(seeds);
-    discard_bad_seeds!(copied_seeds, lb, ub)
-    copied_seeds[:] = scale_to_unit_square(copied_seeds, lb, ub);
-    unit_design = monte_carlo_th( n_points, n_dims; seeds = copied_seeds, spawn_factor = spawn_factor, pdist_threshold_tolerance = pdist_threshold_tolerance );
+    if clean_seeds
+        discard_bad_seeds!(copied_seeds, lb, ub)
+    end
+    scale_to_unit_square!(copied_seeds, lb, ub);
+    unit_design = monte_carlo_th( n_points, n_dims; seeds = copied_seeds, spawn_factor = spawn_factor, pdist_threshold_tolerance = pdist_threshold_tolerance ); # as of Julia v1.5 keyword arguments could be written in a more concise manner
     P = unscale_from_unit_square( unit_design, lb, ub )
 end
+
+
+function score_arrays( P :: Vector{Vector{Float64}} )
+    np = length( P )
+    idist_scores = zeros(Float64, np)
+    pdist_scores = zeors(Float64, np)
+    th = 1 / np
+    for pi ∈ 1 : np
+        idist_scores[pi] = minimum( distance( point_array[pi], point_array[ [ 1 : pi - 1; pi + 1 : end] ] ) )
+        pdist_scores[pi] = minimum( projected_distance_thresholded( point_array[pi], point_array[ [ 1 : pi - 1; pi + 1 : end] ], th ) )
+    end
+    return idist_scores, pdist_scores
+end
+
+struct MonteCarloThDesign
+    n_points :: Int64
+    dims :: Int64
+    lb :: Vector{Float64}
+    ub :: Vector{Float64}
+    seeds :: Vector{Vector{Float64}}
+end
+
+function is_valid( des :: MonteCarloThDesign )
+    des.n_points > 0 && des.dims > 0 && ! ( isempty(des.lb) || isempty(des.ub) ) # && n_points == length(point_array) == length(idist_scores) == length( pdist_scores )
+end
+
+function MonteCarloThDesign( n_points :: Int64, dims :: Int64 )
+    if dims > 0 && n_points >= 0
+        MonteCarloThDesign( n_points, dims, zeros(dims), ones(dims), Vector{Vector{Float64}}() )
+    end
+end
+
+function MonteCarloThDesign( n_points :: Int64, lb :: T, ub :: T, seeds :: Vector{T} = Vector{T}(); clean_seeds = true ) where{T<:Vector{Float64}}
+    if n_points >= 0
+        dims = length(lb)
+        if dims == length(ub)
+            seed_indices = clean_seeds ? good_indices( seeds, lb, ub ) : eachindex(seeds)
+            scaled_seeds = scale_to_unit_square( seeds, lb, ub )
+            return MonteCarloThDesign( n_points, dims, lb, ub, scaled_seeds[seed_indices] )
+        else
+            @error "Dimensions of `lb` and `ub` do not match!"
+        end
+    else
+        @error "`n_points` must be non-negative."
+    end
+end
+
+function Base.iterate( des :: MonteCarloThDesign )
+    if is_valid( des )
+        # design has no point associated, initalize with zero vector or first seed
+        next_point = isempty( des.seeds ) ? zeros( des.dims ) : des.seeds[1]
+        point_array = [ next_point ]
+        return ( unscale_from_unit_square(next_point, des.lb, des.ub), point_array )
+    else
+        return nothing
+    end
+end
+
+function Base.iterate( des :: MonteCarloThDesign, point_array :: Vector{Vector{Float64}}  ) :: Union{ Nothing, Tuple{ Vector{Float64}, Vector{Vector{Float64}} } }
+    n_points_so_far = length(point_array)
+    if is_valid( des ) && n_points_so_far < des.n_points
+        if n_points_so_far >= length( des.seeds )
+            d = des.dims
+            N = length(point_array)
+            spawn_factor = 50
+
+            intersite_factor = (( N + 1 )^( 1/d ) - 1)/2
+            pdist_factor = (N+1)/2;
+            th = 1 / N;
+
+            candidates = [ rand(d) for j = 1 : max( 200, N * spawn_factor )];
+
+            score_fn = p -> intersite_factor * minimum( distance( p, point_array ) ) + pdist_factor * minimum( projected_distance_thresholded(p, point_array, th) )
+            scores = score_fn.(candidates)
+            best_index = argmax( scores )
+
+            next_point = candidates[ best_index ]
+        else
+            next_point = des.seeds[ n_points_so_far + 1 ]
+        end
+        push!( point_array, next_point )
+
+        return unscale_from_unit_square(next_point, des.lb, des.ub), point_array
+    end
+end
+
+Base.length( des:: MonteCarloThDesign ) = des.n_points
 
 end

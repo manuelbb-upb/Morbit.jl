@@ -284,8 +284,8 @@ end
     # trust region update parameters
     γ_crit :: Float64 = 0.5; # scaling factor for Δ in criticallity test
     γ_grow :: Float64 = 2;
-    γ_shrink :: Float64 = 0.6;
-    γ_shrink_much :: Float64 = 0.3;
+    γ_shrink :: Float64 = 0.8;
+    γ_shrink_much :: Float64 = 0.4;
 
     Δ₀ :: Float64 = 0.4;
     Δ_max :: Float64 = 1;
@@ -294,7 +294,7 @@ end
     θ_enlarge_2 :: Float64 = 0.0;     # is probably reset during optimization
     θ_pivot :: Float64 = 1 / θ_enlarge_1;
     θ_pivot_cholesky :: Float64 = 1e-9;
-    use_max_points :: Bool = true;
+    use_max_points :: Bool = false;
 
     sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
 

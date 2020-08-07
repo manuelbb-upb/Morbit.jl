@@ -103,16 +103,17 @@ end
 
     # constrained, expensive
     opt_settings = AlgoConfig(
-        Δ₀ = 0.2,
-        max_iter = 150,
-        rbf_kernel = :exp,
-        rbf_shape_parameter = Δ -> 10/Δ,
+        Δ₀ = 0.5,
+        max_iter = 50,
+        rbf_kernel = :cubic,
+        rbf_shape_parameter = Δ -> 2/Δ,
         θ_pivot = 1e-3,
         Δ_min = 1e-12,
         Δ_critical = 1e-10,
         stepsize_min = 1e-14,
         all_objectives_descent = true,
         max_model_points = 10,
+        use_max_points = true,
         sampling_algorithm = :monte_carlo
     )
     mop = MixedMOP(lb = lb, ub = ub);

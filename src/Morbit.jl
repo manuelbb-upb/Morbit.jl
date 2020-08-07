@@ -10,13 +10,14 @@ using NLopt
 using Random: shuffle!
 using Parameters: @with_kw, @unpack, @pack!, reconstruct   # use Parameters package for structs with default values and keyword initializers
 import Base: isempty, Broadcast, broadcasted
+using Base.Iterators: drop
 
 export RBFModel, train!, improve!
 export optimize!
 export AlgoConfig, IterData, MOP, HeterogenousMOP
 
 include("PointSampler.jl")
-using .PointSampler: monte_carlo_th
+using .PointSampler: monte_carlo_th, MonteCarloThDesign
 
 include("data_structures.jl")
 include("rbf.jl")

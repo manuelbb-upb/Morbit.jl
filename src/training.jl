@@ -200,23 +200,25 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
                 end
 
             elseif sampling_algorithm == :monte_carlo
-                max_rounds = n_missing * 100;   #TODO sensible?
-                seeds = sites_db[model_point_indices];
+
+                seeds = sites_db[model_point_indices];      # TODO maybe include more points from Δ_2 ?
                 lb_eff, ub_eff = effective_bounds_vectors(x, Δ);
-                n_rounds = 0
-                while n_missing > 0 && n_rounds <= max_rounds
-                    site = monte_carlo_th( length(seeds) + 1, lb_eff, ub_eff; seeds = seeds )[end] .- x # TODO this could really really really be optimized by using iterations instead of recaluting distances every time!!!
+                n_model_points = length( model_point_indices ) + 1
+                for true_site ∈ drop( MonteCarloThDesign( 100 * n_model_points, lb_eff, ub_eff, seeds ), n_model_points )
+                    site = true_site .- x;
                     if norm(Z*(Z'site),Inf) >= min_pivot
                         Y = hcat(Y, site )
                         Q,_ = qr(Y);
                         Z = Q[:, size(Y,2) + 1 : end];
-                        site .+= x;
-                        push!(additional_sites, site);
-                        push!(seeds, site);
+
+                        push!(additional_sites, true_site);
                         n_missing -= 1
                     end
-                    n_rounds += 1
+                    if n_missing == 0
+                        break;
+                    end
                 end
+
                 if n_missing > 0
                     return rebuild_model( config_struct );
                 end
