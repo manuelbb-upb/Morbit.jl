@@ -121,7 +121,7 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             ideal_point = -Inf .* ones( size(f_x) );
 
             # Minimize each objective individually in trust region to approximate local ideal point
-            X_0 = intobounds(x)
+            X_0 = constrained_flag ? intobounds(x) : x
             for l = 1 : length(f_x)
                 opt = Opt(:LD_MMA, n_vars)
                 opt.lower_bounds = lb;

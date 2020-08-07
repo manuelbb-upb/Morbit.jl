@@ -155,7 +155,7 @@ function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, ty
             insert_position += 1
         end
         problem.n_exp += n_out;
-        println("Added $n_out expensive objective(s) with indices $func_indices.")
+        #println("Added $n_out expensive objective(s) with indices $func_indices.")
     else
         push!( problem.vector_of_cheap_funcs, wrapped_func );
         push!( problem.internal_sorting, func_indices... )
@@ -166,7 +166,7 @@ function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, ty
             push!( problem.vector_of_gradient_funcs, grad_fn)
         end
         problem.n_cheap += n_out;
-        println("Added $n_out cheap (autodiff) objective(s) with indices $func_indices.")
+        #println("Added $n_out cheap (autodiff) objective(s) with indices $func_indices.")
     end
 end
 
@@ -180,7 +180,7 @@ function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, gr
     push!( problem.vector_of_gradient_funcs, grad);
     push!( problem.internal_sorting, problem.n_exp + problem.n_cheap + 1 );
     problem.n_cheap += 1;
-    println("Added an cheap objective (and its gradient) with internal index $(problem.n_exp + problem.n_cheap).")
+    #println("Added an cheap objective (and its gradient) with internal index $(problem.n_exp + problem.n_cheap).")
 end
 # =====================================================================================
 

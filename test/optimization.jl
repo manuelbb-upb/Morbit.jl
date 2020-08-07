@@ -1,6 +1,8 @@
 using Morbit
 using Test
 
+#using Logging
+#global_logger(SimpleLogger(stdout, Logging.Warn))
 @testset "1In1OutProblem_SteepestDescent" begin
 
     x0 = [5.0];
@@ -18,6 +20,9 @@ using Test
     @test x ≈ [ 0.0 ]
 
     ## 2) treat objective as expensive
+    opt_settings = AlgoConfig(
+        max_iter = 10
+    )
     mop = MixedMOP();
     add_objective!( mop, f1, :expensive )
     x,fx = optimize!(opt_settings, mop, x0)
@@ -103,10 +108,10 @@ end
 
     # constrained, expensive
     opt_settings = AlgoConfig(
-        Δ₀ = 0.5,
+        Δ₀ = 0.2,
         max_iter = 50,
-        rbf_kernel = :cubic,
-        rbf_shape_parameter = Δ -> 2/Δ,
+        rbf_kernel = :exp,
+        rbf_shape_parameter = Δ -> 20/Δ,
         θ_pivot = 1e-3,
         Δ_min = 1e-12,
         Δ_critical = 1e-10,
@@ -121,7 +126,7 @@ end
     add_objective!(mop, g2, :expensive)
     x,fx = optimize!( opt_settings, mop, x0 )
 
-    @test x[1] ≈ x[2] atol = .1
+    @test x[1] ≈ x[2] atol = .5
 
     # constrained, heterogenous
     opt_settings = AlgoConfig(
@@ -140,6 +145,63 @@ end
     @test x[1] ≈ x[2] atol = .05
 end
 
+
+@testset "direct_search" begin
+    # 1D1D
+    x0 = [5.0];
+    f1(x) = x[1]^2;
+
+    for lb_ub ∈ [ ([],[]), ([-5.0], [5.0]), ([-10.0], [10.0])]
+        lb, ub = lb_ub
+        for type ∈ [:cheap, :expensive ]
+            for ideal_point ∈ [[], [0.0]]
+                opt_settings = AlgoConfig(
+                    max_iter = 20,
+                    descent_method = :direct_search,
+                    ideal_point = ideal_point,
+                )
+                mop = MixedMOP(lb = lb, ub = ub);
+                add_objective!(mop, f1, :type)
+                x, fx = optimize!(opt_settings, mop, x0)
+                @test x[end] ≈ 0.0 atol = .1
+            end
+        end
+    end
+
+    # 2D2D
+    x0 = [ π , π^2 ]
+    ub = 10 .* ones(2);
+    lb = -ub;
+
+    g1(x) = sum( (x .- 1.0).^2 );
+    g2(x) = sum( (x .+ 1.0).^2 );
+    for lb_ub ∈ [ ( [],[] ), ([-10.0,-10.0], [10.0, 10.0])]
+        lb,ub = lb_ub
+        for type_tuple ∈ [ (:cheap, :cheap), (:expensive, :expensive), (:expensive, :cheap) ]
+            type1, type2 = type_tuple
+            for ideal_point ∈ [ [], zeros(2) ]
+                opt_settings = AlgoConfig(
+                    max_iter = 50,
+                    rbf_kernel = :exp,
+                    rbf_shape_parameter = Δ -> 20/Δ,
+                    Δ₀ = 0.5,
+                    all_objectives_descent = true,
+                    use_max_points = type_tuple ==  (:expensive, :expensive) ? true : false,
+                    max_model_points = 12,
+                )
+                mop = MixedMOP( lb = lb, ub = ub )
+                add_objective!(mop, g1, type1)
+                add_objective!(mop, g2, type2)
+                x, fx = optimize!(opt_settings, mop, x0)
+                @test x[1] ≈ x[2] atol = .5
+            end
+        end
+    end
+
+end
+
+#=
+# Convenience plotting during development
 using Plots
 
 # true data for comparison
@@ -154,3 +216,4 @@ plot(
     plotstepsizes(opt_settings),
     plotfunctionvalues(opt_settings),
 )
+=#
