@@ -13,7 +13,7 @@ f1(x) = x[1]
 f2(x) = g(x) * h(f1(x), g(x))
 
 x_0 = rand(n_vars);
-x_0 = ones(n_vars);
+#x_0 = ones(n_vars);
 
 # pareto data for comparison
 pset = nothing
@@ -39,11 +39,13 @@ end
 
 opt_settings = AlgoConfig(
     max_iter = 10,
+    ε_crit = 1e-9,
     max_critical_loops = 2,
     descent_method = :direct_search,
     rbf_kernel = :exp,
     rbf_shape_parameter = cs -> 1 / (2*cs.iter_data.Δ),
-    ideal_point = [-1.0; -5.0]
+    ideal_point = [-.1; -1.0],
+    sampling_algorithm = :monte_carlo
 )
 
 problem_instance = MixedMOP(lb = lb, ub = ub)
