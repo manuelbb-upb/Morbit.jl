@@ -10,5 +10,5 @@ function get_data( n, N )
 end
 
 s,v = get_data( 1, 10 )
-m = RBFModel( training_sites = s, training_values = v );
+m = RBFModel( training_sites = s, training_values = v, kernel=:exp, shape_parameter = 1.0);
 train!(m)

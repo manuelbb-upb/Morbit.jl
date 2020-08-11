@@ -14,7 +14,7 @@ vals_1 = f1.(sites);
 vals_2 = f2.(sites);
 vals = f.(sites);
 
-shape_parameters = [1e-1, .25, 1, 5, 10 ]
+shape_parameters = [.1,.25, 1, 5, 10 ]
 kernels = [:multiquadric, :exp, :cubic, :thin_plate_spline]
 
 println("Looping through different RBF settings.")
@@ -57,8 +57,8 @@ for poly_deg ∈ [ -1, 0, 1 ]
             fwdvals_1 = fwd_rbf1.(sites)
             fwdvals_2 = fwd_rbf2.(sites)
 
-            @test all( isapprox.( d_rbf1.(sites), fwd_rbf1.(sites), atol = 1e-4) )
-            @test all( isapprox.( d_rbf2.(sites), fwd_rbf2.(sites), atol = 1e-4) )
+            @test all( isapprox.( dvals_1, fwdvals_1, atol = 1e-4) )
+            @test all( isapprox.( dvals_2, fwdvals_2, atol = 1e-4) )
 
             jacobian_handle = x -> m.jac( rbf, x )
             @test jacobian_handle(sites[1]) ≈ [d_rbf1(sites[1]); d_rbf2(sites[1])]

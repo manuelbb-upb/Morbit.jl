@@ -5,7 +5,7 @@
     training_sites :: Array{Array{Float64, 1},1} = [];
     training_values :: Array{Array{Float64, 1}, 1} = [];
     kernel :: Symbol = :multiquadric;
-    shape_parameter :: Float64 = 1.0;
+    shape_parameter :: Union{Float64, Vector{Float64}} = 1.0;
     fully_linear :: Bool = false;
     polynomial_degree :: Int64 = -1;
 
@@ -34,7 +34,7 @@ end
 
 # === Evaluate RBF part of the Model ===
 
-kernel( ::Val{:exp}, r, s = 1.0 ) = exp(-(r/s)^2);
+kernel( ::Val{:exp}, r, s = 1.0 ) = exp(-(r*s)^2);#exp(-(r/s)^2);
 kernel( ::Val{:multiquadric} , r, s = 1.0 ) = - sqrt( 1 + (s*r)^2);
 kernel( ::Val{:cubic} , r, s = 1.0 ) = (r*s)^3;
 kernel( ::Val{:thin_plate_spline}, r, s = 1.0) = r == 0 ? 0.0 : r^2 * log(r);
@@ -56,7 +56,7 @@ end
 
 @doc "Symmetric matrix of every center evaluated in all basis functions."
 function get_Φ( m::RBFModel )
-    hcat( φ.(m, m.training_sites)... )
+    hcat( φ.(m, m.training_sites)... )'
 end
 
 @doc "Return ℓ-th output of the RBF Part of the model at site x."
@@ -70,7 +70,7 @@ function rbf_output( m::RBFModel, x :: Vector{T} where{T<:Real} )
 end
 
 # partial derivatives, all missing the factor 2 * ( x_i - c_i ) where c is center site of a single basis function
-∂kernel( ::Val{:exp}, r, s = 1.0 ) = - (1/s^2) * kernel( Val(:exp), r, s )
+∂kernel( ::Val{:exp}, r, s = 1.0 ) = - s^2 * kernel( Val(:exp), r, s )
 ∂kernel( ::Val{:multiquadric}, r, s = 1.0 ) = s^2 / (2 * kernel( Val(:multiquadric), r, s ) );
 ∂kernel( ::Val{:cubic}, r, s = 1.0 ) = s^3 * ( r + r/2 ) ;
 ∂kernel( ::Val{:thin_plate_spline}, r, s = 1.0 ) = r == 0 ? 0.0 : log(r) + 1/2;
@@ -151,7 +151,7 @@ output( m::NamedTuple, ℓ :: Int64, x :: Real ) = Float64[];
 
 @doc "Evaluate all (scalar) model outputs at vector x and return k-vector of results."
 function output( m::RBFModel, x :: Vector{T} where{T<:Real} )
-    (rbf_output( m, x ) .+ poly_output( m, x ))[:]
+    vec(rbf_output( m, x ) .+ poly_output( m, x ))
 end
 output( m::RBFModel, x :: Real ) = output(m, [x])
 output( m::NamedTuple, x :: Union{Real, Vector{T} where{T<:Real}} ) = Float64[]
@@ -187,10 +187,12 @@ function solve_rbf_problem( Π, Φ, f )
     try
         Φ_fact = lu( Φ_augmented );
     catch SingularException
-        println("\tWARNING RBF Matrix singular. Using QR decomposition.")
+        @warn("\tWARNING RBF Matrix singular. Using QR decomposition.")
         Φ_fact = qr(Φ_augmented, Val(true))   # use QR to still obtain a (minimal norm) solution if Φ is near singular
     end
     coefficients = Φ_fact \ f_augmented;   # obtain model coefficients as min norm solution to LGS
+
+    return coefficients
 end
 
 # === Training functions ===

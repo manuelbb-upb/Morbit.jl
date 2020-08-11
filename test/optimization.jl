@@ -1,8 +1,11 @@
 using Morbit
 using Test
 
+# Two standard (easy) test problems with known Pareto Data
+# Many combinations of constaints, heterogenity, descent method and sampling algorithm are used
+
 #using Logging
-#global_logger(SimpleLogger(stdout, Logging.Warn))
+#global_logger(SimpleLogger(stdout, Logging.Debug))
 @testset "1In1OutProblem_SteepestDescent" begin
 
     x0 = [5.0];
@@ -108,16 +111,16 @@ end
 
     # constrained, expensive
     opt_settings = AlgoConfig(
-        Δ₀ = 0.2,
+        Δ₀ = 0.1,
         max_iter = 50,
-        rbf_kernel = :exp,
-        rbf_shape_parameter = Δ -> 20/Δ,
-        θ_pivot = 1e-3,
+        rbf_kernel = :multiquadric,
+        rbf_shape_parameter = cs -> let Δ = cs.iter_data.Δ; return 1/(10*Δ) end,
         Δ_min = 1e-12,
+        ν_accept = -1e-9,
         Δ_critical = 1e-10,
         stepsize_min = 1e-14,
-        all_objectives_descent = true,
-        max_model_points = 10,
+        all_objectives_descent = false,
+        max_model_points = 6,
         use_max_points = true,
         sampling_algorithm = :monte_carlo
     )
@@ -131,11 +134,12 @@ end
     # constrained, heterogenous
     opt_settings = AlgoConfig(
         Δ₀ = 0.2,
-        max_iter = 150,
-        rbf_kernel = :thin_plate_spline,
+        max_iter = 50,
+        rbf_kernel = :multiquadric,
         sampling_algorithm = :monte_carlo,
         Δ_min = 1e-8,
-        all_objectives_descent = true
+        all_objectives_descent = false,
+        use_max_points = true
     )
     mop = MixedMOP(lb = lb, ub = ub);
     add_objective!(mop, g1, :expensive)
@@ -182,8 +186,8 @@ end
             for ideal_point ∈ [ [], zeros(2) ]
                 opt_settings = AlgoConfig(
                     max_iter = 50,
-                    rbf_kernel = :exp,
-                    rbf_shape_parameter = Δ -> 20/Δ,
+                    rbf_kernel = :multiquadric,
+                    rbf_shape_parameter = cs -> let Δ = cs.iter_data.Δ; return 1/(10*Δ) end,
                     Δ₀ = 0.5,
                     all_objectives_descent = true,
                     use_max_points = type_tuple ==  (:expensive, :expensive) ? true : false,

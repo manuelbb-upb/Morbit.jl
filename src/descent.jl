@@ -104,7 +104,7 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
 
     ∇f = eval_jacobian( problem, m, x )
 
-    ε_pinv = 1e-4;  # distance from bounds up to which pseudo-inverse is used
+    ε_pinv = 1e-3;  # distance from bounds up to which pseudo-inverse is used
 
     # local lower and upper boundaries
     if constrained_flag

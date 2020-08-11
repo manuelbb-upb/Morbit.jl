@@ -259,7 +259,7 @@ end
 
     rbf_kernel :: Symbol = :multiquadric;
     rbf_poly_deg :: Int64 = 1;
-    rbf_shape_parameter :: T where T<:Function = Δ -> 1;
+    rbf_shape_parameter :: T where T<:Function = config_struct -> 1.0
     max_model_points ::Int64 = 2*n_vars^2 + 1;  # maximum number of points to be included in the construction of 1 model
 
     max_iter :: Int64 = 1000;
@@ -310,7 +310,7 @@ end
     #@assert 0 <= θ_pivot <= 1/θ_enlarge_1 "θ_pivot = $θ_pivot must be in range [0, $(1/θ_enlarge_1)]."
     @assert μ <= β "μ = $μ must be smaller than or equal to β = $β."
     @assert Δ₀ <= Δ_max "Δ_max = $Δ_max is smaller than initial trust region radius Δ₀ = $Δ₀."
-    @assert 0 <= ν_accept <= ν_success "Acceptance parameters must be 0<= ν_accept <= ν_success."
+    @assert ν_accept <= ν_success "Acceptance parameters must be 0<= ν_accept <= ν_success."
     @assert 0 < γ_crit < 1 "Criticality reduction factor γ_crit must be in (0,1)."
     @assert 0 < γ_shrink <= 1 "Trust region reduction factor γ_shrink must be in (0,1]"
     @assert 1 < γ_grow "Trust region grow factor γ_grow must be bigger than 1."

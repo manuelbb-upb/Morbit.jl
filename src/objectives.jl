@@ -60,7 +60,7 @@ function reverse_internal_sorting(problem :: MixedMOP, Y :: Vector{Vector{Float6
 end
 
 function eval_surrogates( problem :: MixedMOP, m :: Union{RBFModel, NamedTuple}, x :: Vector{Float64})
-    [ output( m, x ); eval_cheap_objectives( problem, x ) ];
+    Float64[ output( m, x ); eval_cheap_objectives( problem, x ) ];
 end
 
 @doc """

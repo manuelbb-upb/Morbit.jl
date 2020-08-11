@@ -157,7 +157,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
                 @info("\tImproving model.")
                 improve!(rbf_model, config_struct, problem.is_constrained);
             else
-                @info("\tUpdating model")
+                @info("\tUpdating model…")
                 rbf_model = build_model( config_struct, problem.is_constrained ) # "update" model (actually constructs a new model instance)
             end
         end

@@ -38,7 +38,7 @@ function rebuild_model( config_struct :: AlgoConfig )
 
     m = RBFModel(
         kernel = rbf_kernel,
-        shape_parameter = rbf_shape_parameter(Δ),
+        shape_parameter = rbf_shape_parameter(config_struct),
         fully_linear = true;
         polynomial_degree = rbf_poly_deg
         );
@@ -246,7 +246,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
             training_sites = training_sites,
             training_values = training_values,
             kernel = rbf_kernel,
-            shape_parameter = rbf_shape_parameter(Δ),
+            shape_parameter = rbf_shape_parameter(config_struct), #rbf_shape_parameter(Δ),
             fully_linear = fully_linear,
             polynomial_degree = rbf_poly_deg,
             tdata = new_tdata
@@ -279,7 +279,8 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
             else
                 m.model_info.round3_indices = more_site_indices;
                 # finally: train!
-                train!(m, Π, Q, R, Z3, L);
+                #train!(m, Π, Q, R, Z3, L);
+                train!(m)
             end
         else
             train!(m)   # look for least squares solution of underdetermined model
