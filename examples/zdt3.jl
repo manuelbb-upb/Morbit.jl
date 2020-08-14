@@ -40,12 +40,15 @@ end
 opt_settings = AlgoConfig(
     max_iter = 10,
     ε_crit = 1e-9,
+    Δ₀ = .2,
+    θ_enlarge_1 = 4.0,
+    Δ_max = 0.5,
+    θ_enlarge_2 = 10.0,
     max_critical_loops = 2,
     descent_method = :direct_search,
-    rbf_kernel = :exp,
-    rbf_shape_parameter = cs -> 1 / (2*cs.iter_data.Δ),
-    ideal_point = [-.1; -1.0],
-    sampling_algorithm = :monte_carlo
+    rbf_kernel = :multiquadric,
+    rbf_shape_parameter = cs -> 1 / (cs.iter_data.Δ),
+    sampling_algorithm = :orthogonal
 )
 
 problem_instance = MixedMOP(lb = lb, ub = ub)
