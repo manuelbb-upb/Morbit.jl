@@ -5,7 +5,7 @@ function sample_new(constrained_flag, x, Δ, direction, min_pivot_value, max_fac
 
     #@assert isapprox(norm(direction, Inf),1) # TODO remove
     if constrained_flag
-        σ₊, σ₋ = .9999 .* intersect_bounds(x, direction, Δ)      # how much to move into positive, negative direction?
+        σ₊, σ₋ = intersect_bounds(x, direction, Δ)      # how much to move into positive, negative direction?
 
         cap(σ) = abs(σ) > abs(max_factor) ? sign(σ) * abs(max_factor) : σ;
 
@@ -87,9 +87,10 @@ function rebuild_model( config_struct :: AlgoConfig )
     m.tdata = new_tdata;
 
     # look for EVEN MORE model enhancing points in big radius, ignore points considered already
-    more_site_indices, _, Π, Q, R, Z3, L = additional_points!( m, x, n_exp, sites_db[ old_indices ], values_db[ old_indices ], Δ_2, θ_pivot_cholesky, max_model_points ); # sites are added to m in-place
+    more_site_indices, _ = additional_points!( m, x, n_exp, sites_db[ old_indices ], values_db[ old_indices ], Δ_2, θ_pivot_cholesky, max_model_points ); # sites are added to m in-place
+    more_site_indices = old_indices[ more_site_indices ];
     @info("\tFound $(length(more_site_indices)) sites to further enhance the model.")
-    train!(m,  Π, Q, R, Z3, L);
+    train!(m);
 
     # update model_info
     m.model_info.round1_indices = new_indices;
@@ -108,6 +109,7 @@ end
 """
 function build_model( config_struct :: AlgoConfig, constrained_flag = false, criticality_round = false )
     @unpack problem = config_struct;
+    @unpack is_constrained = problem;
     @unpack n_vars, n_exp, n_cheap, max_evals = config_struct;
     @unpack sampling_algorithm, use_max_points = config_struct;
     @unpack iter_data = config_struct;
@@ -122,7 +124,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
         # ============== Round 1 ======================#
         # find good points in database within slightly enlarged trust region
         model_point_indices, Y1, Z1 = find_affinely_independent_points( sites_db, x, Δ_1, θ_pivot = θ_pivot )
-        @info("\tFound $(length(model_point_indices)) site(s) in first round with radius $Δ_1.")
+        @info("\tFound $(length(model_point_indices)) site(s) with indices $model_point_indices in first round with radius $Δ_1.")
 
         # ============== Round 2 ======================#
         θ_pivot_2 = Δ_2/Δ_1 * θ_pivot
@@ -201,10 +203,13 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
 
             elseif sampling_algorithm == :monte_carlo
 
-                seeds = sites_db[model_point_indices];      # TODO maybe include more points from Δ_2 ?
-                lb_eff, ub_eff = effective_bounds_vectors(x, Δ);
+                #seeds = [[x,] ; sites_db[model_point_indices]];      # TODO maybe include more points from Δ_2 ?
+                seeds = [ [x,]; sites_db[ find_points_in_box( x, Δ_2, sites_db ) ] ]
+                lb_eff, ub_eff = effective_bounds_vectors(x, Δ_1, Val(is_constrained));
+                #@show lb_eff
+                #@show ub_eff
                 n_model_points = length( model_point_indices ) + 1
-                for true_site ∈ drop( MonteCarloThDesign( 100 * n_model_points, lb_eff, ub_eff, seeds ), n_model_points )
+                for true_site ∈ drop( MonteCarloThDesign( 100 * n_model_points, lb_eff, ub_eff, seeds ), length(seeds) )
                     site = true_site .- x;
                     if norm(Z*(Z'site),Inf) >= min_pivot
                         Y = hcat(Y, site )
@@ -234,7 +239,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
             additional_site_indices = Vector{Int64}();
         end
 
-        round1_indices = model_point_indices;   # renaming for model info array
+        round1_indices = deepcopy(model_point_indices);   # renaming for model info array
         push!(model_point_indices, additional_site_indices...);
 
         # ============== Round 4 ======================#
@@ -259,14 +264,15 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
         # look for EVEN MORE model enhancing points in big radius, ignore points considered already
         if length(training_sites) >= n_vars + 1
             unexplored_indices = setdiff( 1:length(sites_db), model_point_indices );
-            more_site_indices, Y3, Π, Q, R, Z3, L = additional_points!( m, x, n_exp, sites_db[ unexplored_indices ], values_db[ unexplored_indices ], Δ_2, θ_pivot_cholesky, max_model_points ); # sites are added to m in-place
-            @info("\tFound $(length(more_site_indices)) sites to further enhance the model.")
+            more_site_indices, _ = additional_points!( m, x, n_exp, sites_db[ unexplored_indices ], values_db[ unexplored_indices ], Δ_2, θ_pivot_cholesky, max_model_points ); # sites are added to m in-place
+            more_site_indices = unexplored_indices[more_site_indices];
+            @info("\tFound $(length(more_site_indices)) sites with indices $more_site_indices to further enhance the model.")
 
             n_points = length(m.training_sites);
             n_still_missing = Int64(min( max_model_points - n_points, max_evals - length(sites_db) - 1 ));
             if n_still_missing > 0 && use_max_points == true
                 @info("\tActively sampling to the maximum number of points ($n_still_missing additional evaluations)!")
-                lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2);
+                lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2, Val(is_constrained));
                 new_sites = monte_carlo_th( max_model_points, lb_eff, ub_eff; seeds = m.training_sites )[ n_points + 1 : end ];
                 new_values = eval_all_objectives.( problem, new_sites );
 

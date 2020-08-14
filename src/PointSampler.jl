@@ -185,12 +185,12 @@ end
 function MonteCarloThDesign( n_points :: Int64, lb :: T, ub :: T, seeds :: Vector{T} = Vector{T}(); clean_seeds = true ) where{T<:Vector{Float64}}
     if n_points >= 0
         dims = length(lb)
-        if dims == length(ub)
+        if dims == length(ub) && all( lb .<= ub )
             seed_indices = clean_seeds ? good_indices( seeds, lb, ub ) : eachindex(seeds)
-            scaled_seeds = scale_to_unit_square( seeds, lb, ub )
-            return MonteCarloThDesign( n_points, dims, lb, ub, scaled_seeds[seed_indices] )
+            scaled_seeds = scale_to_unit_square( seeds[seed_indices], lb, ub )
+            return MonteCarloThDesign( n_points, dims, lb, ub, scaled_seeds )
         else
-            @error "Dimensions of `lb` and `ub` do not match!"
+            @error "Dimensions of `lb` and `ub` do not match or lb > ub for some index!"
         end
     else
         @error "`n_points` must be non-negative."
@@ -220,7 +220,7 @@ function Base.iterate( des :: MonteCarloThDesign, point_array :: Vector{Vector{F
             pdist_factor = (N+1)/2;
             th = 1 / N;
 
-            candidates = [ rand(d) for j = 1 : max( 200, N * spawn_factor )];
+            candidates = [ rand(d) for j = 1 : max( 500, N * spawn_factor )];
 
             score_fn = p -> intersite_factor * minimum( distance( p, point_array ) ) + pdist_factor * minimum( projected_distance_thresholded(p, point_array, th) )
             scores = score_fn.(candidates)

@@ -147,7 +147,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         @info("\n----------------------\nIteration $iter_index.")
         @info("\tCurrent trust region radius is $Δ.")
         @info("\tCurrent number of function evals is $(length(sites_db)).")
-        @info("\tCurrent (scaled) iterate is $(x[1:min(5,end)])...")
+        @info("\tCurrent (scaled) iterate is $(iterate_indices[iter_index]) with val $(x[1:min(5,end)])...")
         @info("\tCurrent values are $(f_x[1:min(5,end)]).")
 
         # model update
@@ -211,7 +211,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         # apply step and evaluate at new sites
         @info("\tAttempting descent of length $stepsize.")
 
-        x₊ = x + d;
+        x₊ = intobounds(x + d, Val(problem.is_constrained));
         m_x = eval_surrogates( problem, rbf_model, x )
         m_x₊ = eval_surrogates( problem, rbf_model, x₊ )
         f_x₊ = eval_all_objectives(problem, x₊)
@@ -245,9 +245,10 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         push!(iter_data, f_x₊)
 
         # Update iter data components (I)
+        push!( iter_data.trial_point_indices, length(sites_db) )
         push!( Δ_array, Δ);
         push!( ω_array, ω );
-        push!( stepsize_array, norm( d, Inf) );
+        push!( stepsize_array, stepsize );
         push!( num_crit_loops_array, num_critical_loops );
         push!( ρ_array, ρ );
         if config_struct.n_exp > 0

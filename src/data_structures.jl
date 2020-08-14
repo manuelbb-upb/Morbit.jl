@@ -215,6 +215,7 @@ end
 
     # Arrays (1 entry per iteration)
     iterate_indices :: Vector{ Int64 } = [];
+    trial_point_indices :: Vector{Int64} = [];
     model_info_array :: Vector{ModelInfo} = [];
     stepsize_array :: Vector{Float64} = [];  # a bit redundant, since iterates are given
     Δ_array :: Vector{Float64} = [];
@@ -254,8 +255,6 @@ end
     #ε_bounds = 0.0;   # minimum distance to boundaries if problem is constraint, needed for functions undefined outside bounds
 
     problem :: Union{MixedMOP,Nothing} = nothing;
-    #f :: Union{Function, Nothing} = nothing;    # reset during algorithm initilization
-    #index_permutation :: Vector{Int64} = [];    # used to interally reorder ideal point and image direction for MixedMOP
 
     rbf_kernel :: Symbol = :multiquadric;
     rbf_poly_deg :: Int64 = 1;
@@ -292,8 +291,8 @@ end
 
     θ_enlarge_1 :: Float64 = 4.0;        # as in ORBIT according to Wild
     θ_enlarge_2 :: Float64 = 0.0;     # is probably reset during optimization
-    θ_pivot :: Float64 = 1 / θ_enlarge_1;
-    θ_pivot_cholesky :: Float64 = 1e-9;
+    θ_pivot :: Float64 = 1 / (2*θ_enlarge_1);
+    θ_pivot_cholesky :: Float64 = 1e-7;
     use_max_points :: Bool = false;
 
     sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo

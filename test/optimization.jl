@@ -13,18 +13,18 @@ using Test
 
     # I) unconstrained
     opt_settings = AlgoConfig(
-        max_iter = 10
+        max_iter = 15
     )
     ## 1) treat objective as cheap
     mop = MixedMOP();
     add_objective!( mop, f1, :cheap )
     x,fx = optimize!(opt_settings, mop, x0)
 
-    @test x ≈ [ 0.0 ]
+    @test x ≈ [ 0.0 ] atol=1e-2
 
     ## 2) treat objective as expensive
     opt_settings = AlgoConfig(
-        max_iter = 10
+        max_iter = 15
     )
     mop = MixedMOP();
     add_objective!( mop, f1, :expensive )
@@ -65,88 +65,95 @@ end
     g2(x) = sum( (x .+ 1.0).^2 );
 
     # unconstrained, cheap
-    opt_settings = AlgoConfig(
-        max_iter = 20
-    )
-    mop = MixedMOP();
-    add_objective!(mop, g1, :cheap)
-    add_objective!(mop, g2, :cheap)
-    x,fx = optimize!( opt_settings, mop, x0 )
+    @testset "unbound_cheap_cheap" begin
+        opt_settings = AlgoConfig(
+            max_iter = 30
+        )
+        mop = MixedMOP();
+        add_objective!(mop, g1, :cheap)
+        add_objective!(mop, g2, :cheap)
+        x,fx = optimize!( opt_settings, mop, x0 )
 
-    @test x[1] ≈ x[2] atol = .01
+        @test x[1] ≈ x[2] atol = .01
+    end
 
     # unconstrained, expensive
-    opt_settings = AlgoConfig(
-        max_iter = 20
-    )
-    mop = MixedMOP();
-    add_objective!(mop, g1, :expensive)
-    add_objective!(mop, g2, :expensive)
-    x,fx = optimize!( opt_settings, mop, x0 )
+    @testset "unbound_exp_exp" begin
+        opt_settings = AlgoConfig(
+            max_iter = 30
+        )
+        mop = MixedMOP();
+        add_objective!(mop, g1, :expensive)
+        add_objective!(mop, g2, :expensive)
+        x,fx = optimize!( opt_settings, mop, x0 )
 
-    @test x[1] ≈ x[2] atol = .01
+        @test x[1] ≈ x[2] atol = .05
+    end
 
     # unconstrained, heterogenous
-    opt_settings = AlgoConfig(
-        max_iter = 20
-    )
-    mop = MixedMOP();
-    add_objective!(mop, g1, :expensive)
-    add_objective!(mop, g2, :cheap)
-    x,fx = optimize!( opt_settings, mop, x0 )
+    @testset "unbound_exp_cheap" begin
+        opt_settings = AlgoConfig(
+            max_iter = 30
+        )
+        mop = MixedMOP();
+        add_objective!(mop, g1, :expensive)
+        add_objective!(mop, g2, :cheap)
+        x,fx = optimize!( opt_settings, mop, x0 )
 
-    @test x[1] ≈ x[2] atol = .05
+        @test x[1] ≈ x[2] atol = .05
+    end
 
     # constrained, cheap
-    opt_settings = AlgoConfig(
-        Δ₀ = 0.1,
-        max_iter = 50
-    )
-    mop = MixedMOP(lb = lb, ub = ub);
-    add_objective!(mop, g1, :cheap)
-    add_objective!(mop, g2, :cheap)
-    x,fx = optimize!( opt_settings, mop, x0 )
+    @testset "bound_cheap_cheap" begin
+        opt_settings = AlgoConfig(
+            Δ₀ = 0.1,
+            max_iter = 40
+        )
+        mop = MixedMOP(lb = lb, ub = ub);
+        add_objective!(mop, g1, :cheap)
+        add_objective!(mop, g2, :cheap)
+        x,fx = optimize!( opt_settings, mop, x0 )
 
-    @test x[1] ≈ x[2] atol = .01
+        @test x[1] ≈ x[2] atol = .05
+    end
 
     # constrained, expensive
-    opt_settings = AlgoConfig(
-        Δ₀ = 0.1,
-        max_iter = 50,
-        rbf_kernel = :multiquadric,
-        rbf_shape_parameter = cs -> let Δ = cs.iter_data.Δ; return 1/(10*Δ) end,
-        Δ_min = 1e-12,
-        ν_accept = -1e-9,
-        Δ_critical = 1e-10,
-        stepsize_min = 1e-14,
-        all_objectives_descent = false,
-        max_model_points = 6,
-        use_max_points = true,
-        sampling_algorithm = :monte_carlo
-    )
-    mop = MixedMOP(lb = lb, ub = ub);
-    add_objective!(mop, g1, :expensive)
-    add_objective!(mop, g2, :expensive)
-    x,fx = optimize!( opt_settings, mop, x0 )
+    @testset "bound_exp_exp" begin
+        opt_settings = AlgoConfig(
+            Δ₀ = 0.2,
+            max_iter = 55,
+            rbf_kernel = :multiquadric,
+            rbf_shape_parameter = cs -> let Δ = cs.iter_data.Δ; return 1/(10*Δ) end,
+            max_model_points = 6,
+            use_max_points = true,
+            sampling_algorithm = :monte_carlo
+        )
+        mop = MixedMOP(lb = lb, ub = ub);
+        add_objective!(mop, g1, :expensive)
+        add_objective!(mop, g2, :expensive)
+        x,fx = optimize!( opt_settings, mop, x0 )
 
-    @test x[1] ≈ x[2] atol = .5
+        @test x[1] ≈ x[2] atol = .2
+    end
 
     # constrained, heterogenous
-    opt_settings = AlgoConfig(
-        Δ₀ = 0.2,
-        max_iter = 50,
-        rbf_kernel = :multiquadric,
-        sampling_algorithm = :monte_carlo,
-        Δ_min = 1e-8,
-        all_objectives_descent = false,
-        use_max_points = true
-    )
-    mop = MixedMOP(lb = lb, ub = ub);
-    add_objective!(mop, g1, :expensive)
-    add_objective!(mop, g2, :cheap)
-    x,fx = optimize!( opt_settings, mop, x0 )
+    @testset "bound_exp_cheap" begin
+        opt_settings = AlgoConfig(
+            Δ₀ = 0.2,
+            max_iter = 40,
+            rbf_kernel = :multiquadric,
+            rbf_shape_parameter = cs -> let Δ = cs.iter_data.Δ; return 1/(10*Δ) end,
+            sampling_algorithm = :monte_carlo,
+            all_objectives_descent = false,
+            use_max_points = true
+        )
+        mop = MixedMOP(lb = lb, ub = ub);
+        add_objective!(mop, g1, :expensive)
+        add_objective!(mop, g2, :cheap)
+        x,fx = optimize!( opt_settings, mop, x0 )
 
-    @test x[1] ≈ x[2] atol = .05
+        @test x[1] ≈ x[2] atol = .1
+    end
 end
 
 

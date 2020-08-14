@@ -7,7 +7,7 @@ function effective_bounds_vectors( x, Δ, lb, ub )
     return lb_eff, ub_eff
 end
 
-function effective_bounds_vectors( x, Δ )
+function effective_bounds_vectors( x, Δ, ::Val{true} )
     # assume lb = zeros, ub = ones
     ε_bounds = 0.0;
     n_vars = length(x);
@@ -15,8 +15,13 @@ function effective_bounds_vectors( x, Δ )
     return lb_eff, ub_eff
 end
 
+function effective_bounds_vectors( x, Δ, ::Val{false} )
+    return x .- Δ, x .+ Δ
+end
+
 inbounds(x) = all( 0 .<= x .<= 1 )
-intobounds(x) = min.( max.(0, x), 1)  # project x into unit hypercube
+intobounds(x, ::Val{true}) = min.( max.(0, x), 1)  # project x into unit hypercube
+intobounds(x, ::Val{false}) = x
 intobounds(x, lb, ub) = min.( max.(lb, x), ub)  # project x into unit hypercube
 
 @doc "Find the scalars σ₊,σ₋ that so that x + σ±*d intersects the variable boundaries."
@@ -40,7 +45,7 @@ function intersect_bounds(x :: T,d :: T,lb::T,ub::T ) where {T}# = Array{Float64
 end
 
 function intersect_bounds( x :: Array{Float64,1}, d :: Array{Float64,1}, Δ :: Float64 )
-    lb, ub = effective_bounds_vectors( x, Δ );
+    lb, ub = effective_bounds_vectors( x, Δ , Val(true));
     intersect_bounds(x , d, lb, ub)
 end
 

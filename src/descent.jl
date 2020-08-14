@@ -9,25 +9,22 @@ function continue_while( :: Val{false}, m_x₊, f_x, step_size, ω )
     maximum(f_x) .- maximum(m_x₊) .<  step_size * 1e-4 * ω
 end
 
-function backtrack!( x₊, m_x₊, dir, x, f_x, step_size, ω, all_objectives_descent, surrogate_handle )
+function backtrack( x, f_x, d_0, ω, constrained_flag, all_objectives_descent, surrogate_handle )
+    d_0_norm = norm(d_0, Inf)
+    dir = d_0 ./ d_0_norm;
+    step_size = d_0_norm;
 
-    # make sure that direction is normed
-    old_norm = norm(dir, Inf);
-    dir ./= old_norm
-    step_size *= old_norm    # so that step_size*dir = step_size`*dir`
-
-    #@info step_size
+    x₊ = intobounds( x .+ step_size .* dir, Val(constrained_flag) )
+    m_x₊ = surrogate_handle( x₊ )
 
     backtrack_factor = 0.8;
-    min_step_size = 1e-10;   # to avoid infinite loop at Pareto point
+    min_step_size = 1e-14;   # to avoid infinite loop at Pareto point
     while continue_while( Val(all_objectives_descent), m_x₊, f_x, step_size, ω ) && step_size > min_step_size
         step_size *= backtrack_factor;
-        x₊[:] = intobounds(x + step_size .* dir);
+        x₊[:] = intobounds(x .+ step_size .* dir, Val(constrained_flag));
         m_x₊[:] = surrogate_handle( x₊);
     end
-    dir[:] = x₊ .- x;
-
-    #@info step_size
+    return x₊, m_x₊, step_size .* dir, step_size
 end
 
 # TODO: enable passing of gradients
@@ -59,7 +56,7 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
     @constraint(prob, ∇con, ∇f*d .<= α)
     @constraint(prob, unit_con, -1.0 .<= d .<= 1.0);
     if constrained_flag
-        @constraint(prob, global_const, 0.0 .- x .<= Δ .* d .<= 1 .- x )
+        @constraint(prob, global_const, 0.0 .<=  x .+ Δ .* d .<= 1 )
         #@constraint(prob, global_const, 0.0 .- x .<= d .<= 1 .- x )   # honor global constraints
     end
 
@@ -67,27 +64,15 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
     ω = - value(α)
     dir = value.(d)
 
-    # step size has to suffice a sufficient decrease condition
-    ## perform armijo like backtracking
-    if !constrained_flag
-        #dir = dir ./ norm(dir, Inf); # TODO necessary?
-        step_size = Δ;
-    else
-        #step_size, _ = intersect_bounds( x, dir, Δ );
-        step_size = Δ
-        #@show step_size
-    end
-    x₊ = intobounds(x + step_size * dir);           # 'intobounds' for tiny errors
-    m_x₊ = eval_surrogates(problem, m, x₊);
+    #if !constrained_flag
+        #dir ./ norm(dir,Inf);   # safer near an optimum
+    step_size = Δ;
+    @show step_size
+    #else
+    #    step_size = 1.0     # due to `global_const` step should already be contained in trust region
+    #end
 
-    if config_struct.scale_values
-        m_x₊ = scale( config_struct.iter_data, m_x₊ )
-        f_x = scale( config_struct.iter_data, f_x )
-    end
-
-    backtrack!( x₊, m_x₊, dir, x, f_x, step_size, ω, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
-
-    step_size = norm( dir );
+    x₊, m_x₊, dir, step_size = backtrack( x, f_x, step_size .* dir, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
 
     return ω, dir, step_size
 end
@@ -108,7 +93,7 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
 
     # local lower and upper boundaries
     if constrained_flag
-        lb, ub = effective_bounds_vectors( x, θ_enlarge_1 * Δ);
+        lb, ub = effective_bounds_vectors( x, θ_enlarge_1 * Δ, Val(constrained_flag));
     else
         lb = x .- θ_enlarge_1 * Δ;
         ub = x .+ θ_enlarge_1 * Δ;
@@ -121,14 +106,14 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             ideal_point = -Inf .* ones( size(f_x) );
 
             # Minimize each objective individually in trust region to approximate local ideal point
-            X_0 = constrained_flag ? intobounds(x) : x
+            X_0 = intobounds(x, Val(constrained_flag))
             for l = 1 : length(f_x)
                 opt = Opt(:LD_MMA, n_vars)
                 opt.lower_bounds = lb;
                 opt.upper_bounds = ub;
                 opt.xtol_rel = 1e-6;
                 opt.maxeval = 200;
-                # TODO Optimize individual output minimization
+                # TODO calculate *global* optima
                 opt.min_objective = get_optim_handle( problem, m, l )
                 (minf,minx,ret) = NLopt.optimize(opt, X_0 );
                 ideal_point[l] = minf;
@@ -160,7 +145,7 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             step_size, _ = constrained_flag ? intersect_bounds( x, dir, Δ ) : (Δ, 0.0);
 
         else
-            LB, UB = effective_bounds_vectors( x, Δ );
+            LB, UB = effective_bounds_vectors( x, Δ, Val(constrained_flag) );
             @info "\tUsing QP solver to find direction."
             dir_prob = JuMP.Model( OSQP.Optimizer );
 
@@ -176,46 +161,35 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
 
             JuMP.optimize!(dir_prob)
             dir = value.(d)
-            step_size = 1.0
+            step_size = 1.0 # due to `region constraint`
             ω_backtrack_scaling = norm(dir, Inf);
             ω = - maximum( ∇f * dir / ω_backtrack_scaling );
         end
 
-        x₊ = intobounds(x + step_size * dir);           # 'intobounds' for tiny errors
-        m_x₊ = eval_surrogates(problem, m, x₊);
-
-        if config_struct.scale_values
-            m_x₊ = scale( config_struct.iter_data, m_x₊ )
-            f_x = scale( config_struct.iter_data, f_x )
-        end
-
-        backtrack!( x₊, m_x₊, dir, x, f_x, step_size, ω , all_objectives_descent, X -> eval_surrogates(problem, m, X) )
-
-        step_size = norm( dir );
+        x₊, m_x₊, dir, step_size = backtrack( x, f_x, step_size .* dir, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
     end
 
     return ω, dir, step_size
 end
 
+#=
 function compute_descent_direction( type::Val{:direct_search}, m::Union{RBFModel, NamedTuple}, f:: F where {F<:Function},
     x :: Vector{Float64}, f_x :: Vector{Float64} = [], Δ :: Float64 = 1.0, constrained_flag :: Bool = false,
     all_objectives_descent :: Bool = false, ideal_point = [], image_direction = [], θ_enlarge_1 = 1.0 )
     surrogate_function = x -> vcat( m.function_handle(x), f(x));
     compute_descent_direction( Val(:direct_search), surrogate_function, x, f_x, Δ, constrained_flag , all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
 end
-
-
+=#
+#=
 function compute_descent_direction(type::Val{:steepest}, m::Union{RBFModel, NamedTuple}, f :: F where {F<:Function},
     x :: Vector{Float64}, f_x :: Vector{Float64} = [], Δ :: Float64 = 1.0, constrained_flag :: Bool = false,
     all_objectives_descent :: Bool = false, args... )
     surrogate_function = x -> vcat( m.function_handle(x), f(x));
     compute_descent_direction( Val(:steepest), surrogate_function, x, f_x, Δ, constrained_flag, all_objectives_descent )
 end
+=#
 
 function compute_descent_direction( config_struct::AlgoConfig, m::Union{RBFModel, NamedTuple})
-
     @unpack descent_method = config_struct;     # method parameters
-
     compute_descent_direction( Val(descent_method), config_struct, m )
-
 end
