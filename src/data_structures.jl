@@ -10,19 +10,31 @@ import Base: push!
     function_handle :: Union{T, Nothing} where{T<:Function} = nothing
 end
 
+@with_kw struct VectorObjectiveFunction <: Function
+    function_handle :: Union{T, Nothing} where{T<:Function} = nothing 
+end
+
 # … to allow for batch evaluation outside of julia or to exploit parallelized objective functions
 @with_kw struct BatchObjectiveFunction <: Function
     function_handle :: Union{T, Nothing} where{T<:Function} = nothing
 end
 
 # for 'usual' function evaluation calls (args = single vector), simply delegate to function_handle
-function (objf::Union{ObjectiveFunction, BatchObjectiveFunction})(args...)
+function (objf::Union{ObjectiveFunction, VectorObjectiveFunction, BatchObjectiveFunction})(args...)
     objf.function_handle(args...)
 end
 
 # overload broadcasting for BatchObjectiveFunction who are assumed to handle arrays themselves
 function broadcasted( objf::BatchObjectiveFunction, args... )
     objf.function_handle( args... )
+end
+
+# overload broadcasting for VectorObjectiveFunction
+# original behavior: f.( [[x11; x12]; [x21;x22]] ) = [ [f11;f12]; [f21;f22] ]
+# desired bevavior : f.( [[x11; x12]; [x21;x22]] ) =  [f11 f21;f12 f22] 
+function broadcasted( objf::VectorObjectiveFunction, args... )
+    src_eval = objf.function_handle.( args...);
+    hcat( collect( eachrow( hcat( src_eval... ) ) )... )
 end
 
 # ##### Convenience structs for plotting #####
@@ -147,6 +159,11 @@ function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, ty
     else
         wrapped_func = BatchObjectiveFunction( func )
     end
+    
+    if n_out > 1
+    	wrapped_func = VectorObjectiveFunction( wrapped_func )
+    end
+    	
     if type == :expensive
         push!( problem.vector_of_expensive_funcs, wrapped_func);
         insert_position = problem.n_exp + 1;
