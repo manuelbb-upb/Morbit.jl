@@ -153,4 +153,5 @@ end
     @test all( isa(e, Vector{Vector{Float64}} ) for e in [eval2, eval3, eval4])
     @test eval2[1] == reverse(eval3[1])
     @test eval3 == eval4
+    @test counter == 1
 end
