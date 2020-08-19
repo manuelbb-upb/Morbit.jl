@@ -110,3 +110,47 @@ end
     jacobian_compare = hcat( ∇f2(X), ∇f3(X), ∇f4(X), ∇f5(X) )'
     @test jacobian_compare ≈ m.eval_jacobian( mop, model, x )   # as model is empty named tuple, the expensive gradients are not calculated
 end
+
+
+@testset "Internal Evaluations" begin
+    lb = zeros(2)
+    ub = 4 .* ones(2);
+
+    s = [ 4 .* rand(2) for i=1:10 ]
+
+    f1(x) = 1.0#(x[1]-1)^2 + (x[2] -1)^2
+    f2(x) = (x[1]+1)^2 + (x[2] +1)^2
+    f(x) = [ f1(x); f2(x) ]
+
+    p = MixedMOP(lb = lb, ub = ub)
+    add_objective!(p,f1,:cheap,1)
+    add_objective!(p,f2,:expensive,1)
+
+    eval1 = Morbit.eval_all_objectives(p, s[1])
+    eval2 = Morbit.eval_all_objectives.(p, s)
+
+    p = MixedMOP(lb=lb, ub = ub)
+    add_objective!(p,f,:expensive, 2)
+    eval3 = Morbit.eval_all_objectives.(p,s)
+
+    counter = 0;
+    function g(x)
+        global counter
+        counter += 1
+        if isa(x, Vector{T} where{T<:Real})
+            return f(x)
+        else
+            return f.(x)
+        end
+    end
+
+    p = MixedMOP(lb=lb, ub = ub)
+    add_objective!(p, g, :expensive, 2, true)
+    eval4 = Morbit.eval_all_objectives.(p,s)
+
+    @test isa( eval1, Vector{Float64})
+    @test length(eval1) == 2
+    @test all( isa(e, Vector{Vector{Float64}} ) for e in [eval2, eval3, eval4])
+    @test eval2[1] == reverse(eval3[1])
+    @test eval3 == eval4
+end
