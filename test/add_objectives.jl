@@ -133,7 +133,7 @@ end
     add_objective!(p,f,:expensive, 2)
     eval3 = Morbit.eval_all_objectives.(p,s)
 
-    counter = 0;
+    global counter = 0;
     function g(x)
         global counter
         counter += 1
