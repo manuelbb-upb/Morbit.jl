@@ -27,6 +27,7 @@ include("constraints.jl")
 include("descent.jl")
 include("plotting.jl")
 include("objectives.jl")
+include("saving.jl")
 
 function optimize!( config_struct :: AlgoConfig, problem::MOP, x₀::Array{Float64,1} )
     f_x_0 = problem.f(x_0)
