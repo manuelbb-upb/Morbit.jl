@@ -45,7 +45,8 @@ save_config( opt_obj, 'results.jld')  # save results
 
 ### Vector Format
 We distinguish between (input) sites and (output) values. 
-Input sites must be of type `Vector{Float64}`.
+Input sites must be of type `Vector{Float64}`. 
+Thus even in the 1D case you would have to provide `x0 = [ 2.0 ]` or similar.
 Output values are of the same type.
 When providing scalar objectives, they must return a `Float64`.
 `opt_obj.iter_data.sites_db` is a `Vector{Vector{Float64}}` and its elements are all sites evaluated during optimization.
