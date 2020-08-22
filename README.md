@@ -77,7 +77,7 @@ An incomplete table of settings:
 | rbf_shape_parameter | T where T<:Function | config_struct -> 1.0 | function to determine the shape parameter |
 | max_model_points | Int64 | 2*n_vars^2 + 1 | maximum number of points to be included in the construction of one model |
 | use_max_points | Bool | false | if `true` always use max number of allowed model points |
-| descent_method | Symbol | :steepest | :steepest or :direct_search |
+| descent_method | Symbol | :steepest | `:steepest` or `:direct_search` |
 | ideal_point | Vector{Float64} | [] | ideal point to be used with `:direct_search` descent (if empty, calculate local minima)|
 | all_objectives_descent | Bool | false | if `true` compute ρ as the minimum of descent ratios for ALL objetives |
 | ν_success | Float64 | 0.4 | threshold for very successfull descent |
