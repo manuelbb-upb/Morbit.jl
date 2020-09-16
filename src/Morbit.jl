@@ -217,7 +217,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         m_x₊ = eval_surrogates( problem, rbf_model, x₊ )
         f_x₊ = eval_all_objectives(problem, x₊)
 
-        if config_struct.scale_values
+        if config_struct.scale_values   # TODO either remove 'scale_values' completely or fix it
             M_x = scale(iter_data, m_x)
             M_x₊ = scale( iter_data, m_x₊)
             F_x₊ = scale( iter_data, f_x₊)
@@ -229,6 +229,9 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         @info("\t\tm_x   = $M_x")
         @info("\t\tm_x_+ = $M_x₊")
         @info "\t\tf_x_+ = $F_x₊"
+
+        expensive_indices = 1:problem.n_exp;    # calculate ρ only for expensive indices because else F = M and ρ = 1
+        M_x, M_x₊, F_x₊, F_x = (arr -> arr[expensive_indices]).( [M_x, M_x₊, F_x₊, F_x ] )
 
         # acceptance test ratio
         if all_objectives_descent

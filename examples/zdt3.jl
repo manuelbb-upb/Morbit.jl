@@ -2,7 +2,7 @@ using Morbit
 
 # ZDT 3
 
-n_vars = 30;
+n_vars = 20;
 lb = zeros(n_vars)
 ub = ones(n_vars);
 
@@ -12,8 +12,8 @@ g(x) = 1 + 9 / (n_vars - 1) * sum(x[2:end])
 f1(x) = x[1]
 f2(x) = g(x) * h(f1(x), g(x))
 
-x_0 = rand(n_vars);
-#x_0 = ones(n_vars);
+#x_0 = rand(n_vars);
+x_0 = ones(n_vars) .- 1e-6;
 
 # pareto data for comparison
 pset = nothing
@@ -40,15 +40,17 @@ end
 opt_settings = AlgoConfig(
     max_iter = 10,
     ε_crit = 1e-9,
-    Δ₀ = .2,
+    Δ₀ = .4,
     θ_enlarge_1 = 4.0,
     Δ_max = 0.5,
     θ_enlarge_2 = 10.0,
     max_critical_loops = 2,
     descent_method = :direct_search,
     rbf_kernel = :multiquadric,
-    rbf_shape_parameter = cs -> 1 / (cs.iter_data.Δ),
-    sampling_algorithm = :orthogonal
+    rbf_shape_parameter = cs -> 1.0,# / (cs.iter_data.Δ),
+    sampling_algorithm = :orthogonal,
+    max_model_points = 200,
+    ideal_point = [-1;-1]
 )
 
 problem_instance = MixedMOP(lb = lb, ub = ub)

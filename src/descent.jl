@@ -9,22 +9,22 @@ function continue_while( :: Val{false}, m_x₊, f_x, step_size, ω )
     maximum(f_x) .- maximum(m_x₊) .<  step_size * 1e-4 * ω
 end
 
-function backtrack( x, f_x, d_0, ω, constrained_flag, all_objectives_descent, surrogate_handle )
-    d_0_norm = norm(d_0, Inf)
-    dir = d_0 ./ d_0_norm;
-    step_size = d_0_norm;
+const backtrack_factor = 0.8;
+const min_step_size = 1e-14;   # to avoid infinite loop at Pareto point
+
+function backtrack( x, f_x, dir, step_size , ω, constrained_flag, all_objectives_descent, surrogate_handle )
+    global backtrack_factor, min_step_size;
 
     x₊ = intobounds( x .+ step_size .* dir, Val(constrained_flag) )
     m_x₊ = surrogate_handle( x₊ )
 
-    backtrack_factor = 0.8;
-    min_step_size = 1e-14;   # to avoid infinite loop at Pareto point
     while continue_while( Val(all_objectives_descent), m_x₊, f_x, step_size, ω ) && step_size > min_step_size
         step_size *= backtrack_factor;
         x₊[:] = intobounds(x .+ step_size .* dir, Val(constrained_flag));
         m_x₊[:] = surrogate_handle( x₊);
     end
-    return x₊, m_x₊, step_size .* dir, step_size
+    step = step_size .* dir;
+    return x₊, m_x₊, step, norm(step, Inf)
 end
 
 # TODO: enable passing of gradients
@@ -56,23 +56,17 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
     @constraint(prob, ∇con, ∇f*d .<= α)
     @constraint(prob, unit_con, -1.0 .<= d .<= 1.0);
     if constrained_flag
-        @constraint(prob, global_const, 0.0 .<=  x .+ Δ .* d .<= 1 )
-        #@constraint(prob, global_const, 0.0 .- x .<= d .<= 1 .- x )   # honor global constraints
+        #@constraint(prob, global_const, 0.0 .<=  x .+ Δ .* d .<= 1 )
+        @constraint(prob, global_const, 0.0 .<= x .+ d .<= 1.0 )   # honor global constraints
     end
 
     JuMP.optimize!(prob)
-    ω = - value(α)
+    ω = let o = - value(α); constrained_flag ? min( o, 1.0 ) : o end
     dir = value.(d)
 
-    #if !constrained_flag
-        #dir ./ norm(dir,Inf);   # safer near an optimum
-    step_size = Δ;
-    @show step_size
-    #else
-    #    step_size = 1.0     # due to `global_const` step should already be contained in trust region
-    #end
+    step_size = let d_norm = norm(dir,Inf); min( Δ, d_norm ) / d_norm end;
 
-    x₊, m_x₊, dir, step_size = backtrack( x, f_x, step_size .* dir, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
+    x₊, m_x₊, dir, step_size = backtrack( x, f_x, dir, step_size, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
 
     return ω, dir, step_size
 end
@@ -91,7 +85,7 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
 
     ε_pinv = 1e-3;  # distance from bounds up to which pseudo-inverse is used
 
-    # local lower and upper boundaries
+    # local lower and upper boundaries for ideal point calculation
     if constrained_flag
         lb, ub = effective_bounds_vectors( x, θ_enlarge_1 * Δ, Val(constrained_flag));
     else
@@ -131,6 +125,31 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
         dir = zeros(n_vars);
         step_size = 0.0;
     else
+        ∇f_pinv = pinv( ∇f );
+        if !constrained_flag
+            dir = ∇f_pinv * image_direction;
+            norm_dir = norm(dir,Inf);
+            step_size = Δ / norm_dir;
+            ω = - maximum( ∇f * dir )/ norm_dir;
+        else
+            prob = JuMP.Model(OSQP.Optimizer);
+            #JuMP.set_silent(prob)
+            @variable(prob, 0.0 <= λ <= 1.0)
+            @objective(prob, Max, λ )
+            @constraint(prob, ∇con, 0.0 .<= x .+ λ .* (∇f_pinv * image_direction) .<= 1.0 );
+            #@constraint(prob, global_const, 0.0 .<= x .+ d .<= 1.0 )   # honor global constraints
+            JuMP.optimize!(prob)
+            λ_opt = value(λ)
+            @show λ_opt
+            dir =  λ_opt .* (∇f_pinv * image_direction)
+            @show dir
+            @show ∇f * dir
+            norm_dir = norm(dir,Inf);
+            step_size = min(norm_dir,Δ) / norm_dir;
+            ω = min(- maximum( ∇f * dir ) / norm_dir, 1.0)
+        end
+
+        #=
         pinv_flag = !constrained_flag || all( x .- lb .>= ε_pinv ) #&& all( ub .- x .>= ε_pinv )); # TODO check wheter boundaries have to be adapted (/θ_enlarge_1)
         if pinv_flag
             # as long as we are not on decision space boundary, pseudo inverse suffices
@@ -165,8 +184,8 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             ω_backtrack_scaling = norm(dir, Inf);
             ω = - maximum( ∇f * dir / ω_backtrack_scaling );
         end
-
-        x₊, m_x₊, dir, step_size = backtrack( x, f_x, step_size .* dir, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
+        =#
+        x₊, m_x₊, dir, step_size = backtrack( x, f_x, dir, step_size, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
     end
 
     return ω, dir, step_size

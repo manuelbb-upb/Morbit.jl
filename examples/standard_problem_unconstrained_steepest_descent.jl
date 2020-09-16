@@ -4,22 +4,25 @@ using Morbit
 # no boundaries
 # multiobjective steepest descent
 
-x_0 = -10 .+ 20 .* rand(2)
+lb = -3 .* ones(2)
+ub = 3 .* ones(2)
 
-f1(x) = (x[1]-1)^2 + (x[2]-1)^2 ;
-f2(x) = (x[1]+1)^2 + (x[2]+1)^2 ;
+x_0 = lb .+ (ub .- lb ) .* rand(2);
 
+f1(x) = (x[1] - 1)^2 + (x[2] - 1)^2;
+f2(x) = (x[1] + 1)^2 + (x[2] + 1)^2;
 
 opt_settings = AlgoConfig(
-    max_iter = typemax(Int64),
-    max_evals = 10,
+    #max_iter = typemax(Int64),
+    max_iter = 10,
     max_critical_loops = 10,
-    ε_crit = 0.1,
-    all_objectives_descent = true,
-    sampling_algorithm = :monte_carlo
+    ε_crit = 0.0000001,
+    all_objectives_descent = false,
+    sampling_algorithm = :monte_carlo,
+    descent_method = :direct_search,
 );    # use default settings
 
-problem_instance = MixedMOP();
+problem_instance = MixedMOP( lb = lb, ub = ub);
 
 add_objective!(problem_instance, f1, :cheap)
 add_objective!(problem_instance, f2, :expensive)
@@ -31,9 +34,9 @@ optimize!(opt_settings, problem_instance, x_0);
 using Plots
 
 # true data for comparison
-f(x) = [f1(x);f2(x)];
+f(x) = [f1(x); f2(x)];
 points_x = collect(-1:0.05:1);
-pset = ParetoSet( points_x, points_x )
+pset = ParetoSet(points_x, points_x)
 pfront = ParetoFrontier(f, pset);
 
 plot(
