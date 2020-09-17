@@ -2,7 +2,7 @@ using Morbit
 
 # ZDT 3
 
-n_vars = 20;
+n_vars = 30;
 lb = zeros(n_vars)
 ub = ones(n_vars);
 
@@ -40,7 +40,7 @@ end
 opt_settings = AlgoConfig(
     max_iter = 10,
     ε_crit = 1e-9,
-    Δ₀ = .4,
+    Δ₀ = .2,
     θ_enlarge_1 = 4.0,
     Δ_max = 0.5,
     θ_enlarge_2 = 10.0,
@@ -49,8 +49,8 @@ opt_settings = AlgoConfig(
     rbf_kernel = :multiquadric,
     rbf_shape_parameter = cs -> 1.0,# / (cs.iter_data.Δ),
     sampling_algorithm = :orthogonal,
-    max_model_points = 200,
-    ideal_point = [-1;-1]
+    max_model_points = 300,
+    ideal_point = [-1;-100]
 )
 
 problem_instance = MixedMOP(lb = lb, ub = ub)

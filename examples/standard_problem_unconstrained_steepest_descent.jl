@@ -15,6 +15,7 @@ f2(x) = (x[1] + 1)^2 + (x[2] + 1)^2;
 opt_settings = AlgoConfig(
     #max_iter = typemax(Int64),
     max_iter = 10,
+    Δ₀ = .1,
     max_critical_loops = 10,
     ε_crit = 0.0000001,
     all_objectives_descent = false,
@@ -22,7 +23,7 @@ opt_settings = AlgoConfig(
     descent_method = :direct_search,
 );    # use default settings
 
-problem_instance = MixedMOP( lb = lb, ub = ub);
+problem_instance = MixedMOP()# lb = lb, ub = ub);
 
 add_objective!(problem_instance, f1, :cheap)
 add_objective!(problem_instance, f2, :expensive)

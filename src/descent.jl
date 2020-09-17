@@ -27,6 +27,13 @@ function backtrack( x, f_x, dir, step_size , ω, constrained_flag, all_objective
     return x₊, m_x₊, step, norm(step, Inf)
 end
 
+function scale( dir :: Vector{Float64}, Δ :: Float64 )
+    d_norm = norm(dir,Inf);
+    step_size = d_norm ≈ 1.0 ? Δ : min( Δ, d_norm);
+    scaled_dir = dir ./ d_norm;
+    return scaled_dir, step_size
+end
+
 # TODO: enable passing of gradients
 @doc """
     compute_descent_direction( Val(:method), f, x, f_x = [], Δ = 1.0, constrained_flag = false )
@@ -62,9 +69,7 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
 
     JuMP.optimize!(prob)
     ω = let o = - value(α); constrained_flag ? min( o, 1.0 ) : o end
-    dir = value.(d)
-
-    step_size = let d_norm = norm(dir,Inf); min( Δ, d_norm ) / d_norm end;
+    dir, step_size = scale( value.(d), Δ )
 
     x₊, m_x₊, dir, step_size = backtrack( x, f_x, dir, step_size, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
 
@@ -137,16 +142,13 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             @variable(prob, 0.0 <= λ <= 1.0)
             @objective(prob, Max, λ )
             @constraint(prob, ∇con, 0.0 .<= x .+ λ .* (∇f_pinv * image_direction) .<= 1.0 );
+            @constraint(prob, unit_const, -1.0 .<= λ .* (∇f_pinv * image_direction) .<= 1.0 );
             #@constraint(prob, global_const, 0.0 .<= x .+ d .<= 1.0 )   # honor global constraints
             JuMP.optimize!(prob)
             λ_opt = value(λ)
             @show λ_opt
-            dir =  λ_opt .* (∇f_pinv * image_direction)
-            @show dir
-            @show ∇f * dir
-            norm_dir = norm(dir,Inf);
-            step_size = min(norm_dir,Δ) / norm_dir;
-            ω = min(- maximum( ∇f * dir ) / norm_dir, 1.0)
+            dir, step_size = scale( λ_opt .* (∇f_pinv * image_direction), Δ );
+            ω = min(- maximum( ∇f * dir ) / norm(dir, Inf), 1.0)
         end
 
         #=
