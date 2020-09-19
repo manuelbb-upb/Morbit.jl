@@ -151,43 +151,10 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             ω = min(- maximum( ∇f * dir ) / norm(dir, Inf), 1.0)
         end
 
-        #=
-        pinv_flag = !constrained_flag || all( x .- lb .>= ε_pinv ) #&& all( ub .- x .>= ε_pinv )); # TODO check wheter boundaries have to be adapted (/θ_enlarge_1)
-        if pinv_flag
-            # as long as we are not on decision space boundary, pseudo inverse suffices
-            ∇f_pinv = pinv( ∇f );
-            dir = ∇f_pinv * image_direction;
-
-            #@info "theoretical" minimum(-image_direction) / norm( dir, Inf );
-            ω_backtrack_scaling = norm(dir, Inf);
-            dir ./= ω_backtrack_scaling;
-            ω = - maximum( ∇f * dir );
-
-            step_size, _ = constrained_flag ? intersect_bounds( x, dir, Δ ) : (Δ, 0.0);
-
-        else
-            LB, UB = effective_bounds_vectors( x, Δ, Val(constrained_flag) );
-            @info "\tUsing QP solver to find direction."
-            dir_prob = JuMP.Model( OSQP.Optimizer );
-
-            set_optimizer_attribute(dir_prob,"eps_rel",1e-5)
-            set_optimizer_attribute(dir_prob,"polish", true);
-
-            JuMP.set_silent(dir_prob);
-            @variable(dir_prob, d[1:n_vars] )
-
-            @objective(dir_prob, Min, .5 * sum( d.^2 ) +  sum( (∇f * d .- image_direction).^2 ) );
-            @constraint(dir_prob, df_constraint, image_direction .<= ∇f*d .<= max( .5 * maximum(image_direction), -1e-7  ));
-            @constraint(dir_prob, region_constraint, LB .- x .<= d .<= UB .- x )   # honor local & global constraints
-
-            JuMP.optimize!(dir_prob)
-            dir = value.(d)
-            step_size = 1.0 # due to `region constraint`
-            ω_backtrack_scaling = norm(dir, Inf);
-            ω = - maximum( ∇f * dir / ω_backtrack_scaling );
-        end
-        =#
         x₊, m_x₊, dir, step_size = backtrack( x, f_x, dir, step_size, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
+        #_, steepest_step, _ = compute_descent_direction( Val(:steepest), config_struct, m)
+
+        #@show ∇f * (dir - steepest_step )
     end
 
     return ω, dir, step_size

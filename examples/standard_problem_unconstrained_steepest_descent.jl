@@ -20,7 +20,8 @@ opt_settings = AlgoConfig(
     ε_crit = 0.0000001,
     all_objectives_descent = false,
     sampling_algorithm = :monte_carlo,
-    descent_method = :direct_search,
+    descent_method = :steepest,
+    #ideal_point = [0,0]
 );    # use default settings
 
 problem_instance = MixedMOP()# lb = lb, ub = ub);
