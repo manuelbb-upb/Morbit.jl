@@ -234,11 +234,15 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         M_x, M_x₊, F_x₊, F_x = (arr -> arr[expensive_indices]).( [M_x, M_x₊, F_x₊, F_x ] )
 
         # acceptance test ratio
-        if all_objectives_descent
-            ρ = minimum( (F_x .- F_x₊) ./ (F_x .- M_x₊) )
+        if isempty(expensive_indices)
+            ρ = 1.0
         else
-            max_f_x = maximum( F_x );
-            ρ = ( max_f_x - maximum( F_x₊ ) ) / ( max_f_x - maximum( M_x₊ ) )
+            if all_objectives_descent
+                ρ = minimum( (F_x .- F_x₊) ./ (F_x .- M_x₊) )
+            else
+                max_f_x = maximum( F_x );
+                ρ = ( max_f_x - maximum( F_x₊ ) ) / ( max_f_x - maximum( M_x₊ ) )
+            end
         end
 
         @info("\tρ is $ρ")

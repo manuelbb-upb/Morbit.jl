@@ -67,14 +67,15 @@ end
     # unconstrained, cheap
     @testset "unbound_cheap_cheap" begin
         opt_settings = AlgoConfig(
-            max_iter = 30
+            Δ₀ = 0.2,
+            max_iter = 30,
         )
         mop = MixedMOP();
         add_objective!(mop, g1, :cheap)
         add_objective!(mop, g2, :cheap)
         x,fx = optimize!( opt_settings, mop, x0 )
 
-        @test x[1] ≈ x[2] atol = .01
+        @test x[1] ≈ x[2] atol = .1
     end
 
     # unconstrained, expensive
@@ -114,7 +115,7 @@ end
         add_objective!(mop, g2, :cheap)
         x,fx = optimize!( opt_settings, mop, x0 )
 
-        @test x[1] ≈ x[2] atol = .05
+        @test x[1] ≈ x[2] atol = .1
     end
 
     # constrained, expensive
