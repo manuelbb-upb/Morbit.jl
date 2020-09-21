@@ -75,7 +75,7 @@ end
         add_objective!(mop, g2, :cheap)
         x,fx = optimize!( opt_settings, mop, x0 )
 
-        @test x[1] ≈ x[2] atol = .1
+        @test x[1] ≈ x[2] atol = .2
     end
 
     # unconstrained, expensive
@@ -88,7 +88,7 @@ end
         add_objective!(mop, g2, :expensive)
         x,fx = optimize!( opt_settings, mop, x0 )
 
-        @test x[1] ≈ x[2] atol = .05
+        @test x[1] ≈ x[2] atol = .2
     end
 
     # unconstrained, heterogenous
@@ -101,7 +101,7 @@ end
         add_objective!(mop, g2, :cheap)
         x,fx = optimize!( opt_settings, mop, x0 )
 
-        @test x[1] ≈ x[2] atol = .05
+        @test x[1] ≈ x[2] atol = .2
     end
 
     # constrained, cheap
@@ -115,7 +115,7 @@ end
         add_objective!(mop, g2, :cheap)
         x,fx = optimize!( opt_settings, mop, x0 )
 
-        @test x[1] ≈ x[2] atol = .1
+        @test x[1] ≈ x[2] atol = .2
     end
 
     # constrained, expensive
@@ -153,7 +153,7 @@ end
         add_objective!(mop, g2, :cheap)
         x,fx = optimize!( opt_settings, mop, x0 )
 
-        @test x[1] ≈ x[2] atol = .1
+        @test x[1] ≈ x[2] atol = .2
     end
 end
 
