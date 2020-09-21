@@ -119,6 +119,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     else
         # re-use old database entries
         iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = config_struct.iter_data.sites_db, values_db = config_struct.iter_data.values_db, update_extrema = config_struct.scale_values);
+        iter_data.sites_db[:] = unscale.(problem, apply_internal_sorting.( problem, iter_data.sites_db ))
     end
     @pack! config_struct = iter_data;
     @unpack sites_db, values_db = iter_data;
@@ -228,10 +229,13 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
         @info("\t\tm_x   = $M_x")
         @info("\t\tm_x_+ = $M_x₊")
-        @info "\t\tf_x_+ = $F_x₊"
+        @info("\t\tf_x_+ = $F_x₊")
 
         expensive_indices = 1:problem.n_exp;    # calculate ρ only for expensive indices because else F = M and ρ = 1
+
         M_x, M_x₊, F_x₊, F_x = (arr -> arr[expensive_indices]).( [M_x, M_x₊, F_x₊, F_x ] )
+
+        @info("\t\tError between M_x and F_x is $( sum( abs.(M_x .- F_x) ) ).")
 
         # acceptance test ratio
         if isempty(expensive_indices)
@@ -240,8 +244,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
             if all_objectives_descent
                 ρ = minimum( (F_x .- F_x₊) ./ (F_x .- M_x₊) )
             else
-                max_f_x = maximum( F_x );
-                ρ = ( max_f_x - maximum( F_x₊ ) ) / ( max_f_x - maximum( M_x₊ ) )
+                ρ = let max_f_x = maximum( F_x ); ( max_f_x - maximum( F_x₊ ) ) / ( max_f_x - maximum( M_x₊ ) ) end;
             end
         end
 

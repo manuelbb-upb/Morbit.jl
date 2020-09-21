@@ -266,7 +266,7 @@ function build_model( config_struct :: AlgoConfig, constrained_flag = false, cri
             unexplored_indices = setdiff( 1:length(sites_db), model_point_indices );
             more_site_indices, _ = additional_points!( m, x, n_exp, sites_db[ unexplored_indices ], values_db[ unexplored_indices ], Δ_2, θ_pivot_cholesky, max_model_points ); # sites are added to m in-place
             more_site_indices = unexplored_indices[more_site_indices];
-            @info("\tFound $(length(more_site_indices)) sites with indices $more_site_indices to further enhance the model.")
+            @info("\tFound $(length(more_site_indices)) sites with indices $(length(more_site_indices)>10 ? [more_site_indices[1:10]; "…"] : more_site_indices) to further enhance the model.")
 
             n_points = length(m.training_sites);
             n_still_missing = Int64(min( max_model_points - n_points, max_evals - length(sites_db) - 1 ));

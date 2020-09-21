@@ -138,7 +138,7 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             ω = - maximum( ∇f * dir )/ norm_dir;
         else
             prob = JuMP.Model(OSQP.Optimizer);
-            #JuMP.set_silent(prob)
+            JuMP.set_silent(prob)
             @variable(prob, 0.0 <= λ <= 1.0)
             @objective(prob, Max, λ )
             @constraint(prob, ∇con, 0.0 .<= x .+ λ .* (∇f_pinv * image_direction) .<= 1.0 );
@@ -146,7 +146,7 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             #@constraint(prob, global_const, 0.0 .<= x .+ d .<= 1.0 )   # honor global constraints
             JuMP.optimize!(prob)
             λ_opt = value(λ)
-            @show λ_opt
+            #@show λ_opt
             dir, step_size = scale( λ_opt .* (∇f_pinv * image_direction), Δ );
             ω = min(- maximum( ∇f * dir ) / norm(dir, Inf), 1.0)
         end
