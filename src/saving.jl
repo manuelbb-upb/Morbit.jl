@@ -18,6 +18,8 @@ end
 
 function load_config( filename :: String)
   local opt :: AlgoConfig;
+  #Core.eval(Main, :(import Morbit: AlgoConfig))
+  #Core.eval( Main, :(using Morbit))
   if isfile(filename)
     @load filename opt
     return opt

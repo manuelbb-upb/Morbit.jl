@@ -38,21 +38,22 @@ for v ∈ F
 end
 
 opt_settings = AlgoConfig(
-    max_iter = 10,
+    max_iter = 30,
     ε_crit = 1e-9,
-    Δ₀ = .2,
-    θ_enlarge_1 = 4.0,
-    θ_pivot = 1.0,
+    all_objectives_descent = true,
+    Δ₀ = .1,
+    #θ_enlarge_1 = 4.0,
+    θ_pivot = 1/4,
     ν_accept = -1e-15,
-    Δ_max = 0.5,
-    θ_enlarge_2 = 10.0,
     max_critical_loops = 2,
     descent_method = :direct_search,
+    feature_scaling = false,
     rbf_kernel = :multiquadric,
-    rbf_shape_parameter = cs -> 1.0,# / (cs.iter_data.Δ),
+    rbf_poly_deg = 1,
+    rbf_shape_parameter = cs -> 10 / (cs.iter_data.Δ),
     sampling_algorithm = :orthogonal,
     max_model_points = 300,
-    ideal_point = [-1;-100]
+    ideal_point = [-1;-1]
 )
 
 problem_instance = MixedMOP(lb = lb, ub = ub)

@@ -8,23 +8,28 @@ lb = -3 .* ones(2)
 ub = 3 .* ones(2)
 
 x_0 = lb .+ (ub .- lb ) .* rand(2);
+#x_0 = [1.9893381732081306, 2.3364546273987514]    # funny stuff in direct_search
 
 f1(x) = (x[1] - 1)^2 + (x[2] - 1)^2;
 f2(x) = (x[1] + 1)^2 + (x[2] + 1)^2;
 
 opt_settings = AlgoConfig(
     #max_iter = typemax(Int64),
-    max_iter = 100,
+    max_iter = 10,
     Δ₀ = .1,
+    use_max_points = true,
+    rbf_kernel = :multiquadric,
+    rbf_poly_deg = 1,
     max_critical_loops = 10,
     ε_crit = 0.0000000001,
     all_objectives_descent = true,
-    sampling_algorithm = :orthogonal,
-    descent_method = :steepest,
-    #ideal_point = [0,0]
+    sampling_algorithm = :monte_carlo,
+    descent_method = :direct_search,
+    feature_scaling = false,
+    ideal_point = [0,0]
 );    # use default settings
 
-problem_instance = MixedMOP()# lb = lb, ub = ub);
+problem_instance = MixedMOP(lb = lb, ub = ub);
 
 add_objective!(problem_instance, f1, :expensive)
 add_objective!(problem_instance, f2, :expensive)

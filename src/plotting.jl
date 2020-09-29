@@ -1,6 +1,7 @@
 # plotting recipes
 using RecipesBase
-import Plots: palette, plot, RGB
+using RecipesBase: plot
+using ColorSchemes: oslo, grayC, RGB
 
 import Base: +
 +(c::RGB, v :: Float64) = RGB( min(c.r + v, 1.0), min(c.g + v, 1.0), min(c.b + v,1.0) )
@@ -10,7 +11,7 @@ export plot_decision_space, plot_objective_space
 default_line_color = :cornflowerblue
 default_pareto_color = :mediumseagreen
 default_data_color = :lightgoldenrod
-default_palette(n) = n > 1 ? palette( :oslo, n; rev = false ) : [RGB(zeros(3)...)]
+default_palette(n) = n > 1 ? get(oslo, range(0,1;length=n)) : [RGB(zeros(3)...)]
 markersizes_fn(n) = n > 1 ? map( x -> 3 + 3 * x^1.1, range(1,0; length = n ) ) : 3;
 
 # Decision Space Plotting
@@ -198,7 +199,7 @@ end
     iter_data = d.args[1].iter_data;
     stepsizes = iter_data.stepsize_array;
     ρs = iter_data.ρ_array;
-    linear_flags = [mi.fully_linear for mi ∈ iter_data.model_info_array];
+    linear_flags = [mi.fully_linear for mi ∈ iter_data.model_meta.model_info_array];
     iterations = 1:length(stepsizes)
 
     title := "Step Sizes."
@@ -299,7 +300,7 @@ end
         #fillalpha := .25
 
         seriescolor := reverse(iter_colors)[ plot_iter_indices ]'
-        linecolor := length(plot_iter_indices) > 1 ? palette( :grayC, length(plot_iter_indices), rev = true ) : :lightgray
+        linecolor := length(plot_iter_indices) > 1 ? get(grayC, range(1,0;length=n)) : :lightgray
 
         ticks := n_out == 1 ? [1] : collect( 1 : n_out )
 

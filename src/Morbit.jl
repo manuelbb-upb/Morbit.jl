@@ -1,7 +1,6 @@
 module Morbit
 
-using LinearAlgebra: norm, I, qr, lu, cholesky, givens, tril, pinv
-using LinearAlgebra: rank;
+using LinearAlgebra: norm, I, qr, cholesky, givens, pinv, Hermitian
 using ForwardDiff: jacobian, gradient
 using JuMP
 using OSQP
@@ -12,15 +11,19 @@ using Parameters: @with_kw, @unpack, @pack!, reconstruct   # use Parameters pack
 import Base: isempty, Broadcast, broadcasted
 using Base.Iterators: drop
 
-export RBFModel, train!, improve!
 export optimize!
 export AlgoConfig, IterData, MOP, HeterogenousMOP
+
+include("data_structures.jl")
 
 include("PointSampler.jl")
 using .PointSampler: monte_carlo_th, MonteCarloThDesign
 
-include("data_structures.jl")
 include("rbf.jl")
+using .RBF: RBFModel, train!, output, grad, is_valid, jac, min_num_sites, get_Π, get_Φ, φ, Π_col, as_second!
+
+include("feature_scaling.jl")
+
 include("sampling.jl")
 include("training.jl")
 include("constraints.jl")
@@ -54,7 +57,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     @unpack μ, β, ε_crit, ν_success, ν_accept, γ_crit, γ_grow, γ_shrink, γ_shrink_much = config_struct; # algorithm parameters
     @unpack Δ_max, θ_enlarge_1, θ_enlarge_2, θ_pivot, θ_pivot_cholesky = config_struct                  # sampling parameters
     @unpack all_objectives_descent, descent_method = config_struct;                                     # descent step parameter
-    @unpack rbf_kernel, rbf_shape_parameter, max_model_points = config_struct;                          # rbf model parameters
+    @unpack max_model_points = config_struct;                          # rbf model parameters
     @unpack ideal_point, image_direction = config_struct;                            # objective related parameters
 
     @pack! config_struct = problem   # so that subroutines can evaluate the objectives etc.
@@ -71,6 +74,17 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     if θ_enlarge_2 == 0
         θ_enlarge_2 = max( 10, sqrt(n_vars) );  # as in ORBIT paper according to Wild
         config_struct.θ_enlarge_2 = θ_enlarge_2;
+    end
+
+    # make sure that the constraint flag is set correctly
+    if !isempty(problem.lb)
+        if isempty(problem.ub)
+            @error("Problem must be fully box constrained or unconstrained.")
+        else
+            problem.is_constrained = true
+        end
+    else
+        problem.is_constrained = false
     end
 
     # reorder ideal_point and image_direction if indices are different
@@ -97,9 +111,10 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     # BEGINNING OF OPTIMIZATION ROUTINE
 
     # initialize iteration sites/values and databases
-    Δ = Δ₀ #maximum( scaling_func( Δ₀ ) ); # TODO THINK ABOUT THIS
+    Δ = Δ₀;
     x = scale(problem, x₀ );
-    @info "Starting at x₀ = $x with Δ₀= $Δ (scaled to unit hypercube [0,1]^n)."
+    x_index = 1;
+    @info "Starting at x₀ = $x $(problem.is_constrained ? "(scaled to unit hypercube [0,1]^n " : "")with Δ₀= $Δ."
 
     config_struct.n_exp = problem.n_exp        # set number of expensive objectives    TODO remove from config_struct
     config_struct.n_cheap = problem.n_cheap;   # set number of cheap objectives
@@ -114,19 +129,29 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         end
     end
 
+    # Initialize iteration data
     if isnothing( config_struct.iter_data )
-        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = [], values_db = [], update_extrema = config_struct.scale_values);   # make values available to subroutines
+        iter_data = IterData( x = x, f_x = f_x, x_index = 1, Δ = Δ, sites_db = [x], values_db = [f_x], update_extrema = config_struct.feature_scaling);   # make values available to subroutines
     else
         # re-use old database entries
-        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = config_struct.iter_data.sites_db, values_db = config_struct.iter_data.values_db, update_extrema = config_struct.scale_values);
-        iter_data.sites_db[:] = unscale.(problem, apply_internal_sorting.( problem, iter_data.sites_db ))
+        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = config_struct.iter_data.sites_db, values_db = config_struct.iter_data.values_db, update_extrema = config_struct.feature_scaling);
+        iter_data.sites_db[:] = unscale.(problem, iter_data.sites_db );
+        iter_data.values_db[:] = apply_internal_sorting.( problem, iter_data.values_db );
+        # look for x in old data
+        let x_index = findfirst( [ X ≈ x for X in iter_data.sites_db ]  );   # TODO check atol
+            if !( iter_data.values_db[x_index] ≈ f_x )
+                error( "f_x at starting point does not equal provided database value (at index $x_index)!")
+            end
+            if isnothing(x_index)
+                push!(iter_data.sites_db , x )
+                push!(iter_data, f_x)       # will update extrema
+                x_index = length(sites_db)
+            end
+            iter_data.x_index = x_index
+        end
     end
     @pack! config_struct = iter_data;
     @unpack sites_db, values_db = iter_data;
-    if !(x ∈ sites_db)
-        push!(sites_db , x )
-        push!(iter_data, f_x)
-    end
 
     # initialize surrogate model
     @info("Initializing model.")
@@ -140,7 +165,9 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
     accept_x₊ = true;
 
-    @unpack iterate_indices, model_info_array, stepsize_array, Δ_array, ω_array, ρ_array, num_crit_loops_array = iter_data;   # unpack data collection containers
+    @unpack iterate_indices, stepsize_array, Δ_array, ω_array, ρ_array, num_crit_loops_array, model_meta = iter_data;   # unpack data collection containers
+    @unpack model_info_array, model_info = model_meta;      # IF RBF: save surrogate information for plotting etc
+
     push!(iterate_indices, 1);
     while loop_check(Δ, stepsize, iter_index)
 
@@ -157,10 +184,10 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         if iter_index > 1   # model is initialized outside of while to store it in iter data; update not at end of while to save computation if no more iterations are comming
             if improvement_step
                 @info("\tImproving model.")
-                improve!(rbf_model, config_struct, problem.is_constrained);
+                improve!(rbf_model, config_struct )#, problem.is_constrained);
             else
                 @info("\tUpdating model…")
-                rbf_model = build_model( config_struct, problem.is_constrained ) # "update" model (actually constructs a new model instance)
+                rbf_model = build_model( config_struct) #, problem.is_constrained ) # "update" model (actually constructs a new model instance)
             end
         end
 
@@ -174,7 +201,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         if ω <= ε_crit      # analog to small gradient
             @info("\tEntered criticallity test!")
             if !rbf_model.fully_linear
-                n_improvements = make_linear!(rbf_model, config_struct, problem.is_constrained);
+                n_improvements = make_linear!(rbf_model, config_struct)#, problem.is_constrained);
                 if n_improvements > 0
                     ω, d, stepsize = compute_descent_direction( config_struct, rbf_model ) ;#compute_descent_direction(Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, problem.is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
                 end
@@ -188,7 +215,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
                     @pack! iter_data = Δ;
                     @info("\t\tCritical loop no. $num_critical_loops with Δ = $Δ > $μ * $ω = $(μ*ω)")
                     # NOTE matlab version able to set exit flag here when eval budget is exhausted -> then breaks
-                    changed = make_linear!(rbf_model, config_struct, Val(true), problem.is_constrained);
+                    changed = make_linear!(rbf_model, config_struct, Val(true))#, problem.is_constrained);
                     if changed
                         ω, d, stepsize = compute_descent_direction( config_struct, rbf_model ) ;#compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, problem.is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
                         exit_flag = !Δ_big_enough(Δ, stepsize)
@@ -214,37 +241,34 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         @info("\tAttempting descent of length $stepsize.")
 
         x₊ = intobounds(x + d, Val(problem.is_constrained));
-        m_x = eval_surrogates( problem, rbf_model, x )
-        m_x₊ = eval_surrogates( problem, rbf_model, x₊ )
-        f_x₊ = eval_all_objectives(problem, x₊)
+        m_x = eval_surrogates( config_struct, rbf_model, x )
+        m_x₊ = eval_surrogates( config_struct, rbf_model, x₊ )
+        f_x₊ = eval_all_objectives(config_struct, x₊)
 
-        if config_struct.scale_values   # TODO either remove 'scale_values' completely or fix it
-            M_x = scale(iter_data, m_x)
-            M_x₊ = scale( iter_data, m_x₊)
-            F_x₊ = scale( iter_data, f_x₊)
-            F_x = scale( iter_data, f_x )
-        else
-            M_x, M_x₊, F_x₊, F_x = m_x, m_x₊, f_x₊, f_x
-        end
+        # scale trial point according to current Min and Max value vectors in iter_data
+        F_x₊ = scale( f_x₊, iter_data )
+        F_x = scale(f_x, iter_data);
 
-        @info("\t\tm_x   = $M_x")
-        @info("\t\tm_x_+ = $M_x₊")
+        @info("\t\tm_x   = $m_x")
+        @info("\t\tm_x_+ = $m_x₊")
         @info("\t\tf_x_+ = $F_x₊")
 
-        expensive_indices = 1:problem.n_exp;    # calculate ρ only for expensive indices because else F = M and ρ = 1
-
-        M_x, M_x₊, F_x₊, F_x = (arr -> arr[expensive_indices]).( [M_x, M_x₊, F_x₊, F_x ] )
+        # retrieve expensive components only
+        @show F_x₊
+        @show f_x₊
+        F_x₊, F_x = expensive_components.( [F_x₊, F_x], config_struct)
+        M_x, M_x₊ = expensive_components.([m_x, m_x₊] , config_struct)
 
         @info("\t\tError between M_x and F_x is $( sum( abs.(M_x .- F_x) ) ).")
 
         # acceptance test ratio
-        if isempty(expensive_indices)
+        if isempty(problem.n_exp == 0)
             ρ = 1.0
         else
             if all_objectives_descent
                 ρ = minimum( (F_x .- F_x₊) ./ (F_x .- M_x₊) )
             else
-                ρ = let max_f_x = maximum( F_x ); ( max_f_x - maximum( F_x₊ ) ) / ( max_f_x - maximum( M_x₊ ) ) end;
+                ρ = let max_F_x = maximum( F_x ); ( max_F_x - maximum( F_x₊ ) ) / ( max_F_x - maximum( M_x₊ ) ) end;
             end
         end
 
@@ -252,8 +276,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
         # save values to database
         push!(sites_db, x₊)
-        #push!(values_db, f_x₊)
-        push!(iter_data, f_x₊)
+        push!(iter_data, f_x₊)  # save all UNSCALED components of trial point
 
         # Update iter data components (I)
         push!( iter_data.trial_point_indices, length(sites_db) )
@@ -263,7 +286,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         push!( num_crit_loops_array, num_critical_loops );
         push!( ρ_array, ρ );
         if config_struct.n_exp > 0
-            push!( model_info_array, deepcopy(rbf_model.model_info) );
+            push!( model_info_array, deepcopy(model_info) );
         end
 
         # perform iteration step
@@ -295,17 +318,18 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         if accept_x₊
             x = x₊;
             f_x = f_x₊;
-            push!(iterate_indices, length(sites_db));
+            x_index = length(sites_db);
+            iter_data.x_index = x_index;
         else
-            push!(iterate_indices, iterate_indices[end])
             @info("\tUnsuccessful descent attempt.")
         end
 
         # update iteration data for subsequent subroutines
+        push!(iterate_indices, x_index);
         @pack! iter_data = x, f_x, Δ
     end
 
-    # Finished!
+    # Finished everything!
     @info("\n\n--------------------------")
     @info("Finished optimization after $iter_index iterations and $(length(sites_db)) evaluations.")
     @info("Final (unscaled) x  = $(unscale(problem, x)).")

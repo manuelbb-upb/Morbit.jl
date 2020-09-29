@@ -29,7 +29,7 @@ end
 
 function scale( dir :: Vector{Float64}, Δ :: Float64 )
     d_norm = norm(dir,Inf);
-    step_size = d_norm ≈ 1.0 ? Δ : min( Δ, d_norm);
+    step_size = (d_norm + 1e-10 < 1.0 || Δ <= 1.0) ? min( Δ, d_norm) : Δ;
     scaled_dir = dir ./ d_norm;
     return scaled_dir, step_size
 end
@@ -48,9 +48,10 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
     @unpack iter_data, n_vars = config_struct;
     @unpack x, f_x, Δ = iter_data;                  # iteration information
 
+    f_x = scale(f_x, iter_data);
     @unpack all_objectives_descent = config_struct;
 
-    ∇f = eval_jacobian( problem, m, x )
+    ∇f = eval_jacobian( config_struct, m, x )
 
     # construct quadratic optimization problem as by fliege and svaiter
     prob = JuMP.Model(OSQP.Optimizer);
@@ -71,7 +72,7 @@ function compute_descent_direction( type::Val{:steepest}, config_struct::AlgoCon
     ω = let o = - value(α); constrained_flag ? min( o, 1.0 ) : o end
     dir, step_size = scale( value.(d), Δ )
 
-    x₊, m_x₊, dir, step_size = backtrack( x, f_x, dir, step_size, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
+    x₊, m_x₊, dir, step_size = backtrack( x, f_x, dir, step_size, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(config_struct, m, X) )
 
     return ω, dir, step_size
 end
@@ -82,11 +83,12 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
 
     @unpack iter_data, n_vars = config_struct;
     @unpack x, f_x, Δ = iter_data;                  # iteration information
+    f_x = scale(f_x, iter_data);
 
     @unpack all_objectives_descent = config_struct;
     @unpack ideal_point, image_direction, θ_enlarge_1 = config_struct;
 
-    ∇f = eval_jacobian( problem, m, x )
+    ∇f = eval_jacobian( config_struct, m, x )
 
     ε_pinv = 1e-3;  # distance from bounds up to which pseudo-inverse is used
 
@@ -113,13 +115,18 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
                 opt.xtol_rel = 1e-6;
                 opt.maxeval = 200;
                 # TODO calculate *global* optima
-                opt.min_objective = get_optim_handle( problem, m, l )
+                opt.min_objective = get_optim_handle( config_struct, m, l )
                 (minf,minx,ret) = NLopt.optimize(opt, X_0 );
                 ideal_point[l] = minf;
             end
+        else
+            ideal_point = scale( ideal_point, iter_data )
         end
-
         image_direction = ideal_point .- f_x;
+    else
+        if iter_data.update_extrema
+            image_direction ./= (iter_data.max_value .- iter_data.min_value)
+        end
     end
 
     @info("\t(Local) ideal point is $ideal_point and im direction is $image_direction.")
@@ -138,20 +145,25 @@ function compute_descent_direction( type::Val{:direct_search}, config_struct::Al
             ω = - maximum( ∇f * dir )/ norm_dir;
         else
             prob = JuMP.Model(OSQP.Optimizer);
-            JuMP.set_silent(prob)
+            #JuMP.set_silent(prob)
             @variable(prob, 0.0 <= λ <= 1.0)
+            set_optimizer_attribute(prob,"eps_rel",1e-5)
+            set_optimizer_attribute(prob, "polish", true)
             @objective(prob, Max, λ )
             @constraint(prob, ∇con, 0.0 .<= x .+ λ .* (∇f_pinv * image_direction) .<= 1.0 );
             @constraint(prob, unit_const, -1.0 .<= λ .* (∇f_pinv * image_direction) .<= 1.0 );
             #@constraint(prob, global_const, 0.0 .<= x .+ d .<= 1.0 )   # honor global constraints
             JuMP.optimize!(prob)
             λ_opt = value(λ)
-            #@show λ_opt
+            @show λ_opt
+            d = λ_opt .* (∇f_pinv * image_direction);
+            @show ∇f * d
             dir, step_size = scale( λ_opt .* (∇f_pinv * image_direction), Δ );
-            ω = min(- maximum( ∇f * dir ) / norm(dir, Inf), 1.0)
+            @show maximum( ∇f * dir )
+            ω = min(- maximum( ∇f * dir ), 1.0)
         end
 
-        x₊, m_x₊, dir, step_size = backtrack( x, f_x, dir, step_size, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(problem, m, X) )
+        x₊, m_x₊, dir, step_size = backtrack( x, f_x, dir, step_size, ω, constrained_flag, all_objectives_descent, X -> eval_surrogates(config_struct, m, X) )
         #_, steepest_step, _ = compute_descent_direction( Val(:steepest), config_struct, m)
 
         #@show ∇f * (dir - steepest_step )

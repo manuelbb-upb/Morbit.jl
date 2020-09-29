@@ -1,5 +1,7 @@
 export ParetoSet, ParetoFrontier
 export MixedMOP, add_objective!, add_vector_objective!
+#export ObjectiveFunction, BatchObjectiveFunction, VectorObjectiveFunction
+export IterData
 
 import Base: push!
 
@@ -11,7 +13,7 @@ import Base: push!
 end
 
 @with_kw struct VectorObjectiveFunction <: Function
-    function_handle :: Union{T, Nothing} where{T<:Function} = nothing 
+    function_handle :: Union{T, Nothing} where{T<:Function} = nothing
 end
 
 # … to allow for batch evaluation outside of julia or to exploit parallelized objective functions
@@ -31,7 +33,7 @@ end
 
 # overload broadcasting for VectorObjectiveFunction
 # original behavior: f.( [[x11; x12]; [x21;x22]] ) = [ [f11;f12]; [f21;f22] ]
-# desired bevavior : f.( [[x11; x12]; [x21;x22]] ) =  [f11 f21;f12 f22] 
+# desired bevavior : f.( [[x11; x12]; [x21;x22]] ) =  [f11 f21;f12 f22]
 function broadcasted( objf::VectorObjectiveFunction, args... )
     src_eval = objf.function_handle.( args...);
     hcat( collect( eachrow( hcat( src_eval... ) ) )... )
@@ -159,11 +161,11 @@ function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, ty
     else
         wrapped_func = BatchObjectiveFunction( func )
     end
-    
+
     if n_out > 1
     	wrapped_func = VectorObjectiveFunction( wrapped_func )
     end
-    	
+
     if type == :expensive
         push!( problem.vector_of_expensive_funcs, wrapped_func);
         insert_position = problem.n_exp + 1;
@@ -201,20 +203,37 @@ function add_objective!( problem :: MixedMOP, func :: T where{T <: Function}, gr
 end
 # =====================================================================================
 
-
+#=
 @with_kw mutable struct TrainingData
     Y :: Array{Float64,2} = Matrix{Float64}(undef, 0,0);   # matrix of other sites, translated by -x
     Z :: Array{Float64,2} = Matrix{Float64}(undef, 0,0);;   # first column of orthogonal basis to improve non linear model
 end
 
 isempty( t :: TrainingData ) = isempty(t.Y) || isempty(t.Z);
+=#
 
 @with_kw mutable struct ModelInfo
     center_index :: Int64 = 1;
     round1_indices :: Vector{Int64} = [];
     round2_indices :: Vector{Int64} = [];
     round3_indices :: Vector{Int64} = [];
+    round4_indices :: Vector{Int64} = [];
     fully_linear :: Bool = true;
+    Y :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
+    Z :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
+end
+
+#=
+function get_Y( iter_data :: IteraData )
+    mi = iter_data.model_meta.model_info
+    hcat( (iter_data.sites_db[ mi.round1_indices ] .- iter_data.sites_db[ mi.center_index ])... )
+end
+=#
+
+@with_kw mutable struct RBFMeta
+    #tdata :: TrainingData = TrainingData();
+    model_info :: ModelInfo = ModelInfo();
+    model_info_array :: Vector{ModelInfo} = [];
 end
 
 # collectible data during iterations (used for plotting and analysis)
@@ -222,6 +241,7 @@ end
     # "global" data (actually used during iteration)
     x :: Vector{Float64} = []  # current iteration site
     f_x :: Vector{Float64} = []  # true objective values at current iterate,
+    x_index :: Int64 = 0;
     Δ :: Float64 = 0.0;
     sites_db :: Vector{Vector{Float64}} = []; # array of all sites that have been evaluated.
     values_db :: Vector{Vector{Float64}} = []; # array of all true values computed so far
@@ -230,40 +250,39 @@ end
     max_value :: Vector{Float64} = isempty(values_db) ? [] : vec(maximum( hcat( values_db... ), dims = 2 ));
     update_extrema :: Bool = false;
 
+    model_meta :: Union{ Nothing, RBFMeta } = RBFMeta(); # iteration dependent surrogate data
+
     # Arrays (1 entry per iteration)
     iterate_indices :: Vector{ Int64 } = [];
     trial_point_indices :: Vector{Int64} = [];
-    model_info_array :: Vector{ModelInfo} = [];
+    #model_info_array :: Vector{ModelInfo} = [];
     stepsize_array :: Vector{Float64} = [];  # a bit redundant, since iterates are given
     Δ_array :: Vector{Float64} = [];
     ω_array :: Vector{Float64} = [];
     ρ_array :: Vector{Float64} = [];
     num_crit_loops_array :: Vector{Int64} = [];
 end
+Broadcast.broadcastable(id :: IterData) = Ref(id);
 
-@doc "Specialized push! for IterData instances. Appends `args` to field `values_db` and updates `min_value` and `max_value`."
-function push!( id :: IterData, new_vals... )
-    if !isempty(new_vals)
-        push!(id.values_db, new_vals... )
-        if id.update_extrema
-            if isempty(id.min_value)
-                id.min_value = isempty(id.values_db) ? [] : vec(minimum( hcat( id.values_db... ), dims = 2 ));
-            else
-                new_vals_min = vec(minimum( hcat( new_vals... ), dims = 2 ));
-                id.min_value = vec(minimum( hcat( id.min_value, new_vals_min ), dims = 2 ));
-            end
-            if isempty(id.max_value)
-                id.max_value = isempty(id.values_db) ? [] : vec(maximum( hcat( id.values_db... ), dims = 2 ));
-            else
-                new_vals_max = vec(maximum( hcat( new_vals... ), dims = 2 ));
-                id.max_value = vec(maximum( hcat( id.max_value, new_vals_max ), dims = 2 ));
-            end
-        end
-    end
+function rbf_training_indices( mi :: ModelInfo )
+    return [
+        mi.center_index;
+        mi.round1_indices;
+        mi.round2_indices;
+        mi.round3_indices;
+        mi.round4_indices;
+    ]
+end
+
+function rbf_training_indices( id :: IterData )
+    return rbf_training_indices( id.model_meta.model_info )
+end
+
+function non_rbf_training_indices( id :: IterData )
+    setdiff( 1 : length(id.sites_db), rbf_training_indices( id ) )
 end
 
 @with_kw mutable struct AlgoConfig
-    verbosity :: Bool = true;
 
     n_vars ::Int64 = 0; # is reset during optimization
     n_exp :: Int64 = 0; # number of expensive objectives
@@ -278,14 +297,15 @@ end
     rbf_shape_parameter :: T where T<:Function = config_struct -> 1.0
     max_model_points ::Int64 = 2*n_vars^2 + 1;  # maximum number of points to be included in the construction of 1 model
 
-    max_iter :: Int64 = 1000;
+    max_iter :: Int64 = 500;
     max_evals :: Union{Int64,Float64} = Inf;    # maxiumm number of expensive function evaluations
 
     descent_method :: Symbol = :steepest # :steepest or :direct_search ( TODO implement local Pascoletti-Serafini )
     ideal_point :: Vector{Float64} = [];
     image_direction :: Vector{Float64} = [];
 
-    scale_values :: Bool = false;    # scale_values internally
+    feature_scaling :: Bool = true;
+
     all_objectives_descent :: Bool = false;  # compute ρ as the minimum of descent ratios for ALL objetives
 
     # criticallity parameters
@@ -303,11 +323,11 @@ end
     γ_shrink :: Float64 = 0.8;
     γ_shrink_much :: Float64 = 0.4;
 
-    Δ₀ :: Float64 = 0.4;
-    Δ_max :: Float64 = 1;
+    Δ₀ :: Float64 = 0.1;
+    Δ_max :: Float64 = 0.5;
 
     θ_enlarge_1 :: Float64 = 4.0;        # as in ORBIT according to Wild
-    θ_enlarge_2 :: Float64 = 0.0;     # is probably reset during optimization
+    θ_enlarge_2 :: Float64 = min(θ_enlarge_1, 2.0 / Δ_max) ;     # is probably reset during optimization
     θ_pivot :: Float64 = 1 / (2*θ_enlarge_1);
     θ_pivot_cholesky :: Float64 = 1e-7;
     use_max_points :: Bool = false;
@@ -315,7 +335,7 @@ end
     sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
 
     # additional stopping criteria (mostly inspired by thoman)
-    Δ_critical = 1e-2;   # max ub - lb / 10
+    Δ_critical = 1e-3;   # max ub - lb / 10
     Δ_min = Δ_critical * 1e-3;
     stepsize_min = 1e-2 * Δ_critical;   # stop if Δ < Δ_critical & step_size < stepsize_min
     # NOTE thomann uses stepsize in image space due to PS scalarization
@@ -335,6 +355,7 @@ end
     # TODO make sure Δ_max is bounded by a fraction of global boundaries (requires mutable struct?)
 
 end
+Broadcast.broadcastable(id :: AlgoConfig) = Ref(id);
 
 # Outer Constructor to obtain default configuration adapted for n_vars input variables.
 AlgoConfig( n_vars ) = AlgoConfig( θ_enlarge_2 = max(sqrt(n_vars), 4) )

@@ -1,4 +1,6 @@
-function sample_new(constrained_flag, x, Δ, direction, min_pivot_value, max_factor = 0.0)
+function sample_new(constrained_flag :: Bool, x :: Vector{R}, Δ :: Float64, direction :: Vector{D}, min_pivot_value :: Float64, max_factor = 0.0) where{
+    R,D<:Real
+    }
     if max_factor == 0.0
         max_factor = Δ
     end
@@ -10,7 +12,7 @@ function sample_new(constrained_flag, x, Δ, direction, min_pivot_value, max_fac
         cap(σ) = abs(σ) > abs(max_factor) ? sign(σ) * abs(max_factor) : σ;
 
         # check whether we have sufficient independence in either admitted direction
-        max_norm, arg_max =  findmax( [ -σ₋ , σ₊] );
+        max_norm, arg_max = findmax( [ -σ₋ , σ₊] );
 
         if max_norm >= min_pivot_value
             if arg_max == 1
@@ -27,27 +29,79 @@ function sample_new(constrained_flag, x, Δ, direction, min_pivot_value, max_fac
     return new_site
 end
 
+function get_new_sites( :: Val{:orthogonal}, N :: Int64, x :: Vector{Float64}, Δ :: Float64,
+        θ_pivot :: Float64, Y :: TY, Z :: TZ, constrained_flag :: Bool,
+        seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}}() ) where{ TY, TZ <: AbstractArray }
+    n_vars = length(x);
+    additional_sites = Vector{Vector{Float64}}();
+    min_pivot = Δ * θ_pivot# * sqrt(n_vars);
+
+    @info("\t Sampling at $(N) new sites, pivot value is $min_pivot.")
+    for i = 1 : N
+        new_site = sample_new(constrained_flag, x, Δ, Z[:,1], min_pivot, Δ )
+        if isempty( new_site )
+            break;
+        end
+
+        push!(additional_sites, new_site);
+        Y = hcat( Y, new_site - x );
+        Z = Z[:, 2 : end];
+    end
+    return additional_sites, Y, Z
+end
+
+function get_new_sites( :: Val{:monte_carlo}, N :: Int64, x :: Vector{Float64}, Δ :: Float64,
+        θ_pivot :: Float64, Y :: TY, Z :: TZ, constrained_flag :: Bool,
+        seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}} ) where{ TY, TZ <: AbstractArray }
+    n_vars = length(x);
+    lb_eff, ub_eff = effective_bounds_vectors(x, Δ, Val(constrained_flag));
+
+    additional_sites = Vector{Vector{Float64}}();
+    min_pivot = Δ * θ_pivot #* sqrt(n_vars)
+
+    for true_site ∈ drop( MonteCarloThDesign( 30 * N, lb_eff, ub_eff, seeds ), length(seeds) ) # TODO the factor 30 was chosen at random
+        site = true_site .- x;
+        piv_val = norm(Z*(Z'site),Inf)
+        if piv_val >= min_pivot
+            Y = hcat(Y, site )
+            Q,_ = qr(Y);
+            Z = Q[:, size(Y,2) + 1 : end];
+
+            push!(additional_sites, true_site);
+            N -= 1
+        end
+        if N == 0
+            break;
+        end
+    end
+
+    n_still_missing = N - length(additional_sites)
+    if n_still_missing > 0
+        even_more_sites, Y, Z = get_new_sites( Val(:orthogonal), n_still_missing, x, Δ, θ_pivot, Y, Z, constrained_flag,
+                [seeds; additional_sites] )
+        push!(additional_sites, even_more_sites...)
+    end
+
+    return additional_sites, Y, Z
+end
+
 function rebuild_model( config_struct :: AlgoConfig )
     @info "\tREBUILDING model along coordinate axes."
-    @unpack n_vars, Δ_max, n_exp, n_cheap, θ_pivot, θ_enlarge_1, θ_enlarge_2, θ_pivot_cholesky, max_model_points, max_evals, rbf_poly_deg, rbf_kernel, rbf_shape_parameter = config_struct;
+    @unpack n_vars, Δ_max, n_exp, n_cheap, θ_pivot, θ_enlarge_1, θ_enlarge_2,
+        max_model_points, max_evals, rbf_poly_deg, rbf_kernel, rbf_shape_parameter = config_struct;
 
     @unpack problem = config_struct;
 
     @unpack iter_data = config_struct;
-    @unpack x, f_x, Δ, sites_db, values_db = iter_data;
+    @unpack x, f_x, x_index, Δ, sites_db, values_db = iter_data;
 
-    m = RBFModel(
-        kernel = rbf_kernel,
-        shape_parameter = rbf_shape_parameter(config_struct),
-        fully_linear = true;
-        polynomial_degree = rbf_poly_deg
-        );
+    iter_data.model_meta.model_info = ModelInfo( center_index = x_index )
 
     Δ_1 = θ_enlarge_1 * Δ;
-    Δ_2 = θ_enlarge_2 * Δ_max;
-    min_pivot = Δ*θ_pivot;#sqrt(n_vars) * Δ * θ_pivot;
+    min_pivot = Δ*θ_pivot;
 
     # sample along carthesian coordinates
+    ## collect sites in an array (new_sites) to profit from batch evaluation afterwards
     Y = Matrix{Float64}(undef, n_vars, 0);
     n_evals_left = max_evals - length(sites_db) - 1;
     n_steps = Int64( min( n_vars, n_evals_left ) );
@@ -55,7 +109,7 @@ function rebuild_model( config_struct :: AlgoConfig )
     for i = 1 : n_steps
         direction = zeros(Float64, n_vars);
         direction[i] = 1.0;
-        new_site = sample_new(true, x, Δ_1, direction, min_pivot, rand([-1.0, 1.0]) * Δ_1 )
+        new_site = sample_new(true, x, Δ_1, direction, min_pivot, Δ_1 )
         if !isempty(new_site)
             Y = hcat(Y, new_site .- x);
             push!(new_sites, new_site);
@@ -63,235 +117,126 @@ function rebuild_model( config_struct :: AlgoConfig )
             @info "Cannot rebuild a fully linear model, too near to boundary."
         end
     end
-    new_values = eval_all_objectives.(problem, new_sites);
-    push!(sites_db, new_sites...);
-    push!(iter_data, new_values...);
 
-    @info("\tSampled $n_steps new sites near variable boundaries.")
+    # (batch) evaluate at new sites and push to database
+    new_indices = eval_new_sites( config_struct, new_sites )
+    fully_linear = n_vars == length(new_indices) ? true : false;
 
-    if n_vars != n_steps
-        Q, _ = qr(Y);
-        Z = Q[:, size(Y,2) + 1 : end];
-        m.fully_linear = false;
-    else
-        Z = Matrix{Float64}(undef, n_vars, 0);
-    end
+    # update model meta data and save indices of new sites
+    iter_data.model_meta.model_info.fully_linear = fully_linear;
+    push!(iter_data.model_meta.model_info.round3_indices, new_indices...);
 
-    new_tdata = TrainingData( Y = Y, Z = Z);
+    # build preliminary surrogate models
+    m = RBFModel(config_struct)
 
-    new_indices = (length(sites_db) - n_steps + 1) : length(sites_db);
-    old_indices = 1 : (length(sites_db) - n_steps);
-
-    m.training_sites = [[x,]; sites_db[ new_indices ]];
-    m.training_values = [[f_x[1:n_exp],]; [ v[1:n_exp] for v ∈ values_db[ new_indices ] ] ];
-    m.tdata = new_tdata;
-
-    # look for EVEN MORE model enhancing points in big radius, ignore points considered already
-    more_site_indices, _ = additional_points!( m, x, n_exp, sites_db[ old_indices ], values_db[ old_indices ], Δ_2, θ_pivot_cholesky, max_model_points ); # sites are added to m in-place
-    more_site_indices = old_indices[ more_site_indices ];
-    @info("\tFound $(length(more_site_indices)) sites to further enhance the model.")
-    train!(m);
-
-    # update model_info
-    m.model_info.round1_indices = new_indices;
-    m.model_info.round3_indices = more_site_indices;
-    m.model_info.fully_linear = m.fully_linear;
+    ## backtracking search in unused points
+    add_points!(m, config_struct)
 
     return m
 end
 
-@doc """Build a new RBF model at iteration site x employing 3 steps:
+@doc """Build a new RBF model at iteration site x employing 4 steps:
     1) Find affinely independent points in slighly enlarged trust region.
     2) Find additional points in larger trust region until there are n+1 points.
-    3) Use up to p_max points to further improve the model.
+    3) Sample at new sites to have at least n + 1 interpolating sites in trust region.
+    4) Use up to p_max points to further improve the model.
 
     Newly sampled sites/values are added to the respective arrays.
 """
-function build_model( config_struct :: AlgoConfig, constrained_flag = false, criticality_round = false )
-    @unpack problem = config_struct;
-    @unpack is_constrained = problem;
-    @unpack n_vars, n_exp, n_cheap, max_evals = config_struct;
-    @unpack sampling_algorithm, use_max_points = config_struct;
-    @unpack iter_data = config_struct;
-    @unpack x, f_x, Δ, sites_db, values_db = iter_data;
+function build_model( config_struct :: AlgoConfig, criticality_round :: Bool = false ) #, constrained_flag = false, criticality_round = false )
 
-    if n_exp > 0    # we only need the complicated sampling procedures for well-defined surrogates
-        @unpack n_vars, rbf_kernel, rbf_shape_parameter, rbf_poly_deg, max_model_points, Δ_max, θ_enlarge_1, θ_enlarge_2, θ_pivot, θ_pivot_cholesky = config_struct;
+    if config_struct.n_exp > 0    # we only need the complicated sampling procedures for well-defined surrogates
+
+        @unpack rbf_kernel, rbf_shape_parameter, rbf_poly_deg, θ_enlarge_1,
+            θ_enlarge_2, θ_pivot, sampling_algorithm, problem = config_struct
+        @unpack n_vars, Δ_max, max_evals = config_struct;
+        @unpack iter_data = config_struct;
+        @unpack x, x_index, Δ, sites_db = iter_data;
+
+        # initalize new RBFModel
+        iter_data.model_meta.model_info = ModelInfo( center_index = x_index )
+
+        other_indices = non_rbf_training_indices( iter_data );
 
         Δ_1 = θ_enlarge_1 * Δ;
         Δ_2 = θ_enlarge_2 * Δ_max;
 
         # ============== Round 1 ======================#
         # find good points in database within slightly enlarged trust region
-        model_point_indices, Y1, Z1 = find_affinely_independent_points( sites_db, x, Δ_1, θ_pivot = θ_pivot )
-        @info("\tFound $(length(model_point_indices)) site(s) with indices $model_point_indices in first round with radius $Δ_1.")
+        new_indices, Y, Z = find_affinely_independent_points( sites_db[other_indices], x, Δ_1, θ_pivot, false);
+        new_indices = other_indices[ new_indices ];
+        @info("\tFound $(length(new_indices)) site(s) with indices $new_indices in first round with radius $Δ_1.")
+
+        iter_data.model_meta.model_info.round1_indices = new_indices;
+        setdiff!(other_indices, new_indices);
+
+        iter_data.model_meta.model_info.Y = Y;
+        iter_data.model_meta.model_info.Z = Z;  # columns contain model-improving directions
 
         # ============== Round 2 ======================#
-        θ_pivot_2 = Δ_2/Δ_1 * θ_pivot
-        Y2 = Y1;
-        Z2 = Z1;
+        n_missing = n_vars - length(new_indices)
+        if n_missing == 0
+            @info("\tThe model is fully linear.")
+            iter_data.model_meta.model_info.fully_linear = true;
+        else
+            # n_missing > 0 ⇒ we have to search some more
+            if !criticality_round
 
-        if !isempty( Z1 ) && !criticality_round     # don't enhance in criticallity loop, because we need a fully linear model
-            @info("\tMissing $(length(x) - length(model_point_indices)) sites, searching in database for radius $Δ_2.")
+                θ_pivot_2 = Δ_2/Δ_1 * θ_pivot
 
-            # find additional points in bigger trust region
-            other_sites_indices = setdiff(1 : length( sites_db), model_point_indices )   # ignore all points from first round
+                @info("\tMissing $n_missing sites, searching in database for radius $Δ_2.")
 
-            additional_point_indices_sub, Y2, Z2 = find_affinely_independent_points( sites_db[other_sites_indices], x, Δ_2; θ_pivot = θ_pivot_2, Y = Y1, Z = Z1 )
-            additional_point_indices = other_sites_indices[ additional_point_indices_sub ];
+                # find additional points in bigger trust region
+                new_indices, Y, Z = find_affinely_independent_points( sites_db[other_indices], x, Δ_2, θ_pivot_2, false, Y, Z )
+                new_indices = other_indices[ new_indices ];
 
-            @info("\tFound $(length(additional_point_indices)) site(s) in second round.")
-            push!(model_point_indices, additional_point_indices...);
+                @info("\tFound $(length(new_indices)) site(s) in second round.")
+                if length(new_indices) > 0
+                    @info("\tThe model is not fully linear.")
+                    iter_data.model_meta.model_info.round2_indices = new_indices;
+                    iter_data.model_meta.model_info.fully_linear = false;
+                    setdiff!(other_indices, new_indices);
+                    n_missing -= length(new_indices);
+                else
+                    iter_data.model_meta.model_info.fully_linear = true;
+                end
+            else
+                iter_data.model_meta.model_info.fully_linear = true;
+            end
         end
-
         # ============== Round 3 ======================#
         # if there are still sites missing then sample them now
-        min_pivot = sqrt(n_vars) * Δ * θ_pivot;
-
-        # determine 'fully_linear' and 'new_tdata'
-        n_missing = 0;
-        if !isempty(Z1)
-            if Y1 == Y2
-                @info("\tNo second round points, model is made fully linear.")
-                #fully_linear = true;
-                Y = Y1;
-                Z = Z2;
-                n_missing = size( Z, 2 );
-            else
-                @info("\tThe model is not fully linear.")
-                Y = Y2;
-                Z = Z2;
-                fully_linear = false;
-                new_tdata = TrainingData(Y = Y1, Z = Z1);    # save data from round 1 for improvement steps
-            end
-        else
-            @info("\tFound sufficiently many points in first sampling round.")
-            fully_linear = true;
-            Y = Y1;
-            Z = Z2;
-            new_tdata = TrainingData(Y = Y1, Z = Z1);
-        end
 
         if n_missing > 0
-        # sample at additional sites to obtain exactly n_vars (+1) training sites_array
+            if iter_data.model_meta.model_info.fully_linear
+                @info "The model is (hopefully) made fully linear by sampling at $n_missing sites."
+            else
+                @info "There are still $n_missing sites missing. Sampling..."
+            end
 
             n_evals_left = max_evals - length(sites_db) - 1;
             n_missing = Int64(min( n_missing , n_evals_left ));
 
-            fully_linear = n_missing <= n_evals_left;
-
-            min_pivot = sqrt(n_vars) * Δ * θ_pivot;
-            additional_sites = Array{Array{Float64,1},1}();
-
-            if sampling_algorithm == :orthogonal
-
-                @info("\t $(length(sites_db)) evals so far. Sampling at $(n_missing) new sites, pivot value is $min_pivot.")
-                for i = 1 : n_missing
-                    factor = rand([-1.0, 1.0]) * Δ_1;# (fully_linear ? Δ_1 : (Δ_1 + ( Δ_2 - Δ_1) * randquad()));   # TODO check if sensible: if model is *not* fully linear then samples are generated in a larger region
-                    new_site = sample_new(constrained_flag, x, Δ_1, Z[:,1], min_pivot, factor )
-                    if isempty( new_site )
-                        return rebuild_model( config_struct );  # delegate to rebuild function
-                    end
-
-                    push!(additional_sites, new_site);
-                    Y = hcat( Y, new_site - x );
-                    Z = Z[:, 2 : end];
-                end
-                if !fully_linear
-                    @warn "\tNot enough computational budget left to garantuee a unique model."
-                end
-
-            elseif sampling_algorithm == :monte_carlo
-
-                #seeds = [[x,] ; sites_db[model_point_indices]];      # TODO maybe include more points from Δ_2 ?
-                seeds = [ [x,]; sites_db[ find_points_in_box( x, Δ_2, sites_db ) ] ]
-                lb_eff, ub_eff = effective_bounds_vectors(x, Δ_1, Val(is_constrained));
-                #@show lb_eff
-                #@show ub_eff
-                n_model_points = length( model_point_indices ) + 1
-                for true_site ∈ drop( MonteCarloThDesign( 100 * n_model_points, lb_eff, ub_eff, seeds ), length(seeds) )
-                    site = true_site .- x;
-                    if norm(Z*(Z'site),Inf) >= min_pivot
-                        Y = hcat(Y, site )
-                        Q,_ = qr(Y);
-                        Z = Q[:, size(Y,2) + 1 : end];
-
-                        push!(additional_sites, true_site);
-                        n_missing -= 1
-                    end
-                    if n_missing == 0
-                        break;
-                    end
-                end
-
-                if n_missing > 0
-                    return rebuild_model( config_struct );
-                end
+            additional_sites, Y, Z = get_new_sites(Val(sampling_algorithm),
+                n_missing, x, Δ_1, θ_pivot, Y, Z, problem.is_constrained,
+                sites_db[rbf_training_indices(iter_data)]
+                )
+            if length(additional_sites) < n_missing
+                return rebuild_model(config_struct)
             end
-            new_tdata = TrainingData( Y= Y, Z = Z); # TODO does it make sense for !fully_linear???
 
-            additional_values = eval_all_objectives.( problem, additional_sites );
-            additional_site_indices = length( sites_db ) + 1 : length( sites_db ) + length( additional_sites )  # for filtering out the new sites in 3rd search below
+            iter_data.model_meta.model_info.fully_linear = n_missing <= n_evals_left;
 
-            push!(sites_db, additional_sites...)    # push new samples into database
-            push!(iter_data, additional_values...)
-        else
-            additional_site_indices = Vector{Int64}();
+            additional_site_indices = eval_new_sites( config_struct, additional_sites)
+            push!(iter_data.model_meta.model_info.round3_indices, additional_site_indices...)
         end
-
-        round1_indices = deepcopy(model_point_indices);   # renaming for model info array
-        push!(model_point_indices, additional_site_indices...);
 
         # ============== Round 4 ======================#
-        # construct a preliminary (and untrained) rbf model
-        training_sites = [[x, ]; sites_db[ model_point_indices ] ];
-        training_values = [ v[1:n_exp] for v in [[f_x, ]; values_db[ model_point_indices ]] ];   # use only expensive objective values
 
-        m = RBFModel(
-            training_sites = training_sites,
-            training_values = training_values,
-            kernel = rbf_kernel,
-            shape_parameter = rbf_shape_parameter(config_struct), #rbf_shape_parameter(Δ),
-            fully_linear = fully_linear,
-            polynomial_degree = rbf_poly_deg,
-            tdata = new_tdata
-        );
+        m = RBFModel(config_struct);
+        add_points!(m, config_struct)
 
-        m.model_info.round1_indices = round1_indices;
-        m.model_info.round2_indices = additional_site_indices;
-        m.model_info.fully_linear = fully_linear;
-
-        # look for EVEN MORE model enhancing points in big radius, ignore points considered already
-        if length(training_sites) >= n_vars + 1
-            unexplored_indices = setdiff( 1:length(sites_db), model_point_indices );
-            more_site_indices, _ = additional_points!( m, x, n_exp, sites_db[ unexplored_indices ], values_db[ unexplored_indices ], Δ_2, θ_pivot_cholesky, max_model_points ); # sites are added to m in-place
-            more_site_indices = unexplored_indices[more_site_indices];
-            @info("\tFound $(length(more_site_indices)) sites with indices $(length(more_site_indices)>10 ? [more_site_indices[1:10]; "…"] : more_site_indices) to further enhance the model.")
-
-            n_points = length(m.training_sites);
-            n_still_missing = Int64(min( max_model_points - n_points, max_evals - length(sites_db) - 1 ));
-            if n_still_missing > 0 && use_max_points == true
-                @info("\tActively sampling to the maximum number of points ($n_still_missing additional evaluations)!")
-                lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2, Val(is_constrained));
-                new_sites = monte_carlo_th( max_model_points, lb_eff, ub_eff; seeds = m.training_sites )[ n_points + 1 : end ];
-                new_values = eval_all_objectives.( problem, new_sites );
-
-                push!(sites_db, new_sites...);
-                push!(m.training_sites, new_sites...);
-                push!(values_db, new_values...);
-                push!(m.training_values, [ v[1:n_exp] for v in new_values]...)
-                m.model_info.round3_indices = [more_site_indices; length(sites_db) - n_still_missing : length(sites_db)]
-                train!(m)
-            else
-                m.model_info.round3_indices = more_site_indices;
-                # finally: train!
-                #train!(m, Π, Q, R, Z3, L);
-                train!(m)
-            end
-        else
-            train!(m)   # look for least squares solution of underdetermined model
-        end
-        @info("\tModel$(fully_linear ? " " : " not ")linear!")
+        @info("\tModel$(m.fully_linear ? " " : " not ")linear!")
 
         return m
     else
@@ -311,21 +256,17 @@ function make_linear!(m :: NamedTuple, config_struct, constrained_flag = false )
     return 0
 end
 
-
 @doc "Make the provided model fully linear assuming that the method is called from within the criticality loop of the main algorithm."
-function make_linear!(m :: RBFModel, config_struct, crit :: Val{true}, constrained_flag = false, )
-    @unpack  θ_enlarge_1, θ_enlarge_2, Δ_max, rbf_shape_parameter = config_struct;
-
-    @unpack iter_data = config_struct;
-    @unpack x, f_x, Δ, sites_db, values_db = iter_data;
+function make_linear!(m :: RBFModel, config_struct, crit :: Val{true})#, constrained_flag = false, )
+    @unpack  θ_enlarge_1, rbf_shape_parameter = config_struct;
+    @unpack Δ,model_meta = config_struct.iter_data;
 
     Δ_1 = Δ * θ_enlarge_1;
-    Δ_2 = Δ_max * θ_enlarge_2;
-    allowed_flags_Y = norm.( eachcol(m.tdata.Y), Inf ) .<= Δ_1    # are the 'linearizing' sites within Δ_1?
+    allowed_flags_Y = norm.( eachcol(model_meta.model_info.Y), Inf ) .<= Δ_1    # are the 'linearizing' sites within Δ_1?
     #@show Δ_1
 
     if !all(allowed_flags_Y)
-        new_model = build_model( config_struct, constrained_flag, true );   # build a new fully linear model for smaller trust region
+        new_model = build_model( config_struct, true );   # build a new fully linear model for smaller trust region
         as_second!(m, new_model);                                           # modify old model to equal new model
         return true  # tell main loop that model has changed
     else
@@ -333,23 +274,22 @@ function make_linear!(m :: RBFModel, config_struct, crit :: Val{true}, constrain
     end
 end
 
-
 @doc "Perform several improvement steps on 'm::RBFModel' using the 'improve!' method until the model is fully linear on θ_enlarge_1*Δ."
-function make_linear!(m::RBFModel, config_struct, constrained_flag = false )
+function make_linear!(m::RBFModel, config_struct) #, constrained_flag = false )
     @unpack max_evals = config_struct;
-
-    @unpack iter_data = config_struct;
-    @unpack x, f_x, Δ, sites_db, values_db = iter_data;
+    @unpack sites_db , model_meta =config_struct.iter_data;
 
     evals_left = max_evals - length(sites_db) - 1;
-    n_improvement_steps = Int64(min(size(m.tdata.Z,2), evals_left));
+    n_improvement_steps = Int64(min(size(model_meta.model_info.Z,2), evals_left));
 
     # number of columns of Z is the number of missing sites for full linearity
     # perform as many improvement steps and modify data in place
     for i = 1 : n_improvement_steps
-        improvement_flag = improve!(m, config_struct, constrained_flag );
+        improvement_flag = improve!(m, config_struct)#, constrained_flag );
         if !improvement_flag
-            break;
+            new_model = rebuild_model(config_struct);
+            as_second!(m, new_model)
+            break
         end
     end
     return n_improvement_steps
@@ -360,25 +300,27 @@ end
 
 The model parameters 'Y' and 'z' and its fully_linear flag are potentially modified.
 Returns the newly sampled site and its value vector as given by f."
-function improve!( m::RBFModel, config_struct :: AlgoConfig, constrained_flag = false )
+function improve!( m::RBFModel, config_struct :: AlgoConfig)#, constrained_flag = false )
     @unpack n_vars, n_exp, θ_pivot, θ_enlarge_1 = config_struct;
-
     @unpack problem = config_struct;
-
     @unpack iter_data = config_struct;
-    @unpack x, f_x, Δ, sites_db, values_db = iter_data;
+    @unpack x, Δ, sites_db, values_db , model_meta = iter_data;
 
     # Y and Z matrix are already associated with model
-    @unpack Y, Z = m.tdata;
+    Y = model_meta.model_info.Y;
+    Z = model_meta.model_info.Z;
 
     if size(Z,2) > 0  # should always be true during optimization routine, but usefull for make_linear!
         @info("\t\tSampling with radius $(θ_enlarge_1 * Δ).")
 
         # add new site from model improving direction
         z = Z[:,1];
+        min_pivot = Δ*θ_pivot # *sqrt(n_vars)
+        Δ_1 = θ_enlarge_1 * Δ;
 
-        new_site = sample_new(constrained_flag, x, θ_enlarge_1 * Δ, z, sqrt(n_vars) * Δ * θ_pivot,  rand([-1.0, 1.0]) * θ_enlarge_1 * Δ )
+        new_site = sample_new(problem.is_constrained, x, Δ_1, z, min_pivot , Δ_1)
         if isempty( new_site )
+            @info "\t COULD NOT SAMPLE IN BOX!"
             new_model = rebuild_model( config_struct )
             as_second!(m, new_model);
             return false        # to tell 'make_linear!' that improvement was not successful
@@ -390,29 +332,29 @@ function improve!( m::RBFModel, config_struct :: AlgoConfig, constrained_flag = 
         Z = Z[:,2:end];
 
         # save updated matrices to TrainingData object
-        @pack! m.tdata = Y, Z;
+        model_meta.model_info.Y = Y;
+        model_meta.model_info.Z = Z;
 
         # update rbf model
         new_val = eval_all_objectives(problem, new_site );
-        if isempty(size(new_val))
+        #=if isempty(size(new_val))
             new_val = [ new_val, ];
-        end
-        push!(m.training_sites, new_site);
-        push!(m.training_values, new_val[1:n_exp]);
+        end=#
+
         push!(sites_db, new_site);
         push!(iter_data, new_val);
+        # update info
+        push!(model_meta.model_info.round3_indices, length(sites_db));
+        push!(m.training_sites, new_site);
+        m.training_values = get_training_values( config_struct )
 
         if size(Z,2) == 0
-            m.fully_linear = true;
+            model_meta.model_info.fully_linear = m.fully_linear = true;
             @info("\t\tModel is now fully linear.")
         else
-            m.fully_linear = false;
+            model_meta.model_info.fully_linear = m.fully_linear = false;
             @info("\t\tModel is not fully linear and there is an improving direction.")
         end
-
-        # update info
-        m.model_info.fully_linear = m.fully_linear;
-        push!(m.model_info.round1_indices, length(sites_db));
 
         train!(m);
         return true
