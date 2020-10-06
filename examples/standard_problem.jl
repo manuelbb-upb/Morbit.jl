@@ -1,8 +1,7 @@
 using Morbit
 
 # Standard Problem #
-# no boundaries
-# multiobjective steepest descent
+# Two Parabolas
 
 lb = -3 .* ones(2)
 ub = 3 .* ones(2)
@@ -14,29 +13,21 @@ f1(x) = (x[1] - 1)^2 + (x[2] - 1)^2;
 f2(x) = (x[1] + 1)^2 + (x[2] + 1)^2;
 
 opt_settings = AlgoConfig(
-    #max_iter = typemax(Int64),
     max_iter = 10,
     Δ₀ = .1,
-    use_max_points = true,
-    rbf_kernel = :multiquadric,
-    rbf_poly_deg = 1,
-    max_critical_loops = 10,
-    ε_crit = 0.0000000001,
     all_objectives_descent = true,
-    sampling_algorithm = :monte_carlo,
-    descent_method = :direct_search,
-    feature_scaling = false,
-    ideal_point = [0,0]
-);    # use default settings
+    descent_method = :steepest,
+);
 
 problem_instance = MixedMOP(lb = lb, ub = ub);
 
-add_objective!(problem_instance, f1, :expensive)
+add_objective!(problem_instance, f1, :cheap)
 add_objective!(problem_instance, f2, :expensive)
 
 optimize!(opt_settings, problem_instance, x_0);
 
 # Uncomment below to plot
+
 
 using Plots
 

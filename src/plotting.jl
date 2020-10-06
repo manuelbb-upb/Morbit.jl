@@ -7,6 +7,55 @@ import Base: +
 +(c::RGB, v :: Float64) = RGB( min(c.r + v, 1.0), min(c.g + v, 1.0), min(c.b + v,1.0) )
 
 export plot_decision_space, plot_objective_space
+export ParetoSet, ParetoFrontier
+
+##### Convenience structs for plotting #####
+
+@with_kw struct ParetoSet
+    n_vars :: Int64 = 0;
+    coordinate_arrays :: Vector{ Vector{Float64} } = [];
+end
+
+function ParetoSet( matrix :: Array{Float64, 2}; points_as_columns = true )
+    if points_as_columns
+        n_vars = size(matrix, 2)
+        arrays = collect( eachrow(matrix) )
+    else
+        n_vars = size( matrix, 1 )
+        arrays = collect( eachcol(matrix) )
+    end
+    ParetoSet( n_vars, arrays )
+end
+
+function ParetoSet( data::Vararg{ Vector{Float64} , N} ) where{N}
+    n_vars = length(data);
+    coordinate_arrays = [ data... ]
+    ParetoSet(n_vars, coordinate_arrays)
+end
+
+@with_kw struct ParetoFrontier
+    n_objfs :: Int64 = 0;
+    objective_arrays :: Vector{ Vector{Float64} } = [];
+end
+
+function ParetoFrontier( matrix :: Array{Float64, 2}; points_as_columns = true )
+    if points_as_columns
+        n_objf = size(matrix, 2)
+        arrays = collect( eachrow(matrix) )
+    else
+        n_objf = size( matrix, 1 )
+        arrays = collect( eachcol(matrix) )
+    end
+    ParetoFrontier( n_objf, arrays )
+end
+
+function ParetoFrontier( f :: T where{T <: Function}, pset :: ParetoSet )
+    n_points = length( pset.coordinate_arrays[1] )
+    evals = f.( [ [pset.coordinate_arrays[d][i] for d = 1 : pset.n_vars ] for i = 1 : n_points ] )
+    eval_matrix = hcat( evals... )
+    ParetoFrontier( eval_matrix )
+end
+###################
 
 default_line_color = :cornflowerblue
 default_pareto_color = :mediumseagreen

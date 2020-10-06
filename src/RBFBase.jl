@@ -190,26 +190,22 @@ function output( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
     rbf_output( m, ℓ, x ) + poly_output( m, ℓ, x )
 end
 output( m::RBFModel, ℓ :: Int64, x :: Real ) = output(m, ℓ, [x])
-output( m::NamedTuple, ℓ :: Int64, x :: Real ) = Float64[];
 
 @doc "Evaluate all (scalar) model outputs at vector x and return k-vector of results."
 function output( m::RBFModel, x :: Vector{T} where{T<:Real} )
     vec(rbf_output( m, x ) .+ poly_output( m, x ))
 end
 output( m::RBFModel, x :: Real ) = output(m, [x])
-output( m::NamedTuple, x :: Union{Real, Vector{T} where{T<:Real}} ) = Float64[]
 
 function grad( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
     rbf_grad( m, ℓ, x ) + poly_grad( m, ℓ, x)
 end
 grad(m::RBFModel, ℓ::Int64, x::Real) = grad(m, ℓ, [x])   # if n_vars == 1 and RBFModel is used outside of Optimization
-grad(m::NamedTuple, ℓ::Int64, x :: Union{Real, Vector{T} where{T<:Real}} ) = Float64[]
 
 function jac( m::RBFModel, x :: Vector{T} where{T<:Real} )
     rbf_jacobian( m, x ) + poly_jacobian( m , x )
 end
 jac(m::RBFModel, x::Real) = jac(m,[x])         # if n_vars == 1 and RBFModel is used outside of Optimization
-jac(m::NamedTuple, x :: Union{Real, Vector{T} where{T<:Real}} ) = Matrix{Float64}(undef, 0, length(x))
 
 # === Utiliy functions for solving the normal equations
 get_Π( m :: RBFModel, ::Val{-1} ) =  Matrix{Float64}( undef, 0, length(m.training_sites) );

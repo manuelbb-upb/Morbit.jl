@@ -1,151 +1,167 @@
 module Morbit
 
-using LinearAlgebra: norm, I, qr, cholesky, givens, pinv, Hermitian
-using ForwardDiff: jacobian, gradient
+# import Solvers
 using JuMP
 using OSQP
 using NLopt
-#using Ipopt
-using Random: shuffle!
+
+using LinearAlgebra: norm
+
 using Parameters: @with_kw, @unpack, @pack!, reconstruct   # use Parameters package for structs with default values and keyword initializers
 import Base: isempty, Broadcast, broadcasted
-using Base.Iterators: drop
 
 export optimize!
-export AlgoConfig, IterData, MOP, HeterogenousMOP
 
-include("data_structures.jl")
+# import MOP structures and utilities; make key features available outside this module
+include("Surrogates.jl")
+using .Surrogates: MixedMOP, add_objective!, add_vector_objective!,
+    ModelConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig,
+    eval_all_objectives, reverse_internal_sorting!, apply_internal_sorting!,
+    check_sorting!, set_non_exact_indices!, scale, scale!, unscale, unscale!,
+    expensive_components
+using .Surrogates: SurrogateContainer, init_surrogates, build_models!, improve!,
+    make_linear!, eval_models, fully_linear, get_jacobian, get_optim_handle
+export MixedMOP, add_objective!, add_vector_objective!,
+    ModelConfig, ExactConfig, RBFConfig, TaylorConfig, LagrangeConfig
 
-include("PointSampler.jl")
-using .PointSampler: monte_carlo_th, MonteCarloThDesign
+#include("data_structures.jl")
+import .Surrogates: AlgoConfig, IterData
+export AlgoConfig, IterData
 
-include("rbf.jl")
-using .RBF: RBFModel, train!, output, grad, is_valid, jac, min_num_sites, get_Π, get_Φ, φ, Π_col, as_second!
-
-include("feature_scaling.jl")
-
-include("sampling.jl")
-include("training.jl")
 include("constraints.jl")
 include("descent.jl")
 include("plotting.jl")
-include("objectives.jl")
 include("saving.jl")
-
-function optimize!( config_struct :: AlgoConfig, problem::MOP, x₀::Array{Float64,1} )
-    f_x_0 = problem.f(x_0)
-    n_out = length( f_x_0 )
-    mixed_mop = MixedMOP( lb = problem.lb, ub = problem.ub )
-    add_objective!(mixed_mop, problem.f, :expensive, n_out )
-
-    optimize!( config_struct, mixed_mop, x₀, f_x_0);
-end
-
-function optimize!( config_struct :: AlgoConfig, problem::Union{MOP, MixedMOP} )
-    if !isempty( problem.x_0 )
-        optimize!(config_struct, problem, problem.x_0)
-    else
-        error("Set vector x_0 for problem instance or provide it as 3rd argument.")
-    end
-end
 
 function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector{Float64}, f_x₀ :: Vector{Float64} = Float64[])
 
-    # unpack parameters from settings
-    @unpack n_vars, Δ₀ = config_struct;
-    @unpack max_iter, max_evals, max_critical_loops, Δ_critical, Δ_min, stepsize_min = config_struct;   # stopping criteria parameters
-    @unpack μ, β, ε_crit, ν_success, ν_accept, γ_crit, γ_grow, γ_shrink, γ_shrink_much = config_struct; # algorithm parameters
-    @unpack Δ_max, θ_enlarge_1, θ_enlarge_2, θ_pivot, θ_pivot_cholesky = config_struct                  # sampling parameters
-    @unpack all_objectives_descent, descent_method = config_struct;                                     # descent step parameter
-    @unpack max_model_points = config_struct;                          # rbf model parameters
-    @unpack ideal_point, image_direction = config_struct;                            # objective related parameters
+    # unpack parameters from settings object `config_struct`
+    ## internal algorithm parameters:
+    @unpack  n_vars, Δ₀, Δ_max, μ, β, ε_crit, ν_success, ν_accept, γ_crit,
+        γ_grow, γ_shrink, γ_shrink_much = config_struct;
+    ## stopping criteria:
+    @unpack max_iter, max_evals, max_critical_loops, Δ_critical, Δ_min,
+        stepsize_min = config_struct;
+    ## descent related settings:
+    @unpack all_objectives_descent, descent_method, ideal_point,
+        image_direction = config_struct;
 
-    @pack! config_struct = problem   # so that subroutines can evaluate the objectives etc.
-
-    # set n_vars dependent variables
+    # SANITY CHECKS
+    # set variables that depend on the length of input
     if n_vars == 0
         n_vars = length( x₀ );
-        config_struct.n_vars = n_vars;
-        if max_model_points == 1
-            max_model_points = 2*config_struct.n_vars^2 + 1;
-            config_struct.max_model_points = max_model_points;
-        end
-    end
-    if θ_enlarge_2 == 0
-        θ_enlarge_2 = max( 10, sqrt(n_vars) );  # as in ORBIT paper according to Wild
-        config_struct.θ_enlarge_2 = θ_enlarge_2;
+        @pack! config_struct = n_vars;
     end
 
     # make sure that the constraint flag is set correctly
-    if !isempty(problem.lb)
-        if isempty(problem.ub)
-            @error("Problem must be fully box constrained or unconstrained.")
-        else
-            problem.is_constrained = true
-        end
+    if (isnothing(problem.lb) && !isnothing(problem.ub)) ||
+        (!isnothing(problem.lb) && isnothing(problem.ub))
+        @error("Problem must be fully box constrained or unconstrained.")
+    elseif isnothing(problem.lb) && isnothing(problem.ub)
+            problem.is_constrained = false
     else
-        problem.is_constrained = false
+        if all(isfinite.(problem.lb)) && all(isfinite.(problem.ub))
+            problem.is_constrained = true
+        else
+            @error("Boundaries must be finite.")
+        end
     end
 
-    # reorder ideal_point and image_direction if indices are different
-    if !isempty(ideal_point) ideal_point[:] = apply_internal_sorting( problem, ideal_point) end
-    if !isempty(image_direction) image_direction[:] = apply_internal_sorting( problem, image_direction ) end
-
-    problem.is_constrained && @info("CONSTRAINED PROBLEM")
-
-    # setup stopping functions
-    Δ_big_enough( Δ, stepsize ) = Δ >= Δ_min || ( stepsize >= stepsize_min && Δ >= Δ_critical )
-    function loop_check(Δ, stepsize, iter_index)
-        check_iter_index = iter_index < max_iter
-        !check_iter_index && @info "\nMaximum number of iterations reached.\n"
-
-        check_budget = ( (!improvement_step && length( sites_db  ) <= max_evals - 1) || ( improvement_step && length( sites_db ) <= max_evals - 2 ) )
-        !check_budget && @info "\nBudget exhausted.\n"
-
-        check_stepsize = Δ_big_enough( Δ, stepsize );
-        !check_stepsize && @info "\nStepsize or Δ too small\n\t\t\tΔ = $Δ\n\t\t\tΔ_min = $Δ_min\n\t\t\tΔ_critical = $Δ_critical"
-
-        return check_iter_index && check_budget && check_stepsize
+    # check RBF sampling Parameters for consistency
+    for objf ∈ problem.vector_of_objectives
+        if isa( objf.model_config, RbfConfig )
+            if objf.model_config.θ_enlarge_2 <= 0
+                if problem.is_constrained
+                    # if we are on the boundary of [0,1]^n then the maximum step
+                    # we can take has ∞-length 1.0; hence we seek
+                    # θ_enlarge_2 * Δ_max <= 1.0
+                    objf.model_config.θ_enlarge_2 = min(
+                        objf.model_config.θ_enlarge_1,
+                        1.0 / Δ_max
+                    )
+                else
+                    # suggestion of [WILD]
+                    objf.model_config.θ_enlarge_2 = max( 10, sqrt( n_vars) )
+                end
+            end
+            # if ideal point is calculated in an enlarged trust region it should
+            # be the "least" enlarged region possible
+            config_struct.θ_ideal_point = min(
+                config_struct.θ_ideal_point,
+                objf.model_config.θ_enlarge_1
+            )
+        end
     end
 
-    # BEGINNING OF OPTIMIZATION ROUTINE
+    set_non_exact_indices!(problem) # for decrease ratio calculation
+    check_sorting!(problem) # to make availabe sorting via `apply_internal_sorting`
 
-    # initialize iteration sites/values and databases
+    # reference `problem` in `config_struct` to make it accesible from subroutines
+    @pack! config_struct = problem;
+    #config_struct.n_objfs = problem.n_objfs;
+
+    # reorder `ideal_point` and `image_direction` because the objective functions
+    # could have different interal indices
+    if !isempty(ideal_point)
+        # Val(false) ⇒ Don't check if sorting index has been generated
+        apply_internal_sorting!( problem, ideal_point, Val(false) )
+    end
+    if !isempty(image_direction)
+        apply_internal_sorting!( problem, image_direction, Val(false) )
+    end
+
+    # INITILIZATION OF OPTIMIZATION ROUTINE
+    ## initialize iteration site and trust region radius
     Δ = Δ₀;
-    x = scale(problem, x₀ );
+    x = scale( problem, x₀ );    # scale to unit hypercube
     x_index = 1;
-    @info "Starting at x₀ = $x $(problem.is_constrained ? "(scaled to unit hypercube [0,1]^n " : "")with Δ₀= $Δ."
 
-    config_struct.n_exp = problem.n_exp        # set number of expensive objectives    TODO remove from config_struct
-    config_struct.n_cheap = problem.n_cheap;   # set number of cheap objectives
+    @info """
+    Starting at x₀ = $x $(problem.is_constrained ? "(scaled to unit hypercube [0,1]^n " : "")with Δ₀= $Δ.
+    """
 
+    ## has the first value vector been provided?
     if isempty( f_x₀ )
+        # unscale x to original domain and evaluate all objectives (internal sorting)
         f_x = eval_all_objectives( problem, x )
     else
-        if length(f_x₀) == problem.n_exp + problem.n_cheap
-            f_x = f_x₀
+        if length(f_x₀) == problem.n_objfs
+            f_x = apply_internal_sorting(problem, f_x₀, Val(false))
         else
-            error("f_x₀ has wrong length.")
+            @error("f_x₀ has wrong length.")
         end
     end
 
-    # Initialize iteration data
+    # Initialize `IterData` object to store iteration dependent data and
+    # provide `sites_db` and `values_db` as databases for evaluations
     if isnothing( config_struct.iter_data )
-        iter_data = IterData( x = x, f_x = f_x, x_index = 1, Δ = Δ, sites_db = [x], values_db = [f_x], update_extrema = config_struct.feature_scaling);   # make values available to subroutines
+        iter_data = IterData(
+            x = x,
+            f_x = f_x,
+            x_index = 1,
+            Δ = Δ,
+            sites_db = [x,],
+            values_db = [f_x,],
+            );
     else
-        # re-use old database entries
-        iter_data = IterData( x = x, f_x = f_x, Δ = Δ, sites_db = config_struct.iter_data.sites_db, values_db = config_struct.iter_data.values_db, update_extrema = config_struct.feature_scaling);
-        iter_data.sites_db[:] = unscale.(problem, iter_data.sites_db );
-        iter_data.values_db[:] = apply_internal_sorting.( problem, iter_data.values_db );
+        # re-use old database entries to warm-start the optimization
+        iter_data = IterData(
+            x = x,
+            f_x = f_x,
+            Δ = Δ,
+            sites_db = scale.(problem, config_struct.iter_data.sites_db),
+            values_db = apply_internal_sorting.( problem,
+                config_struct.iter_data.values_db, Val(false) ),
+        );
         # look for x in old data
         let x_index = findfirst( [ X ≈ x for X in iter_data.sites_db ]  );   # TODO check atol
-            if !( iter_data.values_db[x_index] ≈ f_x )
-                error( "f_x at starting point does not equal provided database value (at index $x_index)!")
-            end
             if isnothing(x_index)
                 push!(iter_data.sites_db , x )
-                push!(iter_data, f_x)       # will update extrema
+                push!(iter_data.values_db, f_x)
                 x_index = length(sites_db)
+            end
+            if !( iter_data.values_db[x_index] ≈ f_x )
+                @error "f_x at starting point does not equal provided database value (at index $x_index)!"
             end
             iter_data.x_index = x_index
         end
@@ -153,116 +169,123 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     @pack! config_struct = iter_data;
     @unpack sites_db, values_db = iter_data;
 
-    # initialize surrogate model
-    @info("Initializing model.")
-    rbf_model = build_model( config_struct, problem.is_constrained )
+    # initialize surrogate model container and build the surrogates at first `x`
+    @info("Initializing model container.")
+    surrogates = init_surrogates( problem );
+
+    # make availabe information arrays for introspection and analysis
+    @unpack iterate_indices, stepsize_array, Δ_array, ω_array, ρ_array,
+        num_crit_loops_array, model_meta = iter_data;
+    push!(iterate_indices, iter_data.x_index);
 
     # enter optimization loop
-    exit_flag = false;
     iter_index = 0;
-    improvement_step = false;
+    non_linear_indices = Int64[];
+    improvement_step = false
     stepsize = Δ;
 
-    accept_x₊ = true;
-
-    @unpack iterate_indices, stepsize_array, Δ_array, ω_array, ρ_array, num_crit_loops_array, model_meta = iter_data;   # unpack data collection containers
-    @unpack model_info_array, model_info = model_meta;      # IF RBF: save surrogate information for plotting etc
-
-    push!(iterate_indices, 1);
-    while loop_check(Δ, stepsize, iter_index)
+    while loop_check(Δ, stepsize, iter_index, length(sites_db) ;
+            Δ_min, Δ_critical, stepsize_min, max_iter, max_evals, improvement_step)
 
         iter_index += 1;
 
-        @info("\n----------------------\nIteration $iter_index.")
-        @info("\tCurrent trust region radius is $Δ.")
-        @info("\tCurrent number of function evals is $(length(sites_db)).")
-        @info("\tCurrent (scaled) iterate is $(iterate_indices[iter_index]) with val $(x[1:min(5,end)])...")
-        @info("\tCurrent values are $(f_x[1:min(5,end)]).")
+        @info("""\n
+        |--------------------------------------------
+        |Iteration $iter_index.
+        |--------------------------------------------
+        |  Current trust region radius is $Δ.
+        |  Current number of function evals is $(length(sites_db)).
+        |  Current (possibly scaled) iterate has index $(iterate_indices[iter_index])
+        |  and coordinates $(x[1:min(5,end)])...
+        |  Current values are $(f_x[1:min(5,end)])...
+        |--------------------------------------------
+        """)
 
         # model update
-
-        if iter_index > 1   # model is initialized outside of while to store it in iter data; update not at end of while to save computation if no more iterations are comming
-            if improvement_step
-                @info("\tImproving model.")
-                improve!(rbf_model, config_struct )#, problem.is_constrained);
-            else
-                @info("\tUpdating model…")
-                rbf_model = build_model( config_struct) #, problem.is_constrained ) # "update" model (actually constructs a new model instance)
-            end
+        if !(isempty(non_linear_indices))
+            @info("Improving models.")
+            improve!(surrogates, non_linear_indices, config_struct )
+        else
+            @info("Updating models…")
+            build_models!( surrogates, config_struct );
         end
+        linear_flag, non_linear_indices = fully_linear(surrogates);
 
         # compute descent step
-        @info("\tComputing descent step.")
-        ω, d, stepsize = compute_descent_direction( config_struct, rbf_model ) ;#Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, problem.is_constrained, all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
-        @info("\t\tCriticality measure ω is $ω.")
+        @info("Computing descent step.")
+        ω, d, x₊, m_x₊ = compute_descent_direction( config_struct, surrogates )
+        steplength = norm( d, Inf);
+        @info("\tCriticality measure ω is $ω.")
 
         # Criticallity Test
         num_critical_loops = 0;
         if ω <= ε_crit      # analog to small gradient
-            @info("\tEntered criticallity test!")
-            if !rbf_model.fully_linear
-                n_improvements = make_linear!(rbf_model, config_struct)#, problem.is_constrained);
-                if n_improvements > 0
-                    ω, d, stepsize = compute_descent_direction( config_struct, rbf_model ) ;#compute_descent_direction(Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, problem.is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
+            Δ_old, ω_old = Δ, ω;    # for printing only
+            @info("Entered criticallity test!")
+
+            # check linearity on current trust region
+            if !linear_flag
+                has_changed = make_linear!(surrogates, non_linear_indices, config_struct)
+                if has_changed
+                    ω, d, x₊, m_x₊ = compute_descent_direction( config_struct, surrogates )
                 end
             end
 
-            exit_flag = !( rbf_model.fully_linear && Δ_big_enough(Δ,stepsize) && num_critical_loops < max_critical_loops );    # exit if model is not fully linear ( budget exhausted in previous linearization )
-            while Δ > μ * ω && !exit_flag
-                if num_critical_loops < max_critical_loops && length(sites_db) < max_evals - 1
-                    num_critical_loops += 1
-                    Δ *= γ_crit
-                    @pack! iter_data = Δ;
-                    @info("\t\tCritical loop no. $num_critical_loops with Δ = $Δ > $μ * $ω = $(μ*ω)")
-                    # NOTE matlab version able to set exit flag here when eval budget is exhausted -> then breaks
-                    changed = make_linear!(rbf_model, config_struct, Val(true))#, problem.is_constrained);
-                    if changed
-                        ω, d, stepsize = compute_descent_direction( config_struct, rbf_model ) ;#compute_descent_direction( Val(descent_method), rbf_model, f_cheap, x, f_x, Δ, problem.is_constrained,  all_objectives_descent, ideal_point, image_direction, θ_enlarge_1)
-                        exit_flag = !Δ_big_enough(Δ, stepsize)
-                    else
-                        @info "\t\t\tModel is still linear"
-                    end
-                else
-                    exit_flag = true;
-                end
+            # exit if model could not be made fully linear ( budget exhausted )
+            steplength = norm( d, Inf );
+            linear_flag, non_linear_indices = fully_linear(surrogates)
+            while ( Δ > μ * ω &&
+                linear_flag &&
+                num_critical_loops < max_critical_loops &&
+                length(sites_db) < max_evals - 1 &&
+                Δ_big_enough( Δ, steplength; Δ_min, Δ_critical, stepsize_min)
+            )
+                # shrink trust region radius
+                Δ *= γ_crit
+                @pack! iter_data = Δ;
+                @info("\t\tCritical loop no. $num_critical_loops with Δ = $Δ > $μ * $ω = $(μ*ω)")
+                build_models!( surrogates, config_struct )
+
+                ω, d, x₊, m_x₊ = compute_descent_direction( config_struct, surrogates );
+                steplength = norm( d, Inf);
+                linear_flag, non_linear_indices = fully_linear(surrogates);
+                num_critical_loops += 1
             end
 
-            if exit_flag
-                @info("\tExit from main loop because maximum number of critical loops is or reached or computational budget is exhausted.")
-                break;      # TODO: maybe change so that an descent attempt is made nevertheless
-            end
+            @info """
+            Finished criticality test with
+                • $num_critical_loops criticality loops (max. $max_critical_loops)
+                • We now have $(length(sites_db)) objective evaluations
+                  (max $max_evals).
+                • Δ went from $Δ_old to $Δ.
+                • ω went from $ω_old to $ω.
+                • Last stepsize was $steplength.
+                • Surrogates are $(linear_flag ? "" : "not") fully linear.
+            """
 
-            @info("\tTrust region radius now is $Δ, resulting in ω = $ω.")
+            if ( num_critical_loops == max_critical_loops ||
+                !Δ_big_enough( Δ, steplength; Δ_min, Δ_critical, stepsize_min) )
+                @info """
+                \tExit from main loop because maximum number of critical loops is or reached
+                or stepsize is to small.
+                """
+                break; # breack from main loop
+            end
         end
 
-        # NOTE: MATLAB version tested if d != 0 ... but criticallity test should ensure that
+        # Apply step and evaluate at new sites
+        @info("Attempting descent of length $steplength.")
 
-        # apply step and evaluate at new sites
-        @info("\tAttempting descent of length $stepsize.")
-
-        x₊ = intobounds(x + d, Val(problem.is_constrained));
-        m_x = eval_surrogates( config_struct, rbf_model, x )
-        m_x₊ = eval_surrogates( config_struct, rbf_model, x₊ )
-        f_x₊ = eval_all_objectives(config_struct, x₊)
-
-        # scale trial point according to current Min and Max value vectors in iter_data
-        F_x₊ = scale( f_x₊, iter_data )
-        F_x = scale(f_x, iter_data);
-
-        @info("\t\tm_x   = $m_x")
-        @info("\t\tm_x_+ = $m_x₊")
-        @info("\t\tf_x_+ = $F_x₊")
+        #x₊ = x .+ d;
+        #m_x₊ = eval_models( surrogates, x₊ );
+        m_x = eval_models( surrogates, x );
+        f_x₊ = eval_all_objectives(problem, x₊)   # unscale and evaluate
 
         # retrieve expensive components only
-        @show F_x₊
-        @show f_x₊
-        F_x₊, F_x = expensive_components.( [F_x₊, F_x], config_struct)
-        M_x, M_x₊ = expensive_components.([m_x, m_x₊] , config_struct)
-
-        @info("\t\tError between M_x and F_x is $( sum( abs.(M_x .- F_x) ) ).")
+        M_x, M_x₊, F_x₊, F_x = expensive_components.( [m_x, m_x₊, f_x₊, f_x], problem, Val(false))
 
         # acceptance test ratio
-        if isempty(problem.n_exp == 0)
+        if isempty(problem.non_exact_indices)
             ρ = 1.0
         else
             if all_objectives_descent
@@ -272,44 +295,42 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
             end
         end
 
-        @info("\tρ is $ρ")
+        @info """\n
+        We have the following evaluations:
+        | f(x)  | $(f_x[1:min(end,3)])
+        | m(x)  | $(m_x[1:min(end,3)])
+        | f(x₊) | $(f_x₊[1:min(end,3)])
+        | m(x₊) | $(m_x₊[1:min(end,5)])
+        The error betwenn f(x) and m(x) is $(sum(abs.(f_x .- m_x))).
+        The expensive indices are $(problem.non_exact_indices).
+        $(all_objectives_descent ? "All" : "One") of the components must decrease.
+        Thus, ρ is $ρ.
+        """
 
-        # save values to database
+        # save new evaluation in database
         push!(sites_db, x₊)
-        push!(iter_data, f_x₊)  # save all UNSCALED components of trial point
-
-        # Update iter data components (I)
-        push!( iter_data.trial_point_indices, length(sites_db) )
-        push!( Δ_array, Δ);
-        push!( ω_array, ω );
-        push!( stepsize_array, stepsize );
-        push!( num_crit_loops_array, num_critical_loops );
-        push!( ρ_array, ρ );
-        if config_struct.n_exp > 0
-            push!( model_info_array, deepcopy(model_info) );
-        end
+        push!(values_db, f_x₊)
 
         # perform iteration step
-        Δ_old = copy(Δ) # for printing
+        Δ_old = copy(Δ)         # for printing
+        x_index_old = x_index   # for printing
+
         accept_x₊ = false;
         improvement_step = false;
         if !isnan(ρ) && ρ > ν_success
             @info("\tVery successful descent step.")
             if Δ < β * ω
                 Δ = min( Δ_max, γ_grow * Δ );
-                @info("\t\tTrying to grow Δ from $Δ_old to $Δ.")
             end
             accept_x₊ = true
         else
-            if rbf_model.fully_linear
+            if linear_flag
                 if isnan(ρ) || ρ < ν_accept
                     Δ *= γ_shrink_much;
                 else
-                    Δ *= γ_shrink;  # shrink Δ even if x is accepted, see diagram in paper
-                    @info("\tAcceptable descent step.")
+                    Δ *= γ_shrink;
                     accept_x₊ = true;
                 end
-                @info("\t\tShrinking Δ from $Δ_old to $Δ.")
             else
                 improvement_step = true;
             end
@@ -320,28 +341,95 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
             f_x = f_x₊;
             x_index = length(sites_db);
             iter_data.x_index = x_index;
-        else
-            @info("\tUnsuccessful descent attempt.")
         end
+
+        @info """
+        The step is $(accept_x₊ ? (ρ > ν_success ? "very sucessfull!" : "acceptable.") : "unsucessfull…").
+        It follows that
+          old iterate index: $x_index_old
+          new iterate index: $x_index
+          old radius : $Δ_old
+          new radius : $Δ
+        """
 
         # update iteration data for subsequent subroutines
         push!(iterate_indices, x_index);
         @pack! iter_data = x, f_x, Δ
+
+        # Update nice-to-know iter data information
+        push!( iter_data.trial_point_indices, length(sites_db) )
+        push!( Δ_array, Δ_old);
+        push!( ω_array, ω );
+        push!( stepsize_array, steplength );
+        push!( num_crit_loops_array, num_critical_loops );
+        push!( ρ_array, ρ );
+        push!( model_meta, surrogates.model_meta ); # list of lists
     end
 
-    # Finished everything!
-    @info("\n\n--------------------------")
-    @info("Finished optimization after $iter_index iterations and $(length(sites_db)) evaluations.")
-    @info("Final (unscaled) x  = $(unscale(problem, x)).")
-    @info("Final fx = $f_x.")
+    @info """\n
+    |--------------------------------------------
+    | FINISHED
+    |--------------------------------------------
+    |  No. iterations:      $iter_index
+    |  No. objective evals: $(length(sites_db)).
+    |  Final iterate has index $(iterate_indices[iter_index]) and true coordinates
+    |    $(unscale(problem,x)[1:min(5,end)])...
+    |  Final values are $(f_x[1:min(5,end)])...
+    |--------------------------------------------
+    """
 
     # Reverse scaling on all decision vectors
-    sites_db[:] = unscale.(problem, sites_db )
+    unscale!.(problem, sites_db )
     # Reverse sorting on all value vectors
-    if !isempty(ideal_point) ideal_point[:] = reverse_internal_sorting( problem, ideal_point) end
-    if !isempty(image_direction) image_direction[:] = reverse_internal_sorting( problem, image_direction ) end
-    values_db[:] = reverse_internal_sorting( problem, values_db )
-    return unscale(problem, x), f_x
+    reverse_internal_sorting!.( problem, values_db )
+    if !isempty(ideal_point) reverse_internal_sorting!( problem, ideal_point) end
+    if !isempty(image_direction) reverse_internal_sorting!( problem, image_direction ) end
+
+    return sites_db[x_index], values_db[x_index]
+end
+
+# Stopping functions
+@doc """
+Return true if either `Δ` is big enough. Both conditions must be satisfied:
+    • `Δ` is at least as large as `Δ_min`
+    • `Δ >= Δ_critical` AND `stepsize >= stepsize_min`
+"""
+function Δ_big_enough( Δ :: Float64, stepsize :: Float64;
+        Δ_min :: Float64, Δ_critical::Float64, stepsize_min :: Float64 )
+    return  Δ >= Δ_min && ( stepsize >= stepsize_min && Δ >= Δ_critical )
+end
+
+function loop_check(Δ :: Float64, stepsize :: Float64, iter_index :: Int64,
+        n_evals :: Int64 ;
+        Δ_min :: Float64, Δ_critical :: Float64, stepsize_min :: Float64,
+        max_iter :: Int64, max_evals :: Int64, improvement_step :: Bool )
+
+    iterations_okay = iter_index < max_iter;
+    !iterations_okay && @info """
+    Maximum number of iterations reached.
+        n_iterations = $iter_index,
+        max_iter = $max_iter
+    """
+
+    budget_okay = (
+        (!improvement_step && n_evals <= max_evals - 1) ||
+        ( improvement_step && length( sites_db ) <= max_evals - 2 )
+    )
+    !budget_okay && @info """
+    Budged exhausted:
+       n_evals =   $n_evals,
+       max_evals = $max_evals.
+    """
+
+    stepsize_okay = Δ_big_enough( Δ, stepsize; Δ_min, Δ_critical, stepsize_min );
+    !stepsize_okay && @info """
+    Stepsize or Δ too small.
+    • Δ = $Δ and stepsize = $stepsize
+    • Δ_min = $Δ_min
+    • Δ_critical = $Δ_critical, stepsize_min = $stepsize_min.
+    """
+
+    return iterations_okay && budget_okay && stepsize_okay
 end
 
 end
