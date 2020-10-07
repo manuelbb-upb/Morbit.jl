@@ -5,7 +5,7 @@ using JuMP
 using OSQP
 using NLopt
 
-using LinearAlgebra: norm
+using LinearAlgebra: norm, pinv
 
 using Parameters: @with_kw, @unpack, @pack!, reconstruct   # use Parameters package for structs with default values and keyword initializers
 import Base: isempty, Broadcast, broadcasted
@@ -22,7 +22,7 @@ using .Surrogates: MixedMOP, add_objective!, add_vector_objective!,
 using .Surrogates: SurrogateContainer, init_surrogates, build_models!, improve!,
     make_linear!, eval_models, fully_linear, get_jacobian, get_optim_handle
 export MixedMOP, add_objective!, add_vector_objective!,
-    ModelConfig, ExactConfig, RBFConfig, TaylorConfig, LagrangeConfig
+    ModelConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig
 
 #include("data_structures.jl")
 import .Surrogates: AlgoConfig, IterData
@@ -180,7 +180,6 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
     # enter optimization loop
     iter_index = 0;
-    non_linear_indices = Int64[];
     improvement_step = false
     stepsize = Δ;
 
@@ -202,7 +201,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         """)
 
         # model update
-        if !(isempty(non_linear_indices))
+        if improvement_step
             @info("Improving models.")
             improve!(surrogates, non_linear_indices, config_struct )
         else
@@ -344,7 +343,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         end
 
         @info """
-        The step is $(accept_x₊ ? (ρ > ν_success ? "very sucessfull!" : "acceptable.") : "unsucessfull…").
+        The step is $(accept_x₊ ? (ρ > ν_success ? "very sucessfull!" : "acceptable.") : "unsucessfull…")
         It follows that
           old iterate index: $x_index_old
           new iterate index: $x_index

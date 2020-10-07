@@ -9,12 +9,6 @@ const FD = FiniteDiff#erences
 import ForwardDiff
 const AD = ForwardDiff
 
-#=
-export MixedMOP, add_objective!, add_vector_objective!
-export RbfConfig, ExactConfig, TaylorConfig, LagrangeConfig
-export ObjectiveFuntion, BatchObjectiveFunction, VectorObjectiveFunction
-=#
-
 const ε_bounds = 1e-15; # tolerancy for projection into feasible set
 
 @doc "Put `x` back into box defined by `lb` and `ub`."
@@ -103,7 +97,7 @@ end
     gradient :: Union{Symbol, Vector{F}, F} where{F<:Function} = :fdm       # allow for array of functions too
     jacobian :: Union{Nothing, Symbol, F where{F<:Function} } = nothing
     hessian :: Union{Symbol, F, Vector{F}} where{F<:Function} = :fdm
-    n_out :: Int64 = 0; # used internally when setting hessians
+    n_out :: Int64 = 1; # used internally when setting hessians
 end
 
 @with_kw mutable struct LagrangeConfig <: ModelConfig
@@ -214,7 +208,7 @@ Broadcast.broadcastable(m::MixedMOP) = Ref(m);
 
 function grad_from_jacobian( objf :: VectorObjectiveFunction, ℓ :: Int64 = 1 )
     grad_fun = function (x :: Vector{R} where{R<:Real} )
-        if isnothing(objf.jacobian_cache) || x != keys( objf.jacobian_cache )[1]
+        if isnothing(objf.jacobian_cache) || !(x ∈ keys( objf.jacobian_cache ))
             objf.jacobian_cache = Dict(
                 x => objf.jacobian_handle(x)
             )
@@ -283,6 +277,7 @@ function set_gradients!( objf :: VectorObjectiveFunction, model_config :: Union{
 end
 
 function set_hessians!( objf :: VectorObjectiveFunction, model_config :: TaylorConfig )
+    objf.hessian_handles = Any[];
     for i = 1 : model_config.n_out
         if model_config.hessian == :fdm
             hessian_handle = function (x :: Vector{R} where{R<:Real})
@@ -298,7 +293,7 @@ function set_hessians!( objf :: VectorObjectiveFunction, model_config :: TaylorC
         else
             @error "No Hessian method (:fdm or :autodiff) or function handle for output $i provided."
         end
-        objf.hessian_handles[i] = hessian_handle;
+        push!( objf.hessian_handles, hessian_handle );
     end
     if isa( model_config.hessian , Symbol )
         @warn "Using FiniteDifferences or AutomaticDifferentiation for vector objectives is really really ineffective!!!"
@@ -348,7 +343,7 @@ function add_objective!(mop :: MixedMOP, func :: T where{T <: Function}, model_c
     set_gradients!(objf, model_config)
 
     if isa(model_config, TaylorConfig) && model_config.degree > 1
-        set_hessian!(objf, model_config)
+        set_hessians!(objf, model_config)
     end
 
     push!(mop.vector_of_objectives, objf)

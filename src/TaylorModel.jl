@@ -26,18 +26,19 @@ struct TaylorMeta end   # no construction meta data needed
 Model is the same inside and outside of criticality round."
 function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
         cfg :: TaylorConfig, crit_flag :: Bool = true)
+    @info "BUILDING TAYLOR MODEL"
     tm = TaylorModel(
-        n_out = cfg.n_out,
+        n_out = objf.n_out,
         degree = cfg.degree,
         x = unscale(ac.iter_data.x),
-        f_x = ac.iter_data.f_x[ cfg.internal_indices ]  # hopefully == objf(unscale(x))
+        f_x = ac.iter_data.f_x[ objf.internal_indices ]  # hopefully == objf(unscale(x))
         )
 
-    do_hessians = cfg.degree == 2;
-    for ℓ = 1 : cfg.n_out
-        tm.g[ℓ] = objf.gradient_handle[ℓ](tm.x)
+    do_hessians = tm.degree == 2;
+    for ℓ = 1 : tm.n_out
+        push!( tm.g, objf.gradient_handles[ℓ](tm.x) )
         if do_hessians
-            tm.H[ℓ] = objf.hessian_handles[ℓ](tm.x)
+            push!( tm.H, objf.hessian_handles[ℓ](tm.x) )
         end
     end
     # Note: to save the evaluation sites, we could either have `objf` store the evals
@@ -45,10 +46,30 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     return tm, TaylorMeta()
 end
 
-@doc "Return vector of evaluations for all outputs of a (vector) Taylor model `tm` at scaled site `ξ`."
+@doc "Return vector of evaluations for all outputs of a (vector) Taylor model
+`tm` at scaled site `ξ`."
 function eval_models( tm :: TaylorModel, ξ :: Vector{Float64} )
     h = unscale(ξ) .- tm.x;
+    return eval_models( tm :: TaylorModel, h, Val( tm.degree ) )
+end
+function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ::Val{1})
+    return vcat( [ tm.f_x[ℓ] + h'tm.g[ℓ] for ℓ=1:tm.n_out ]... )
+end
+function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ::Val{2})
     return vcat( [ tm.f_x[ℓ] + h'tm.g[ℓ] + .5 * h'tm.H[ℓ]*h for ℓ=1:tm.n_out ]...)
+end
+
+@doc "Return vector of evaluations for output `ℓ` of a (vector) Taylor model
+`tm` at scaled site `ξ`."
+function eval_models( tm :: TaylorModel, ξ :: Vector{Float64} , ℓ :: Int64 )
+    h = unscale(ξ) .- tm.x;
+    return eval_models( tm, h, ℓ, Val(tm.degree))
+end
+function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ℓ :: Int64, ::Val{1} )
+    tm.f_x[ℓ] + h'tm.g[ℓ]
+end
+function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ℓ :: Int64, ::Val{2} )
+    tm.f_x[ℓ] + h'tm.g[ℓ] + .5 * h'tm.H[ℓ]*h
 end
 
 @doc "Gradient vector of output `ℓ` of `tm` at scaled site `ξ`."
@@ -63,7 +84,8 @@ end
 
 @doc "Return Jacobian matrix of (vector-valued) Taylor Model `tm` at scaled site `ξ`."
 function get_jacobian( tm :: TaylorModel, ξ :: Vector{Float64})
-    return transpose( (hcat( get_gradient(tm, ξ, ℓ) for ℓ = 1 : tm.n_out ) )... )
+    grad_list = [get_gradient(tm, ξ, ℓ) for ℓ=1:tm.n_out ]
+    return transpose( hcat( grad_list... ) )
 end
 
 # The following functions are a bit redundant becase `tm` is always fully linear.

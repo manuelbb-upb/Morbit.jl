@@ -23,13 +23,18 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction, cfg :: 
 end
 
 @doc "Evaluate the ExactModel `em` at scaled site `ξ`."
-function eval_models( em :: ExactModel, ξ )
+function eval_models( em :: ExactModel, ξ :: Vector{Float64} )
     em.objf_obj( unscale(ξ) )
+end
+
+@doc "Evaluate output `ℓ` of the ExactModel `em` at scaled site `ξ`."
+function eval_models( em :: ExactModel, ξ :: Vector{Float64}, ℓ :: Int64)
+    return em.objf_obj( unscale(ξ) )[ℓ]
 end
 
 @doc "Gradient vector of output `ℓ` of `em` at scaled site `ξ`."
 function get_gradient( em :: ExactModel, ξ :: Vector{Float64}, ℓ :: Int64)
-    em.objf_obj.gradient_handles[ℓ]( unscale(ξ) )
+    return em.objf_obj.gradient_handles[ℓ]( unscale(ξ) )
 end
 
 @doc "Jacobian Matrix of ExactModel `em` at scaled site `ξ`"

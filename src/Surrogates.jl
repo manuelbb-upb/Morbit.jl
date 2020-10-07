@@ -73,7 +73,7 @@ function improve!(sc :: SurrogateContainer, non_linear_indices :: Vector{Int64},
         model = sc.model_list[ℓ]
         meta = sc.model_meta[ℓ]
         objf = sc.objf_list[ℓ]
-        improve!(model, meta, config_struct, objf, objf.model_config)
+        improve!(model, meta, ac, objf, objf.model_config)
     end
 end
 
@@ -84,8 +84,9 @@ function make_linear!(sc :: SurrogateContainer, non_linear_indices :: Vector{Int
         model = sc.model_list[ℓ]
         meta = sc.model_meta[ℓ]
         objf = sc.objf_list[ℓ]
-        has_changed *= make_linear!(model, meta, config_struct, objf, objf.model_config)
+        has_changed *= make_linear!(model, meta, ac, objf, objf.model_config)
     end
+    return has_changed
 end
 
 function eval_models( sc :: SurrogateContainer, x :: Vector{Float64} )
@@ -93,7 +94,8 @@ function eval_models( sc :: SurrogateContainer, x :: Vector{Float64} )
 end
 
 function get_jacobian( sc :: SurrogateContainer, x :: Vector{Float64})
-    vcat( (get_jacobian(model , x) for model ∈ sc.model_list )... )
+    model_jacobians = [ get_jacobian(model , x) for model ∈ sc.model_list ]
+    vcat( model_jacobians... )
 end
 
 # let each surrogate handle its broadcasting behavior itself...
@@ -127,7 +129,7 @@ function get_optim_handle( model :: M where{ M <: SurrogateModel}, l :: Int64 )
         if !isempty(g)
             g[:] = get_gradient( model, x, l)
         end
-        return eval_models( model, x)
+        return eval_models( model, x, l)
     end
 end
 

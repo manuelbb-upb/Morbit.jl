@@ -56,7 +56,7 @@ Broadcast.broadcastable(id :: IterData) = Ref(id);
     γ_shrink_much :: Float64 = 0.501;
 
     Δ₀ :: Float64 = 0.1;
-    Δ_max :: Float64 = 0.5;
+    Δ_max :: Float64 = 1.0;
 
     # additional stopping criteria (mostly inspired by thoman)
     Δ_critical = 1e-3;   # max ub - lb / 10

@@ -226,7 +226,7 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction, meta_data 
        push!(meta_data, round4_indices, new_indices...)
    end
    reset_m = RBFModel( cfg, objf, meta_data, iter_data )    # Reset to make sure all sites are included and scaled properly
-   train!(reset_m, Q, R, Z, L, Φ)
+   train!(reset_m)
    as_second!(m,reset_m)
    reset_m = nothing;
 end
@@ -561,7 +561,6 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
     add_points!(m, objf, meta_data, cfg, config_struct)
 
     @info("\tModel$(m.fully_linear ? " " : " not ")linear!")
-    @show m
     return m, meta_data
 end
 

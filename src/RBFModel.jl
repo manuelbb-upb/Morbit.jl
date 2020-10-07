@@ -47,6 +47,7 @@ end
 # use functions from base module for evaluation
 # (assumes that models are trained on the unit hypercube)
 eval_models( m :: RBFModel, x :: Vector{Float64}) = RBF.output(m, x)
+eval_models( m :: RBFModel, x :: Vector{Float64}, ℓ :: Int64) = RBF.output(m, ℓ, x)
 get_gradient( m :: RBFModel, x :: Vector{Float64}, ℓ :: Int64) = RBF.grad( m, ℓ, x )
 get_jacobian( m :: RBFModel, x :: Vector{Float64}) = RBF.jac( m, x )
 

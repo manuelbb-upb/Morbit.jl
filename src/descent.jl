@@ -128,7 +128,7 @@ function compute_descent_direction( type::Val{:direct_search},
             d = ∇m⁺ * image_direction;
         else
             prob = JuMP.Model(OSQP.Optimizer);
-            #JuMP.set_silent(prob)
+            JuMP.set_silent(prob)
             set_optimizer_attribute(prob,"eps_rel",1e-5)
             set_optimizer_attribute(prob, "polish", true)
 
@@ -140,10 +140,10 @@ function compute_descent_direction( type::Val{:direct_search},
 
             λ_opt = value(λ)
             d = λ_opt .* (∇m⁺ * image_direction);
-            @show λ_op
-            @show ∇m * d
+            @show λ_opt
+
         end
-        dir, step_size = get_inital_step( d, Δ )
+        dir, step_size = get_initial_step( d, Δ )
         ω = let o = - maximum( ∇m * dir ); problem.is_constrained ? min( o, 1.0 ) : o end
 
         x₊, m_x₊, dir = backtrack(x, f_x, dir, step_size, ω, sc, all_objectives_descent)

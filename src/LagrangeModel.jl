@@ -19,6 +19,7 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction, cfg :: 
 end
 
 eval_models( lm :: LagrangeModel, ξ :: Vector{Float64}) = nothing;
+eval_models( lm :: LagrangeModel, ξ :: Vector{Float64}, ℓ :: Int64 ) = nothing;
 get_gradient( lm :: LagrangeModel, ξ :: Vector{Float64}, ℓ :: Int64 ) = nothing;
 get_jacobian( lm :: LagrangeModel, ξ :: Vector{Float64}) = nothing;
 

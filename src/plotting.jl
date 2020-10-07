@@ -248,7 +248,6 @@ end
     iter_data = d.args[1].iter_data;
     stepsizes = iter_data.stepsize_array;
     ρs = iter_data.ρ_array;
-    linear_flags = [mi.fully_linear for mi ∈ iter_data.model_meta.model_info_array];
     iterations = 1:length(stepsizes)
 
     title := "Step Sizes."
@@ -262,9 +261,7 @@ end
 
     green_points = findall( ρs .>= d.args[1].ν_success )
     blue_points = findall( d.args[1].ν_success .> ρs .>= d.args[1].ν_accept )
-    red = setdiff( iterations, [green_points;blue_points]);
-    red_points = red[ linear_flags[red] ]
-    red_diamonds = red[ .!(linear_flags)[red] ]
+    red_points = setdiff( iterations, [green_points;blue_points]);
 
     @series begin
         seriestype := :scatter
@@ -283,16 +280,8 @@ end
     @series begin
         seriestype := :scatter
         markercolor := :red
-        label := "unsucessfull"
+        label := "bad or improving"
         red_points, stepsizes[red_points]
-    end
-
-    @series begin
-        seriestype := :scatter
-        markercolor := :orange
-        label := "model improving"
-        marker := :diamond
-        red_diamonds, stepsizes[red_diamonds]
     end
 end
 
