@@ -38,28 +38,23 @@ for v ∈ F
 end
 
 opt_settings = AlgoConfig(
-    max_iter = 30,
+    max_iter = 15,
     ε_crit = 1e-9,
-    all_objectives_descent = true,
-    Δ₀ = .1,
-    #θ_enlarge_1 = 4.0,
-    θ_pivot = 1/4,
-    ν_accept = -1e-15,
-    max_critical_loops = 2,
-    descent_method = :direct_search,
-    feature_scaling = false,
-    rbf_kernel = :multiquadric,
-    rbf_poly_deg = 1,
-    rbf_shape_parameter = cs -> 10 / (cs.iter_data.Δ),
+    all_objectives_descent = false, #true,
+    Δ₀ = .05,
+    descent_method = :steepest,
+)
+
+rbf_conf = RbfConfig(
+    kernel = :multiquadric,
+    shape_parameter = 2,
     sampling_algorithm = :orthogonal,
-    max_model_points = 300,
-    ideal_point = [-1;-1]
 )
 
 problem_instance = MixedMOP(lb = lb, ub = ub)
 
 add_objective!(problem_instance, f1, :cheap)
-add_objective!(problem_instance, f2, :expensive)
+add_objective!(problem_instance, f2, rbf_conf)
 
 optimize!(opt_settings, problem_instance, x_0);
 

@@ -8,13 +8,26 @@ include("PointSampler.jl")
 using .PointSampler: MonteCarloThDesign, monte_carlo_th
 using Base.Iterators: drop
 
-include("constraints.jl")   # for `intersect_bounds` and `effective_bounds_vectors`
+# using `intersect_bounds` and `effective_bounds_vectors` from 'constraints.jl'
 
 # some utily functions to draw samples from specific pdfs
 randquad(n) = -( 1 .- rand(n) ).^(1/3) .+ 1; # sample randomly according to pdf 3(x-1)^2
 randquad() = randquad(1)[end];
 randquart(n) = - ( 1 .- rand(n) ).^(1/5) .+ 1;
 randquart() = - ( 1 - rand() )^(1/5) + 1
+
+@doc "Return an enlargment factor `θ` that is sensible for [0,1]^n constrained problems."
+function sensible_θ( constrained :: Val{true}, θ :: Float64,
+        x :: Vector{Float64}, Δ :: Float64 )
+    # Define the effective trust region radius `effective_Δ` as
+    # the smallest box radius so some step of length at most `Δ` can be taken
+    # whilst honoring the global box constraints [0,1]^n
+    effective_Δ = min( Δ, max( maximum( x ), maximum(1.0 .- x )) )
+    θ = min(  θ, effective_Δ / Δ )
+end
+
+# the above function is not necessary in unconstrained problems...
+sensible_θ(::Val{false}, θ::Float64, x::Vector{Float64}, Δ::Float64 ) = θ
 
 @doc "Return indices of sites in current database used for training."
 function rbf_training_indices( mi :: RBFMeta )
@@ -103,8 +116,9 @@ end
 If each site is in `\\mathbb R^n` than at most `n+1` sites will be returned."""
 function find_affinely_independent_points(
        sites_array:: Vector{Vector{Float64}}, x :: Vector{Float64}, Δ :: Float64,
-       θ_pivot ::Float64 , x_in_sites :: Bool, Y :: TY , Z :: TZ
-       ) where{ TY, TZ <: AbstractArray{Float64} }
+       θ_pivot ::Float64 , x_in_sites :: Bool, Y :: TY where TY <: Array{Float64,2},
+       Z :: TZ where TZ <: Array{Float64,2} )
+
    n_vars = length(x);
 
    candidate_indices = find_points_in_box(x, Δ, sites_array, Val(x_in_sites));
@@ -134,7 +148,7 @@ function find_affinely_independent_points(
        # check measure for affine independence and add best point if admissible
        if largest_value > min_projected_value
            accepted_flags[best_index] = true;
-           Y = hcat(Y, sites_array[ candidate_indices[best_index]] .- x );
+           Y = hcat(Y, sites_array[ candidate_indices[best_index] ] .- x );
            Z = Z_from_Y(Y)
        end
 
@@ -147,6 +161,8 @@ function find_affinely_independent_points(
    if isempty(Z)
        Z = Matrix{typeof(x[1])}(undef, n_vars, 0);
    end
+
+   @info("\t Found $(size(Y,2)) affinely independent sites in box with Δ=$Δ for pivot value $min_projected_value.")
    return (candidate_indices[ accepted_flags ], Y, Z)
 end
 
@@ -165,7 +181,8 @@ end
 @doc "Add points to model `m` and then train `m`."
 function add_points!( m :: RBFModel, objf::VectorObjectiveFunction,
         meta_data :: RBFMeta, cfg :: RbfConfig, config_struct :: AlgoConfig )
-    @unpack Δ_max, iter_data = config_struct;
+    @unpack Δ_max, iter_data , problem = config_struct;
+    @unpack θ_enlarge_2 = cfg;
     @unpack sites_db, x = iter_data;
     # Check whether there is anything left to do
     unused_indices = non_rbf_training_indices( meta_data, iter_data );
@@ -176,7 +193,8 @@ function add_points!( m :: RBFModel, objf::VectorObjectiveFunction,
         return
     end
 
-    big_Δ = cfg.θ_enlarge_2 * Δ_max;
+    ϑ_enlarge_2 = sensible_θ( Val(problem.is_constrained), θ_enlarge_2, x, Δ_max )
+    big_Δ = ϑ_enlarge_2 * Δ_max;
     candidate_indices = unused_indices[ find_points_in_box( x, big_Δ, sites_db[ unused_indices ], Val(false) )]  # find points in box with radius 'big_Δ'
     reverse!(candidate_indices)
 
@@ -195,7 +213,10 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction, meta_data 
    @unpack max_model_points, use_max_points, θ_enlarge_2 = cfg;
    @unpack x, Δ, sites_db, values_db = iter_data;
 
-   @info "Box search for more points."
+   @info "\t•Box search for more points."
+
+   ϑ_enlarge_2 = sensible_θ( Val(problem.is_constrained), θ_enlarge_2, x, Δ_max )
+   Δ_2 = ϑ_enlarge_2 * Δ_max;
 
    num_candidates = length(candidate_indices);
    if num_candidates <= max_model_points
@@ -218,7 +239,7 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction, meta_data 
    N = max_model_points - length(training_indices)
    if use_max_points && N > 0
        @info("Trying to actively sample $N additional sites to use full number of allowed sites.")
-       lb_eff, ub_eff = effective_bounds_vectors(x, θ_enlarge_2 * Δ_max, Val(problem.is_constrained));
+       lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2, Val(problem.is_constrained));
        seeds = sites_db[training_indices];
        additional_sites = monte_carlo_th( max_model_points, lb_eff, ub_eff; seeds = seeds )[ n_training_sites + 1 : end]
        # batch evaluate
@@ -242,6 +263,9 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction,
     @unpack x, Δ, sites_db, values_db = iter_data;
 
     @info "\tBacktracking search for more points."
+
+    ϑ_enlarge_2 = sensible_θ( Val(problem.is_constrained), θ_enlarge_2, x, Δ_max )
+    Δ_2 = ϑ_enlarge_2 * Δ_max;
 
     # Initialize matrices
     Φ = get_Φ( m )     # TODO change when shape_parameter is made more adaptive
@@ -277,7 +301,7 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction,
     N = max_model_points - length(m.training_sites)
     if use_max_points && N > 0
        @info("Trying to actively sample $N additional sites to use full number of allowed sites.")
-       lb_eff, ub_eff = effective_bounds_vectors(x, θ_enlarge_2 * Δ_max, Val(problem.is_constrained));
+       lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2, Val(problem.is_constrained));
        seeds = m.training_sites;
        additional_sites = Vector{Vector{Float64}}();
 
@@ -406,10 +430,11 @@ function get_new_sites( :: Val{:orthogonal}, N :: Int64, x :: Vector{Float64}, �
         seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}}() )where{
             TY <: AbstractArray, TZ <: AbstractArray }
     n_vars = length(x);
+    N = min( N, size(Z,2) );
+
     additional_sites = Vector{Vector{Float64}}();
     min_pivot = Δ * θ_pivot # * sqrt(n_vars);
-
-    @info("\t Sampling at $(N) new sites, pivot value is $min_pivot.")
+    @info("\t Sampling at $(N) new sites in Δ = $Δ, pivot value is $min_pivot.")
     for i = 1 : N
         new_site = sample_new(constrained_flag, x, Δ, Z[:,1], min_pivot)
         if isempty( new_site )
@@ -418,7 +443,7 @@ function get_new_sites( :: Val{:orthogonal}, N :: Int64, x :: Vector{Float64}, �
 
         push!(additional_sites, new_site);
         Y = hcat( Y, new_site - x );
-        Z = Z_from_Y(Y);
+        Z = Z[:,2 : end] #Z_from_Y(Y);
     end
     return additional_sites, Y, Z
 end
@@ -434,7 +459,7 @@ function get_new_sites( :: Val{:monte_carlo}, N :: Int64, x :: Vector{Float64}, 
 
     additional_sites = Vector{Vector{Float64}}();
     min_pivot = Δ * θ_pivot #* sqrt(n_vars)
-
+    @info("\t Sampling at $(N) new sites in Δ = $Δ, pivot value is $min_pivot.")
     for true_site ∈ drop( MonteCarloThDesign( 30 * N, lb_eff, ub_eff, seeds ), length(seeds) ) # TODO the factor 30 was chosen at random
         site = true_site .- x;
         piv_val = norm(Z*(Z'site),Inf)
@@ -482,14 +507,16 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
 
     other_indices = non_rbf_training_indices( meta_data, iter_data );
 
-    Δ_1 = θ_enlarge_1 * Δ;
-    Δ_2 = θ_enlarge_2 * Δ_max;
+    ϑ_enlarge_1 = sensible_θ( Val(problem.is_constrained), θ_enlarge_1, x, Δ )
+    ϑ_enlarge_2 = sensible_θ( Val(problem.is_constrained), θ_enlarge_2, x, Δ_max )
+
+    Δ_1 = ϑ_enlarge_1 * Δ;
+    Δ_2 = ϑ_enlarge_2 * Δ_max;
 
     # ============== Round 1 ======================#
     # find good points in database within slightly enlarged trust region
     new_indices, Y, Z = find_affinely_independent_points( sites_db[other_indices], x, Δ_1, θ_pivot, false);
     new_indices = other_indices[ new_indices ];
-    @info("\tFound $(length(new_indices)) site(s) with indices $new_indices in first round with radius $Δ_1.")
 
     meta_data.round1_indices = new_indices;
     setdiff!(other_indices, new_indices);
@@ -508,13 +535,10 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
 
             θ_pivot_2 = Δ_2/Δ_1 * θ_pivot
 
-            @info("\tMissing $n_missing sites, searching in database for radius $Δ_2.")
-
             # find additional points in bigger trust region
             new_indices, Y, Z = find_affinely_independent_points( sites_db[other_indices], x, Δ_2, θ_pivot_2, false, Y, Z )
             new_indices = other_indices[ new_indices ];
 
-            @info("\tFound $(length(new_indices)) site(s) in second round.")
             if length(new_indices) > 0
                 @info("\tThe model is not fully linear.")
                 meta_data.round2_indices = new_indices;
@@ -573,8 +597,8 @@ function rebuild_rbf_model( config_struct :: AlgoConfig,
     @unpack x, x_index, Δ, sites_db = iter_data;
 
     meta_data = RBFMeta( center_index = x_index )
-
-    Δ_1 = θ_enlarge_1 * Δ;
+    ϑ_enlarge_1 = sensible_θ( Val(problem.is_constrained), θ_enlarge_1, x, Δ )
+    Δ_1 = ϑ_enlarge_1 * Δ;
     min_pivot = Δ*θ_pivot;
 
     # sample along carthesian coordinates
@@ -655,17 +679,23 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
     @unpack x, Δ, sites_db, values_db = iter_data;
     @unpack θ_pivot, θ_enlarge_1 = cfg;
 
+    @info("\tImproving RBF Model with internal indices $(objf.internal_indices).")
+
     # Y and Z matrix are already associated with model
     Y = meta_data.Y;
     Z = meta_data.Z;
 
-    if size(Z,2) > 0  # should always be true during optimization routine, but usefull for make_linear!
-        @info("\t\tSampling with radius $(θ_enlarge_1 * Δ).")
+    num_Z_cols = size(Z,2)
+
+    if num_Z_cols > 0  # should always be true during optimization routine, but usefull for make_linear!
 
         # add new site from model improving direction
         z = Z[:,1];     # improving direction
         min_pivot = Δ * θ_pivot # *sqrt(n_vars)
-        Δ_1 = θ_enlarge_1 * Δ;  # maximum steplength
+        ϑ_enlarge_1 = sensible_θ( Val(problem.is_constrained), θ_enlarge_1, x, Δ )
+        Δ_1 = ϑ_enlarge_1 * Δ;  # maximum steplength
+
+        @info("\t\tSampling with radius $Δ_1.")
 
         new_site = sample_new(problem.is_constrained, x, Δ_1, z, min_pivot)
         if isempty( new_site )
@@ -678,8 +708,8 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
         end
 
         # update Y and Z matrices
-        meta_data.Y = hcat( Y, new_site - x );    # add new column to matrix Y
-        meta_data.Z = Z_from_Y(meta_data.Y);
+        meta_data.Y = hcat( Y, new_site .- x );    # add new column to matrix Y
+        meta_data.Z = Z[:,2:end] #Z_from_Y(meta_data.Y);
 
         # evaluate at new site and store in database
         new_val = eval_all_objectives(problem, new_site );  # unscaling is taken care of
@@ -692,7 +722,7 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
         push!(m.training_values, new_val[objf.internal_indices] )
 
         train!(m);
-        if size(Z,2) == 0
+        if num_Z_cols == 1
             meta_data.fully_linear = m.fully_linear = true;
             @info("\t\tModel is now fully linear.")
         else
@@ -701,7 +731,7 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
         end
         return true
     else
-        @warn "empty return from improvement!"
+        @warn "Empty return from improvement!"
         return false
     end
 end

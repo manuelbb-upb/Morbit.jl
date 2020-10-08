@@ -1,21 +1,22 @@
-module Surrogates
+#module Surrogates
 
 import Base.Broadcast: broadcastable, broadcasted
 using Parameters: @with_kw, @pack!, @unpack
 
 include("Objectives.jl")
 
-#import .Objectives: MixedMOP, ModelConfig, TaylorConfig, ExactConfig, LagrangeConfig,
-#    RbfConfig, VectorObjectiveFunction
-
 include("data_structures.jl") # to have IterData and AlgoConfig
 
 abstract type SurrogateModel end
+prepare!(::VectorObjectiveFunction, :: M where M<:ModelConfig , ::AlgoConfig) = nothing
 
 include("RBFModel.jl")
 include("TaylorModel.jl")
 include("ExactModel.jl")
 include("LagrangeModel.jl") # TODO
+
+include("build_derivatives.jl")
+
 
 @doc """
 A container for all (possibly vector-valued) surrogate models used during
@@ -31,30 +32,33 @@ optimization.
     objf_list :: Union{Nothing, Vector{VectorObjectiveFunction}} = nothing;
     model_list :: Vector{Any} = [] ;
     model_meta :: Vector{Any} = [] ;
+    n_objfs :: Int64 = 0;   # number of scalar(ized) objectives
     lb :: Union{Nothing, Vector{Float64}} = nothing;
     width :: Union{Nothing, Vector{Float64}} = nothing; # ub - lb
 end
-broadcastable(sc::SurrogateContainer) = Ref(sc);
 
-LB = nothing;
-WIDTH = nothing;
-
-function unscale( x :: Vector{Float64})
-    global LB; WIDTH;
-    if isnothing(LB)
+function unscale( x :: Vector{Float64}, sc :: SurrogateContainer )
+    if isnothing(sc.lb)
         return x
     else
-        return LB .+ ( x .* ( WIDTH ) )
+        return sc .+ ( x .* ( sc.width ) )
     end
 end
 
 @doc "Return a SurrogateContainer initialized from the information provided in `mop`."
-function init_surrogates( mop :: MixedMOP )
-    global LB, WIDTH;
-    LB = mop.lb;
-    WIDTH = mop.ub .- mop.lb;
-    return SurrogateContainer(
-        objf_list = mop.vector_of_objectives )
+function init_surrogates( ac :: AlgoConfig )
+    mop = ac.problem;
+    sc = SurrogateContainer(
+        objf_list = mop.vector_of_objectives,
+        n_objfs = mop.n_objfs,
+        lb = mop.lb,
+        width = mop.ub .- mop.lb,
+    )
+
+    for objf in sc.objf_list
+        prepare!(objf, objf.model_config, ac)
+    end
+    return sc
 end
 
 function build_models!(sc :: SurrogateContainer, ac :: AlgoConfig, crit_flag :: Bool = false )
@@ -90,7 +94,7 @@ function make_linear!(sc :: SurrogateContainer, non_linear_indices :: Vector{Int
 end
 
 function eval_models( sc :: SurrogateContainer, x :: Vector{Float64} )
-    vcat(( eval_models(model , x) for model ∈ sc.model_list )...)
+    vcat( ( eval_models(model , x) for model ∈ sc.model_list )...)
 end
 
 function get_jacobian( sc :: SurrogateContainer, x :: Vector{Float64})
@@ -147,4 +151,4 @@ function get_optim_handle( sc :: SurrogateContainer, ℓ :: Int64 )
     end
 end
 
-end#module
+#end#module

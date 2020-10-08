@@ -43,11 +43,11 @@ abstract type ModelConfig end
 
 @with_kw mutable struct RbfConfig <: ModelConfig
     kernel :: Symbol = :multiquadric;
-    shape_parameter :: Union{F,Float64} where {F<:Function} = 1.0;
+    shape_parameter :: Union{F where {F<:Function}, R where R<:Real} = 1;
     polynomial_degree :: Int64 = 1;
 
     θ_enlarge_1 :: Float64 = 2.0;
-    θ_enlarge_2 :: Float64 = -1.0;  # reset
+    θ_enlarge_2 :: Float64 = 5.0;  # reset
     θ_pivot :: Float64 = 1.0 / θ_enlarge_1;
     θ_pivot_cholesky :: Float64 = 1e-7;
 
@@ -60,6 +60,8 @@ abstract type ModelConfig end
 
     @assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
     @assert kernel ∈ Symbol.(["exp", "multiquadric", "cubic", "thin_plate_spline"]) "Kernel '$kernel' not supported yet."
+    @assert kernel != :thin_plate_spline || shape_parameter isa Int && shape_parameter >= 1
+    @assert θ_enlarge_1 >=1 && θ_enlarge_2 >=1 "θ's must be >= 1."
 end
 
 import Base: ==
@@ -88,16 +90,21 @@ import Base: ==
 end
 
 @with_kw mutable struct ExactConfig <: ModelConfig
-    gradient :: Union{Symbol, Vector{F}, F} where{F<:Function} = :autodiff
-    jacobian :: Union{Nothing, Symbol, F where{F<:Function} } = nothing
+    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :autodiff
+
+    # alternative keyword, usage discouraged...
+    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
 end
 
 @with_kw mutable struct TaylorConfig <: ModelConfig
-    degree :: Int64 = 1;
-    gradient :: Union{Symbol, Vector{F}, F} where{F<:Function} = :fdm       # allow for array of functions too
-    jacobian :: Union{Nothing, Symbol, F where{F<:Function} } = nothing
-    hessian :: Union{Symbol, F, Vector{F}} where{F<:Function} = :fdm
     n_out :: Int64 = 1; # used internally when setting hessians
+    degree :: Int64 = 1;
+
+    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :fdm
+    hessians ::  Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :fdm
+
+    # alternative to specifying individual gradients
+    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
 end
 
 @with_kw mutable struct LagrangeConfig <: ModelConfig
@@ -129,12 +136,6 @@ end
     model_config :: Union{ Nothing, C } where {C <: ModelConfig } = nothing;
 
     function_handle :: Union{T, Nothing} where{T <: Function, F <: Function} = nothing
-
-    gradient_handles :: Union{Nothing, Vector{Any}} = nothing;
-    hessian_handles :: Union{Nothing, Vector{Any}} = nothing;   # possibly needed for Taylor models
-
-    jacobian_handle :: Union{Nothing, F} where {F <: Function } = nothing;  # needed for TaylorModel and ExactModel
-    jacobian_cache :: Union{ Nothing, Dict{ Vector{Float64}, Array{Float64,2} } } = nothing
 
     internal_indices :: Vector{Int64} = [];
 end
@@ -206,100 +207,6 @@ end
 end
 Broadcast.broadcastable(m::MixedMOP) = Ref(m);
 
-function grad_from_jacobian( objf :: VectorObjectiveFunction, ℓ :: Int64 = 1 )
-    grad_fun = function (x :: Vector{R} where{R<:Real} )
-        if isnothing(objf.jacobian_cache) || !(x ∈ keys( objf.jacobian_cache ))
-            objf.jacobian_cache = Dict(
-                x => objf.jacobian_handle(x)
-            )
-        end
-        return vec(objf.jacobian_cache[x][ℓ, :])
-    end
-    return grad_fun
-end
-
-function set_gradients!( objf :: VectorObjectiveFunction, model_config :: Union{ExactConfig, TaylorConfig} )
-
-    if isa( model_config.gradient, F where {F<:Function } ) && objf.n_out == 1
-        obj.gradient_handles = [ model_config.gradient ]
-    elseif isa( model_config.gradient, Vector{F} where {F<:Function } )
-        if length( model_config.gradient ) != objf.n_out
-            @error "Length of gradient array does not match number of vector objective outputs."
-        else
-            objf.gradient_handles = model_config.gradient ;
-        end
-    elseif isa( model_config.jacobian, F where{F<:Function} )
-        objf.jacobian_handle = function (x :: Vector{R} where{R<:Real} )
-            J = model_config.jacobian(x)
-            objf.jacobian_cache = Dict( x => J )
-        end
-        @goto build_grads
-    elseif isa( model_config.gradient, Symbol )
-        mode = model_config.gradient
-        @goto build_jacobian
-    elseif isa( model_config.jacobian, Symbol )
-        mode = model_config.jacobian
-        @goto build_jacobian
-    else
-        @error "No jacobian method (:fdm or :autodiff) or gradient function handle(s) provided."
-    end
-
-    return nothing
-
-    @label build_jacobian
-    if objf.n_out > 1 @warn "Using FiniteDifferences or AutomaticDifferentiation for vector objectives is really really ineffective!!!" end
-    if mode == :fdm
-        objf.jacobian_handle = function (x :: Vector{R} where{R<:Real})
-            # taking difference quotients of `objf` (instead of `objf.function_handle`) increases `n_evals` of the objective
-            FD.finite_difference_jacobian( objf, x)
-        end
-    elseif mode == :autodiff
-        if objf.n_out > 1
-            objf.jacobian_handle = function (x :: Vector{R} where{R<:Real})
-                AD.jacobian( objf, x )
-            end
-        else
-            objf.jacobian_handle = function (x :: Vector{R} where{R<:Real})
-                transpose(AD.gradient( objf, x ))
-            end
-        end
-    else
-        @error "No jacobian method (:fdm or :autodiff) or gradient function handle(s) provided."
-    end
-
-    @label build_grads
-    gradient_handles = [];
-    for i = 1 : objf.n_out
-        push!( gradient_handles, grad_from_jacobian( objf, i) )
-    end
-    objf.gradient_handles = gradient_handles;
-    return nothing
-end
-
-function set_hessians!( objf :: VectorObjectiveFunction, model_config :: TaylorConfig )
-    objf.hessian_handles = Any[];
-    for i = 1 : model_config.n_out
-        if model_config.hessian == :fdm
-            hessian_handle = function (x :: Vector{R} where{R<:Real})
-                # taking difference quotients of `objf` (instead of `objf.function_handle`) increases `n_evals` of the objective
-                FD.finite_difference_hessian( ξ -> objf(ξ)[i], x)
-            end
-        elseif model_config.hessian == :autodiff
-            hessian_handle = function (x :: Vector{R} where{R<:Real})
-                AD.hessian( ξ -> objf(ξ)[i], x )
-            end
-        elseif isa( model_config.hessian, Vector{F} where{F<:Function} )
-            hessian_handle = model_config.hessian_handle[i]
-        else
-            @error "No Hessian method (:fdm or :autodiff) or function handle for output $i provided."
-        end
-        push!( objf.hessian_handles, hessian_handle );
-    end
-    if isa( model_config.hessian , Symbol )
-        @warn "Using FiniteDifferences or AutomaticDifferentiation for vector objectives is really really ineffective!!!"
-    end
-end
-
 # FUNCTIONS TO ADD A SCALAR OBJECTIVE TO A MixedMOP
 # # helpers
 function wrap_func( mop :: MixedMOP,  func :: T where{T <: Function}, batch_eval :: Bool )
@@ -307,7 +214,8 @@ function wrap_func( mop :: MixedMOP,  func :: T where{T <: Function}, batch_eval
     wrapped_func = batch_eval ? BatchObjectiveFunction( fx ) : fx;
 end
 
-function init_objective( mop :: MixedMOP, func :: T where{T <: Function}, model_config :: M where{M <: ModelConfig}, batch_eval :: Bool , n_out :: Int64 )
+function init_objective( mop :: MixedMOP, func :: T where{T <: Function},
+        model_config :: M where{M <: ModelConfig}, batch_eval :: Bool , n_out :: Int64 )
     wrapped_func = wrap_func(mop, func, batch_eval)
 
     objf = VectorObjectiveFunction(
@@ -318,102 +226,51 @@ function init_objective( mop :: MixedMOP, func :: T where{T <: Function}, model_
     );
 end
 
-# # user methods
-@doc "Add a scalar objective to `mop::MixedMOP` that should be modeled by an RBF network or Lagrange polynomials."
-function add_objective!(mop :: MixedMOP, func :: T where{T <: Function}, model_config :: Union{RbfConfig, LagrangeConfig}; batch_eval = false )
-    objf = init_objective( mop, func, model_config, batch_eval, 1 )
-    # check if there is some other RBF objective with same settings and combine to save work
+function combine_objectives!(mop :: MixedMOP, objf :: VectorObjectiveFunction ,
+        model_config :: Union{RbfConfig, LagrangeConfig})
+    # check if there is some other objective with same settings to save work
     for (other_objf_index, other_objf) ∈ enumerate(mop.vector_of_objectives)
         if other_objf.model_config == model_config
             deleteat!( mop.vector_of_objectives, other_objf_index )
             new_objf = combine( other_objf, objf )
             push!(mop.vector_of_objectives, new_objf)
-            @goto objf_added
+            return
         end
     end
     push!(mop.vector_of_objectives, objf)
-    @label objf_added
-    mop.n_objfs += 1;
 end
 
-@doc "Add a scalar objective to `mop::MixedMOP` that should be evaluated exactely or modeled by a Taylor Polynomial."
-function add_objective!(mop :: MixedMOP, func :: T where{T <: Function}, model_config :: Union{ExactConfig, TaylorConfig}; batch_eval = false )
-    objf = init_objective( mop, func, model_config , batch_eval, 1)
-
-    set_gradients!(objf, model_config)
-
-    if isa(model_config, TaylorConfig) && model_config.degree > 1
-        set_hessians!(objf, model_config)
-    end
-
+function combine_objectives!(mop :: MixedMOP, objf :: VectorObjectiveFunction ,
+        model_config :: Union{ExactConfig, TaylorConfig})
     push!(mop.vector_of_objectives, objf)
-    @label objf_added
+end
+
+# # user methods
+@doc "Add a scalar objective to `mop::MixedMOP` modelled according to `model_config`."
+function add_objective!(mop :: MixedMOP, func :: T where{T <: Function},
+        model_config :: M where M <: ModelConfig; batch_eval = false )
+    objf = init_objective( mop, func, model_config, batch_eval, 1 )
+
+    combine_objectives!(mop, objf, model_config)
     mop.n_objfs += 1;
 end
+
 
 # FUNCTIONS TO ADD VECTOR OBJECTIVES TO A MixedMOP
-@doc "Add a vector objective to `mop::MixedMOP` that should be modeled by an RBF network or Lagrange polynomials."
-function add_vector_objective!(mop :: MixedMOP, func :: T where{T <: Function}, model_config :: Union{RbfConfig, LagrangeConfig}; n_out :: Int64, batch_eval = false )
+@doc "Add a vector objective to `mop::MixedMOP` modelled according to `model_config`."
+function add_vector_objective!(mop :: MixedMOP, func :: T where{T <: Function},
+        model_config :: M where M <: ModelConfig; n_out :: Int64, batch_eval = false )
     if n_out < 1
         @error "You must specify the number (positive integer) of outputs of `func` with the mandatory keyword argument `n_out`."
     end
 
     objf = init_objective( mop, func, model_config, batch_eval, n_out )
 
-    # check if there is some other RBF/Lagrange objective with same settings
-    # and combine to save work when building surrogates
-    for (other_objf_index, other_objf) ∈ enumerate(mop.vector_of_objectives)
-        if other_objf.model_config == model_config
-            deleteat!( mop.vector_of_objectives, other_objf_index )
-            new_objf = combine( other_objf, objf )
-            push!(mop.vector_of_objectives, new_objf)
-            @goto objf_added
-        end
-    end
-    push!(mop.vector_of_objectives, objf)
-    @label objf_added
+    combine_objectives!(mop, objf, model_config)
     mop.n_objfs += n_out;
 end
 
-@doc "Add a scalar objective to `mop::MixedMOP` that should be evaluated exactely or modeled by a Taylor Polynomial."
-function add_vector_objective!(mop :: MixedMOP, func :: T where{T <: Function}, model_config :: Union{ExactConfig, TaylorConfig}; n_out :: Int64, batch_eval = false )
-    if n_out < 1
-        @error "You must specify the number (positive integer) of outputs of `func` with the mandatory keyword argument `n_out`."
-    end
-
-    objf = init_objective( mop, func, model_config, n_out )
-
-    set_gradients!(objf, model_config)
-
-    if isa(model_config, TaylorConfig) && model_config.degree > 1
-        model_config.n_out = n_out;
-        set_hessians!(objf, model_config)
-    end
-
-    push!(mop.vector_of_objectives, objf)
-    @label objf_added
-    mop.n_objfs += n_out;
-end
-
-
-function set_sorting!(mop :: MixedMOP)
-    internal_sorting = Int64[];
-    for objf ∈ mop.vector_of_objectives
-        push!(internal_sorting, objf.internal_indices...)
-    end
-    mop.internal_sorting = internal_sorting;
-    mop.reverse_sorting = sortperm( internal_sorting )
-end
-
-@doc "Set field `non_exact_indices` of argument `mop::MixedMOP`."
-function set_non_exact_indices!( mop :: MixedMOP )
-    mop.non_exact_indices = [];
-    for ( objf_index, objf ) ∈ enumerate( mop.vector_of_objectives )
-        if !isa( objf.model_config, ExactConfig )
-            push!(mop.non_exact_indices, (objf_index : (objf_index + length(objf.internal_indices) - 1))...)
-        end
-    end
-end
+###############################################################################
 
 # Helper functions to scale sites to the unit hypercube [0,1]^n or unscale them
 # based on variable boundaries given in a `MixedMOP`
@@ -453,16 +310,26 @@ function broadcasted( f :: Union{ typeof(eval_all_objectives)}, mop :: MixedMOP,
     f.(mop, Ξ, Val(false))
 end
 
-# Get derivative information
-function get_jacobian( objf :: VectorObjectiveFunction, x :: Vector{R} where{R<:Real} )
-    if !isnothing(objf.jacobian_handle)
-        return objf.jacobian_handle(x)
-    else
-        return transpose( (hcat( g(x) for g in objf.gradient_handles ) )... )
-    end
-end
 
 # Functions to sort image vectors from ℝ^n_objfs
+function set_sorting!(mop :: MixedMOP)
+    internal_sorting = Int64[];
+    for objf ∈ mop.vector_of_objectives
+        push!(internal_sorting, objf.internal_indices...)
+    end
+    mop.internal_sorting = internal_sorting;
+    mop.reverse_sorting = sortperm( internal_sorting )
+end
+
+@doc "Set field `non_exact_indices` of argument `mop::MixedMOP`."
+function set_non_exact_indices!( mop :: MixedMOP )
+    mop.non_exact_indices = [];
+    for ( objf_index, objf ) ∈ enumerate( mop.vector_of_objectives )
+        if !isa( objf.model_config, ExactConfig )
+            push!(mop.non_exact_indices, (objf_index : (objf_index + length(objf.internal_indices) - 1))...)
+        end
+    end
+end
 
 # # helper function to avoid repeated checking
 function check_sorting!(mop::MixedMOP)
@@ -584,7 +451,7 @@ function add_objective!( mop :: MixedMOP, func :: T where{T <: Function}, type :
         objf_config = RbfConfig();
     elseif type == :cheap
         objf_config = ExactConfig(
-            gradient = :autodiff
+            gradients = :autodiff
         )
     else
         @error "Type must be either `:expensive` or `cheap`."
@@ -604,51 +471,7 @@ Add scalar-valued objective function `func` and its vector-valued gradient `grad
 """
 function add_objective!( mop :: MixedMOP, func :: T where{T <: Function}, grad :: T where{T <: Function})
     objf_config = ExactConfig(
-        gradient = grad,
+        gradients = grad,
     )
     add_objective!(mop, func, objf_config)
 end
-
-#############################################################
-
-#end#module
-
-#=
-# poor man's ~ Unit Testing ~
-import .Objectives
-o = Objectives
-f1counter = 0;
-f2counter = 0;
-x0 = rand(2)
-X = [rand(2) for i = 1 : 10]
-
-function f1(x :: Vector{R}) where{R<:Real}
-    global f1counter += 1;
-    return 1.0
-end
-
-function f2(x :: Union{Vector{Float64}, Vector{Vector{Float64}}})
-    global f2counter += 1;
-    if isa(x,Vector{Float64})
-        return 2.0
-    else
-        return 2 .* ones( length(x) )
-    end
-end
-
-bo1 = o.BatchObjectiveFunction( f2 )
-#---
-mop = o.MixedMOP(lb=zeros(2), ub = ones(2))
-
-rbfconf = o.RbfConfig()
-o.add_objective!(mop, f1, rbfconf)
-o.add_objective!(mop, x -> ones(2), o.ExactConfig() )
-#o.add_objective!(mop, f2, rbfconf; batch_eval = true)
-
-#@show y = o.eval_all_objectives( mop, rand(2) )
-#Y = o.eval_all_objectives.(mop, X)
-#@show o.reverse_internal_sorting.(mop, Y)
-
-#o.add_objective!( mop, f1, :cheap)
-#o.add_objective!(mop, f1, x -> 1.0)
-=#

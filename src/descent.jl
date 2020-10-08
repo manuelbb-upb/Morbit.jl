@@ -2,11 +2,13 @@
 
 # Continue Backtracking if true, suppose all_objectives_descent = true (= Val)
 function continue_while( :: Val{true}, m_x₊, f_x, step_size, ω )
-    any( f_x .- m_x₊ .< step_size * 1e-4 * ω )
+    any( f_x .- m_x₊ .< step_size * 1e-7 * ω )
 end
 # Continue Backtracking if true, suppose all_objectives_descent = false (= Val)
 function continue_while( :: Val{false}, m_x₊, f_x, step_size, ω )
-    maximum(f_x) - maximum(m_x₊) <  step_size * 1e-4 * ω
+    @show maximum(f_x) - maximum(m_x₊)
+    @show step_size * 1e-7 * ω
+    maximum(f_x) - maximum(m_x₊) <  step_size * 1e-7 * ω
 end
 
 # TODO make these available from AlgoConfig
@@ -26,7 +28,11 @@ function backtrack( x :: V, f_x :: V, dir :: V, step_size :: F, ω :: F,
     x₊ = x .+ step_size .* dir
     m_x₊ = eval_models( sc, x₊ )
 
-    while continue_while( Val(descent_all), m_x₊, f_x, step_size, ω ) && step_size > min_step_size
+    m_x = eval_models(sc, x)
+
+    @show step_size
+
+    while continue_while( Val(descent_all), m_x₊, m_x, step_size, ω ) && step_size > min_step_size
         step_size *= backtrack_factor;
         x₊[:] = x .+ step_size .* dir
         m_x₊[:] = eval_models( sc, x₊ );

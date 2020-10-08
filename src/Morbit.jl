@@ -14,18 +14,18 @@ export optimize!
 
 # import MOP structures and utilities; make key features available outside this module
 include("Surrogates.jl")
-using .Surrogates: MixedMOP, add_objective!, add_vector_objective!,
-    ModelConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig,
-    eval_all_objectives, reverse_internal_sorting!, apply_internal_sorting!,
-    check_sorting!, set_non_exact_indices!, scale, scale!, unscale, unscale!,
-    expensive_components
-using .Surrogates: SurrogateContainer, init_surrogates, build_models!, improve!,
-    make_linear!, eval_models, fully_linear, get_jacobian, get_optim_handle
+# using .Surrogates: MixedMOP, add_objective!, add_vector_objective!,
+#     ModelConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig,
+#     eval_all_objectives, reverse_internal_sorting!, apply_internal_sorting!,
+#     check_sorting!, set_non_exact_indices!, scale, scale!, unscale, unscale!,
+#     expensive_components
+# using .Surrogates: SurrogateContainer, init_surrogates, build_models!, improve!,
+#     make_linear!, eval_models, fully_linear, get_jacobian, get_optim_handle
 export MixedMOP, add_objective!, add_vector_objective!,
     ModelConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig
 
 #include("data_structures.jl")
-import .Surrogates: AlgoConfig, IterData
+#import .Surrogates: AlgoConfig, IterData
 export AlgoConfig, IterData
 
 include("constraints.jl")
@@ -64,32 +64,6 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
             problem.is_constrained = true
         else
             @error("Boundaries must be finite.")
-        end
-    end
-
-    # check RBF sampling Parameters for consistency
-    for objf ∈ problem.vector_of_objectives
-        if isa( objf.model_config, RbfConfig )
-            if objf.model_config.θ_enlarge_2 <= 0
-                if problem.is_constrained
-                    # if we are on the boundary of [0,1]^n then the maximum step
-                    # we can take has ∞-length 1.0; hence we seek
-                    # θ_enlarge_2 * Δ_max <= 1.0
-                    objf.model_config.θ_enlarge_2 = min(
-                        objf.model_config.θ_enlarge_1,
-                        1.0 / Δ_max
-                    )
-                else
-                    # suggestion of [WILD]
-                    objf.model_config.θ_enlarge_2 = max( 10, sqrt( n_vars) )
-                end
-            end
-            # if ideal point is calculated in an enlarged trust region it should
-            # be the "least" enlarged region possible
-            config_struct.θ_ideal_point = min(
-                config_struct.θ_ideal_point,
-                objf.model_config.θ_enlarge_1
-            )
         end
     end
 
@@ -171,7 +145,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
     # initialize surrogate model container and build the surrogates at first `x`
     @info("Initializing model container.")
-    surrogates = init_surrogates( problem );
+    surrogates = init_surrogates( config_struct );
 
     # make availabe information arrays for introspection and analysis
     @unpack iterate_indices, stepsize_array, Δ_array, ω_array, ρ_array,
@@ -181,9 +155,10 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     # enter optimization loop
     iter_index = 0;
     improvement_step = false
-    stepsize = Δ;
+    steplength = Δ;
+    non_linear_indices = Int64[];
 
-    while loop_check(Δ, stepsize, iter_index, length(sites_db) ;
+    while loop_check(Δ, steplength, iter_index, length(sites_db) ;
             Δ_min, Δ_critical, stepsize_min, max_iter, max_evals, improvement_step)
 
         iter_index += 1;
@@ -317,7 +292,6 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         accept_x₊ = false;
         improvement_step = false;
         if !isnan(ρ) && ρ > ν_success
-            @info("\tVery successful descent step.")
             if Δ < β * ω
                 Δ = min( Δ_max, γ_grow * Δ );
             end
@@ -395,7 +369,7 @@ Return true if either `Δ` is big enough. Both conditions must be satisfied:
 """
 function Δ_big_enough( Δ :: Float64, stepsize :: Float64;
         Δ_min :: Float64, Δ_critical::Float64, stepsize_min :: Float64 )
-    return  Δ >= Δ_min && ( stepsize >= stepsize_min && Δ >= Δ_critical )
+    return  Δ >= Δ_min && !(Δ < Δ_critical && stepsize < stepsize_min )
 end
 
 function loop_check(Δ :: Float64, stepsize :: Float64, iter_index :: Int64,
@@ -412,7 +386,7 @@ function loop_check(Δ :: Float64, stepsize :: Float64, iter_index :: Int64,
 
     budget_okay = (
         (!improvement_step && n_evals <= max_evals - 1) ||
-        ( improvement_step && length( sites_db ) <= max_evals - 2 )
+        ( improvement_step && n_evals <= max_evals - 2 )
     )
     !budget_okay && @info """
     Budged exhausted:

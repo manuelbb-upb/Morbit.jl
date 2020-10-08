@@ -47,7 +47,7 @@ Broadcast.broadcastable(id :: IterData) = Ref(id);
     max_critical_loops :: Int64 = 30;
 
     # acceptance parameters
-    ν_success :: Float64 = 0.4;
+    ν_success :: Float64 = 0.8;
     ν_accept :: Float64 = -1e-15;
     # trust region update parameters
     γ_crit :: Float64 = 0.5; # scaling factor for Δ in criticallity test

@@ -17,7 +17,7 @@ const cpd_order( ::Val{:thin_plate_spline} ) = typemax(Int64) :: Int64;
     training_values :: Array{Array{Float64, 1}, 1} = [];
     n_in :: Int64 = length(training_sites) > 0 ? length(training_sites[1]) : -1;
     kernel :: Symbol = :multiquadric;
-    shape_parameter :: Union{Float64, Vector{Float64}} = 1.0;
+    shape_parameter :: Union{R, Vector{R}} where{R <: Real} = 1.0;
     fully_linear :: Bool = false;
     polynomial_degree :: Int64 = 1;
 
@@ -80,7 +80,9 @@ end
 kernel( ::Val{:exp}, r, s = 1.0 ) = exp(-(r*s)^2);
 kernel( ::Val{:multiquadric} , r, s = 1.0 ) = - sqrt( 1 + (s*r)^2);
 kernel( ::Val{:cubic} , r, s = 1.0 ) = (r*s)^3;     # TODO better change this to r^s, s ∈ (2,4)
-kernel( ::Val{:thin_plate_spline}, r, s = 1.0) = r == 0 ? 0.0 : r^2 * log(r);
+function kernel( ::Val{:thin_plate_spline}, r::R where R<:Real, s::S where S<:Real = 1)
+    r == 0 ? 0.0 : (-1)^(s+1) * r^(2*s) * log(r)
+end
 
 @doc "Return n_sites-array with difference vectors (x_1 - c_{1,m}, …, x_n - c_{n,m}) of length n."
 function x_minus_sites( m:: RBFModel, x :: Vector{T} where{T<:Real})
@@ -92,7 +94,8 @@ function center_distances( m :: RBFModel, x :: Vector{T} where{T<:Real} )
     r_vector = norm.( x_minus_sites( m, x), 2 )
 end
 
-@doc "Evaluate all ``n_c`` basis functions of m::RBFModel at second argument x and return ``n_c``-Array"
+@doc "Evaluate all ``n_c`` basis functions of m::RBFModel at second argument x
+and return ``n_c``-Array"
 function φ( m::RBFModel, x :: Vector{T} where{T<:Real} )
     kernel.( Val(m.kernel), center_distances(m, x), m.shape_parameter )
 end
@@ -261,7 +264,6 @@ end
 
 @doc "Solve the RBF linear equation system using LU or QR factorization."
 function solve_rbf_problem( Π :: T1, Φ :: T2, f :: T3, :: Val{false} )  where{ T1, T2, T3 <: AbstractArray{Float64}}
-    @info("LU or QR")
     Φ_augmented = [ [Φ Π']; [Π zeros(size(Π,1),size(Π,1) )] ];
     f_augmented = [ f;
                     zeros( size(Π,1), size(f,2) ) ];
