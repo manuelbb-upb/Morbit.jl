@@ -89,7 +89,7 @@ function set_hessians!(model_config :: TaylorConfig, objf :: VectorObjectiveFunc
     if objf.n_out == 1 && isa(model_config.hessians, Function)
         model_config.hessians = [ model_config.hessians, ]
         return
-    elseif objf.n_out > 1 isa(model_config.hessians, Vector{F} where F <:Function )
+    elseif objf.n_out > 1 && isa(model_config.hessians, Vector{F} where F<:Function )
         if length( model_config.hessians ) == objf.n_out
             return
         else
@@ -97,7 +97,7 @@ function set_hessians!(model_config :: TaylorConfig, objf :: VectorObjectiveFunc
         end
     else
         new_hessians = []
-        for i = 1 : model_config.n_out
+        for i = 1 : objf.n_out
             if model_config.hessians == :fdm
                 hessian_handle = function (x :: Vector{R} where{R<:Real})
                     # taking difference quotients of `objf` (instead of

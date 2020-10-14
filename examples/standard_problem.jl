@@ -19,32 +19,40 @@ f2(x) = (x[1] + 1)^2 + (x[2] + 1)^2;
 
 opt_settings = AlgoConfig(
     ε_crit = 1e-12,
-    max_iter = 10,
+    max_iter = 11,
     Δ₀ = .1,
+    Δ_max = 0.1,
     all_objectives_descent = true,
     descent_method = :steepest,
+    ideal_point = [0,0]
 );
 
 problem_instance = MixedMOP(lb = lb, ub = ub);
 
 rbf_conf = RbfConfig(
-    kernel = :cubic,
+    kernel = :multiquadric,
     shape_parameter = 1,
-    sampling_algorithm = :monte_carlo
+    sampling_algorithm = :orthogonal
 )
 
 taylor_conf = TaylorConfig(
-    gradients = :fdm,
-    hessians = :fdm,
+    gradients = :autodiff,
+    #hessians = :fdm,
     degree = 2
 )
-add_objective!(problem_instance, f1, rbf_conf)
-add_objective!(problem_instance, f2, taylor_conf)
+
+lagrange_conf = LagrangeConfig(
+    degree = 2,
+    Λ = 2.0
+)
+
+add_objective!(problem_instance, f1, :cheap)
+add_objective!(problem_instance, f2, lagrange_conf)
 
 optimize!(opt_settings, problem_instance, x_0);
 
 # Uncomment below to plot
-
+#=
 using Plots
 
 # true data for comparison
@@ -59,3 +67,4 @@ plot(
     plotstepsizes(opt_settings),
     plotfunctionvalues(opt_settings),
 )
+=#

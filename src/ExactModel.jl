@@ -4,19 +4,13 @@
 # This file is included from within "Surrogates.jl".
 # We therefore can refer to other data structures used there.
 
+
+fully_linear( em :: ExactModel ) = true;
+
 function prepare!(objf :: VectorObjectiveFunction, cfg :: ExactConfig, ::AlgoConfig )
     @info("Preparing Exact Models")
     set_gradients!( cfg, objf )
 end
-
-@with_kw struct ExactModel <: SurrogateModel
-    objf_obj :: Union{Nothing, VectorObjectiveFunction} = nothing;
-    unscale_function :: Union{Nothing, F where F<:Function} = nothing;
-end
-broadcastable( em :: ExactModel ) = Ref(em);
-fully_linear( em :: ExactModel ) = true;
-
-struct ExactMeta end   # no construction meta data needed
 
 @doc "Return an ExactModel build from a VectorObjectiveFunction `objf` and corresponding
 `cfg::ExactConfig` (ideally with `objf.model_config == cfg`).

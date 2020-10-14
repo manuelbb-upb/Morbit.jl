@@ -1,5 +1,3 @@
-#module Objectives
-
 import Base: broadcasted
 using Parameters: @with_kw
 
@@ -9,6 +7,7 @@ const FD = FiniteDiff#erences
 import ForwardDiff
 const AD = ForwardDiff
 
+# HELPER FUNCTIONS TO STAY IN FEASIBLE SET
 const ε_bounds = 1e-15; # tolerancy for projection into feasible set
 
 @doc "Put `x` back into box defined by `lb` and `ub`."
@@ -39,118 +38,22 @@ function intobounds( X :: Vector{Vector{R}}, lb::Vector{L}, ub :: Vector{U},
     intobounds.(X,lb,ub,constrained)
 end
 
-abstract type ModelConfig end
-
-@with_kw mutable struct RbfConfig <: ModelConfig
-    kernel :: Symbol = :multiquadric;
-    shape_parameter :: Union{F where {F<:Function}, R where R<:Real} = 1;
-    polynomial_degree :: Int64 = 1;
-
-    θ_enlarge_1 :: Float64 = 2.0;
-    θ_enlarge_2 :: Float64 = 5.0;  # reset
-    θ_pivot :: Float64 = 1.0 / θ_enlarge_1;
-    θ_pivot_cholesky :: Float64 = 1e-7;
-
-    max_model_points :: Int64 = -1; # is probably reset in the algorithm
-    use_max_points :: Bool = false;
-
-    sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
-
-    constrained :: Bool = false;    # restrict sampling of new sites
-
-    @assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
-    @assert kernel ∈ Symbol.(["exp", "multiquadric", "cubic", "thin_plate_spline"]) "Kernel '$kernel' not supported yet."
-    @assert kernel != :thin_plate_spline || shape_parameter isa Int && shape_parameter >= 1
-    @assert θ_enlarge_1 >=1 && θ_enlarge_2 >=1 "θ's must be >= 1."
-end
-
-import Base: ==
-==( config1 :: RbfConfig, config2 :: RbfConfig ) = begin
-    if  all( getfield( config1, fname ) == getfield( config2, fname )
-            for fname in fieldnames(RbfConfig) if fname != :shape_parameter
-        )
-
-        if isa( config1.shape_parameter, Float64 )
-            if isa( config2.shape_parameter, Float64 )
-                return config1.shape_parameter == config2.shape_parameter
-            else
-                return all( isapprox.( config1.shape_parameter, config2.shape_parameter.(0:0.1:1.0)))
-            end
-        else
-            return all(
-                isapprox.(
-                    config1.shape_parameter.(0:0.1:1.0),
-                    config2.shape_parameter.(0:0.1:1.0)
-                )
-            )
-        end
-    else
-        return false
-    end
-end
-
-@with_kw mutable struct ExactConfig <: ModelConfig
-    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :autodiff
-
-    # alternative keyword, usage discouraged...
-    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
-end
-
-@with_kw mutable struct TaylorConfig <: ModelConfig
-    n_out :: Int64 = 1; # used internally when setting hessians
-    degree :: Int64 = 1;
-
-    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :fdm
-    hessians ::  Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :fdm
-
-    # alternative to specifying individual gradients
-    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
-end
-
-@with_kw mutable struct LagrangeConfig <: ModelConfig
-    degree :: Int64 = 1;
-    constrained :: Bool = false;    # restrict sampling of new sites
-end
-
-#---
-
-# … to allow for batch evaluation outside of julia or to exploit parallelized objective functions
-@with_kw struct BatchObjectiveFunction <: Function
-    function_handle :: Union{T, Nothing} where{T<:Function} = nothing
-end
-
+# evaluation of a BatchObjectiveFunction
 function (objf::BatchObjectiveFunction)(args...)
     objf.function_handle(args...)
 end
 
-# overload broadcasting for BatchObjectiveFunction who are assumed to handle arrays themselves
+# overload broadcasting for BatchObjectiveFunction's
+# that are assumed to handle arrays themselves
 function broadcasted( objf::BatchObjectiveFunction, args... )
     objf.function_handle( args... )
 end
 
-# Main type of function used internally
-@with_kw mutable struct VectorObjectiveFunction <: Function
-    n_out :: Int64 = 0;
-    n_evals :: Int64 = 0;   # true function evaluations (also counts finite difference evaluations)
-
-    model_config :: Union{ Nothing, C } where {C <: ModelConfig } = nothing;
-
-    function_handle :: Union{T, Nothing} where{T <: Function, F <: Function} = nothing
-
-    internal_indices :: Vector{Int64} = [];
-end
-
-# for 'usual' function evaluation calls (args = single vector), simply delegate to function_handle
+# for 'usual' function evaluation calls (args = single vector)
+# simply delegate to function_handle
 function (objf:: VectorObjectiveFunction )(x :: Vector{R} where{R<:Real})
     objf.n_evals += 1
     objf.function_handle(x)
-end
-
-# overload broadcasting for VectorObjectiveFunction
-# # desired bevavior : f.( [[x11; x12]; [x21;x22]] ) =  [f11 f21;f12 f22]
-function broadcasted( objf::VectorObjectiveFunction, X :: Vector{Vector{R}} where{R<:Real} )
-    objf.n_evals += length(X)
-    return objf.function_handle.( X );
 end
 
 function new_batch( func1 :: F, func2 :: T ) where{ F <:Function ,T <: Function }
@@ -189,24 +92,6 @@ function combine( objf1 :: VectorObjectiveFunction, objf2 :: VectorObjectiveFunc
     return new_objf
 end
 
-#---
-
-@with_kw mutable struct MixedMOP
-    #vector_of_objectives :: Vector{ Union{ ObjectiveFunction, VectorObjectiveFunction } } = [];
-    vector_of_objectives :: Vector{ VectorObjectiveFunction } = [];
-    n_objfs :: Int64 = 0;
-
-    internal_sorting :: Vector{Int64} = [];
-    reverse_sorting :: Vector{Int64} = [];
-    non_exact_indices ::Vector{Int64} = [];     # indices of vector returned by `eval_all_objectives` corresponding to non-exact objectives
-
-    x_0 :: Vector{Float64} = [];
-    lb :: Union{Nothing,Vector{Float64}} = nothing;
-    ub :: Union{Nothing,Vector{Float64}} = nothing;
-    is_constrained = !( isnothing(lb) || isnothing(ub) )
-end
-Broadcast.broadcastable(m::MixedMOP) = Ref(m);
-
 # FUNCTIONS TO ADD A SCALAR OBJECTIVE TO A MixedMOP
 # # helpers
 function wrap_func( mop :: MixedMOP,  func :: T where{T <: Function}, batch_eval :: Bool )
@@ -227,21 +112,23 @@ function init_objective( mop :: MixedMOP, func :: T where{T <: Function},
 end
 
 function combine_objectives!(mop :: MixedMOP, objf :: VectorObjectiveFunction ,
-        model_config :: Union{RbfConfig, LagrangeConfig})
+        model_config :: Union{RbfConfig, LagrangeConfig, TaylorConfig})
     # check if there is some other objective with same settings to save work
     for (other_objf_index, other_objf) ∈ enumerate(mop.vector_of_objectives)
         if other_objf.model_config == model_config
             deleteat!( mop.vector_of_objectives, other_objf_index )
             new_objf = combine( other_objf, objf )
             push!(mop.vector_of_objectives, new_objf)
+            new_objf.problem_position = length(mop.vector_of_objectives)
             return
         end
     end
     push!(mop.vector_of_objectives, objf)
+    objf.problem_position = length(mop.vector_of_objectives)
 end
 
 function combine_objectives!(mop :: MixedMOP, objf :: VectorObjectiveFunction ,
-        model_config :: Union{ExactConfig, TaylorConfig})
+        model_config :: ExactConfig)
     push!(mop.vector_of_objectives, objf)
 end
 
@@ -270,10 +157,10 @@ function add_vector_objective!(mop :: MixedMOP, func :: T where{T <: Function},
     mop.n_objfs += n_out;
 end
 
-###############################################################################
 
-# Helper functions to scale sites to the unit hypercube [0,1]^n or unscale them
-# based on variable boundaries given in a `MixedMOP`
+# Helper functions …
+# to internally scale sites to the unit hypercube [0,1]^n
+# or unscale them based on variable boundaries given in a `MixedMOP`
 scale( mop :: MixedMOP, x :: Vector{Float64} , :: Val{true} ) = ( x .- mop.lb ) ./ ( mop.ub .- mop.lb );
 scale( mop :: MixedMOP, x :: Vector{Float64}, :: Val{false} ) = x
 scale( mop :: MixedMOP, x :: Vector{Float64} ) = scale( mop, x, Val( mop.is_constrained ) )
@@ -288,7 +175,7 @@ function unscale!( mop :: MixedMOP, x :: Vector{Float64} )
     x[:] = unscale( mop, x, Val( mop.is_constrained ))
 end
 
-# to internally evaluate all objectives …
+# … to internally evaluate all objectives …
 # … at one single site `ξ` from the original domain
 function eval_all_objectives( mop :: MixedMOP, ξ :: Vector{Float64}, unscale :: Val{false} )
     vcat( [ func(ξ) for func ∈ mop.vector_of_objectives ]... )

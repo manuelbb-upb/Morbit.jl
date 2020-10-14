@@ -8,33 +8,32 @@
 # imported from "Objectives.jl" in "Surrogates.jl"
 
 # import basic definitions from standalone module
-using Lazy: @forward
-include("RBFBase.jl")
-import .RBF: RBFModel, train!, is_valid, get_Π, get_Φ, φ, Π_col, as_second!, min_num_sites
 
-# wrapper to make RBFModel a subtype of SurrogateModel interface
-# # NOTE the distinction:
-# # • RBFModel from module .RBF
-# # • RbfModel the actual SurrogateModel used in the algorithm
-struct RbfModel <: SurrogateModel
-    model :: RBFModel
-end
-broadcastable( M :: RbfModel ) = Ref(M);
 fully_linear(m :: RBFModel) = m.fully_linear
 
-# Redefine imported methods for our own Model type
-#@forward RbfModel.model train!, is_valid, get_Π, get_Φ, φ, Π_col, as_second!
+import Base: ==
+==( config1 :: RbfConfig, config2 :: RbfConfig ) = begin
+    if  all( getfield( config1, fname ) == getfield( config2, fname )
+            for fname in fieldnames(RbfConfig) if fname != :shape_parameter
+        )
 
-# meta data object to be used during sophisticated sampling
-@with_kw mutable struct RBFMeta
-    center_index :: Int64 = 1;
-    round1_indices :: Vector{Int64} = [];
-    round2_indices :: Vector{Int64} = [];
-    round3_indices :: Vector{Int64} = [];
-    round4_indices :: Vector{Int64} = [];
-    fully_linear :: Bool = false;
-    Y :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
-    Z :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
+        if isa( config1.shape_parameter, Float64 )
+            if isa( config2.shape_parameter, Float64 )
+                return config1.shape_parameter == config2.shape_parameter
+            else
+                return all( isapprox.( config1.shape_parameter, config2.shape_parameter.(0:0.1:1.0)))
+            end
+        else
+            return all(
+                isapprox.(
+                    config1.shape_parameter.(0:0.1:1.0),
+                    config2.shape_parameter.(0:0.1:1.0)
+                )
+            )
+        end
+    else
+        return false
+    end
 end
 
 @doc "Modify first meta data object to equal second."

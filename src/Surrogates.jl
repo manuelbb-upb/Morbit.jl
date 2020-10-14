@@ -3,20 +3,26 @@
 import Base.Broadcast: broadcastable, broadcasted
 using Parameters: @with_kw, @pack!, @unpack
 
+using Lazy: @forward
+include("RBFBase.jl")
+import .RBF: RBFModel, train!, is_valid, get_Π, get_Φ, φ, Π_col, as_second!, min_num_sites
+
+include("Polynomials.jl")
+using .Polynomials
+
+include("interfaces.jl")
 include("Objectives.jl")
 
-include("data_structures.jl") # to have IterData and AlgoConfig
-
-abstract type SurrogateModel end
-prepare!(::VectorObjectiveFunction, :: M where M<:ModelConfig , ::AlgoConfig) = nothing
+include("misc.jl")
+include("build_derivatives.jl")
 
 include("RBFModel.jl")
+
 include("TaylorModel.jl")
 include("ExactModel.jl")
 include("LagrangeModel.jl") # TODO
 
-include("build_derivatives.jl")
-
+prepare!(::VectorObjectiveFunction, :: M where M<:ModelConfig , ::AlgoConfig) = nothing
 
 @doc """
 A container for all (possibly vector-valued) surrogate models used during

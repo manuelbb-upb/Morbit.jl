@@ -7,6 +7,8 @@
 # (un)scale( mop :: MixedMop, x )
 # imported from "Objectives.jl" in "Surrogates.jl"
 
+fully_linear( tm :: TaylorModel ) = true;
+
 function prepare!(objf :: VectorObjectiveFunction, cfg :: TaylorConfig, ::AlgoConfig )
     @info("Preparing Taylor Models")
     set_gradients!( cfg, objf )
@@ -14,21 +16,6 @@ function prepare!(objf :: VectorObjectiveFunction, cfg :: TaylorConfig, ::AlgoCo
         set_hessians!(cfg, objf)
     end
 end
-
-@with_kw mutable struct TaylorModel <: SurrogateModel
-    n_out :: Int64 = -1;
-    degree :: Int64 = 2;
-    x :: Vector{R} where{R<:Real} = Float64[];
-    f_x :: Vector{R} where{R<:Real} = Float64[];
-    g :: Vector{Vector{R}} where{R<:Real} = Array{Float64,1}[];
-    H :: Vector{Array{R,2}} where{R<:Real} = Array{Float64,2}[];
-    unscale_function :: Union{Nothing, F where F<:Function} = nothing;
-    @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
-end
-broadcastable( tm :: TaylorModel ) = Ref(tm);
-fully_linear( tm :: TaylorModel ) = true;
-
-struct TaylorMeta end   # no construction meta data needed
 
 @doc "Return a TaylorModel build from a VectorObjectiveFunction `objf` and corresponding
 `cfg::TaylorConfig` (ideally with `objf.model_config == cfg`).

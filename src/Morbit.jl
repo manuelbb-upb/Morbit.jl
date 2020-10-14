@@ -14,18 +14,10 @@ export optimize!
 
 # import MOP structures and utilities; make key features available outside this module
 include("Surrogates.jl")
-# using .Surrogates: MixedMOP, add_objective!, add_vector_objective!,
-#     ModelConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig,
-#     eval_all_objectives, reverse_internal_sorting!, apply_internal_sorting!,
-#     check_sorting!, set_non_exact_indices!, scale, scale!, unscale, unscale!,
-#     expensive_components
-# using .Surrogates: SurrogateContainer, init_surrogates, build_models!, improve!,
-#     make_linear!, eval_models, fully_linear, get_jacobian, get_optim_handle
+
 export MixedMOP, add_objective!, add_vector_objective!,
     ModelConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig
 
-#include("data_structures.jl")
-#import .Surrogates: AlgoConfig, IterData
 export AlgoConfig, IterData
 
 include("constraints.jl")
