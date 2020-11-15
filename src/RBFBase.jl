@@ -2,15 +2,15 @@ module RBF
 export RBFModel, train!, output, grad, is_valid, jac, min_num_sites
 
 using Parameters: @with_kw, @pack!, @unpack
-using LinearAlgebra: norm, Hermitian, lu, qr, cholesky
+using LinearAlgebra: norm, Hermitian, lu, qr, cholesky, eigen, I
 
 # If kernel `:k` is conditionally positive definite (cpd) of order `d` then
 # Σ_k cₖ k(‖ x - xₖ‖) + p(x)
 # allows for a unique interpolation if p(x) is of degree *at least* `d-1`.
-const cpd_order( ::Val{:exp} ) = 0 :: Int64;
-const cpd_order( ::Val{:multiquadric} ) = 2 :: Int64;
-const cpd_order( ::Val{:cubic} ) = 2 :: Int64;
-const cpd_order( ::Val{:thin_plate_spline} ) = typemax(Int64) :: Int64;
+cpd_order( ::Val{:exp} ) = 0 :: Int64;
+cpd_order( ::Val{:multiquadric} ) = 2 :: Int64;
+cpd_order( ::Val{:cubic} ) = 2 :: Int64;
+cpd_order( ::Val{:thin_plate_spline} ) = typemax(Int64) :: Int64;
 
 @with_kw mutable struct RBFModel
     training_sites :: Array{Array{Float64, 1},1} = [];
@@ -115,13 +115,17 @@ function rbf_output( m::RBFModel, x :: Vector{T} where{T<:Real} )
     vec(φ(m, x)'m.rbf_coefficients) # wrapped in vector for addition with polynomial part
 end
 
-# partial derivatives, all missing the factor 2 * ( x_i - c_i ) where c is center site of a single basis function
-∂kernel( ::Val{:exp}, r, s = 1.0 ) = - s^2 * kernel( Val(:exp), r, s )
-∂kernel( ::Val{:multiquadric}, r, s = 1.0 ) = s^2 / (2 * kernel( Val(:multiquadric), r, s ) );
-∂kernel( ::Val{:cubic}, r, s = 1.0 ) = s^3 * ( r + r/2 ) ;
-∂kernel( ::Val{:thin_plate_spline}, r, s = 1.0 ) = r == 0 ? 0.0 : log(r) + 1/2;
-
-@doc "Return an n_vars x n_sites matrix where each column is an n-vector of entries 2 coeff(m,ℓ) *(x_1 - c_{1,m}), …, 2*(x_n - c_{n,m}). "
+# d/dr kernel
+∂kernel( ::Val{:exp}, r :: R where R<:Real, s = 1.0 ) = - 2 * r * s^2 * kernel( Val(:exp), r, s )
+∂kernel( ::Val{:multiquadric}, r :: R where R<:Real, s = 1.0 ) = r * s^2 / kernel( Val(:multiquadric), r, s ) ;
+∂kernel( ::Val{:cubic}, r :: R where R<:Real, s = 1.0 ) = 3 * s^3 * r^2 ;
+∂kernel( ::Val{:thin_plate_spline}, r :: R where R<:Real, s = 1.0 ) = r == 0 ? 0.0 :
+    (-1)^(s+1) * r^(2*s-1) * (
+        1 +
+        2 * s * log(r)
+    );
+#=
+@doc "Return an n_vars x n_sites matrix where column j is an n-vector of entries 2 coeff(j,ℓ) *(x_1 - c_{1,j}), …, 2*(x_n - c_{n,j}). "
 function grad_prefix( m :: RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
     differences = x_minus_sites( m, x )
     2 .* hcat( [  m.rbf_coefficients[ i, ℓ ] * differences[i] for i = eachindex(differences) ] ... )
@@ -137,26 +141,88 @@ function grad_prefix( m :: RBFModel, x :: Vector{T} where{T<:Real} )
     end
     return grad_prefix_matrices, differences
 end
+=#
 
 @doc "Compute gradient term of ℓ-th RBF (scalar) model output and return n-vector."
-function rbf_grad( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
-    (grad_prefix(m, ℓ, x) * ∂kernel.( Val(m.kernel), center_distances( m, x ), m.shape_parameter ))[:]      # n × n_c * n_c × 1
+function rbf_grad( m::RBFModel, ℓ :: Int64, x :: Vector{T} ) where{T<:Real}
+    n_vars = length(m.training_sites[1]);
+
+    difference_vectors = x_minus_sites(m,x); # array with len n_sites and entries n_vars
+    distances = norm.(difference_vectors)       # n_sites x 1
+    ∂kernel_vals = ∂kernel.( Val(m.kernel), distances, m.shape_parameter )  # n_sites
+
+    coeff_ℓ = m.rbf_coefficients[:,ℓ]           # n_sites x 1
+    grad_ℓ = zeros(T, n_vars);
+    for i = 1 : length(distances)
+        if distances[i] != 0
+            grad_ℓ += coeff_ℓ[i] / distances[i] * ∂kernel_vals[i] .* difference_vectors[i]
+        end
+    end
+    return grad_ℓ
 end
 
 @doc "Compute the Jacobian matrix of the RBF part of the model"
-function rbf_jacobian( m::RBFModel, x :: Vector{T} where{T<:Real} )
-    grad_prefix_matrices, differences = grad_prefix(m, x)
-    center_dists = norm.( differences, 2 );
-    ∂kernel_eval = ∂kernel.( Val(m.kernel), center_dists, m.shape_parameter )
-    gradient_array = [];
-    for ℓ = 1 : length(m.training_values[1])
-        grad_prefix_ℓ = grad_prefix_matrices[ℓ]
-        grad_ℓ = vec(grad_prefix_ℓ * ∂kernel_eval)
-        push!(gradient_array, grad_ℓ);
+function rbf_jacobian( m::RBFModel, x :: Vector{T} ) where{T<:Real}
+    n_vars = length(m.training_sites[1]);
+    n_out = length(m.training_values[1]);
+
+    difference_vectors = x_minus_sites(m,x); # array with len n_sites and entries n_vars
+    distances = norm.(difference_vectors)       # n_sites x 1
+    ∂kernel_vals = ∂kernel.( Val(m.kernel), distances, m.shape_parameter )  # n_sites
+
+    rbf_jac = zeros(T, n_out, n_vars);
+    for ℓ = 1 : n_out
+        coeff_ℓ = m.rbf_coefficients[:,ℓ]           # n_sites x 1
+        grad_ℓ = zeros(T, n_vars);
+        for i = 1 : length(distances)
+            if distances[i] != 0
+                grad_ℓ += coeff_ℓ[i] / distances[i] * ∂kernel_vals[i] .* difference_vectors[i]
+            end
+        end
+        rbf_jac[ℓ,:] = grad_ℓ;
     end
-    hcat( gradient_array... )'  # each gradient is a column vector -> stack horizontally and then transpose
+    return rbf_jac
 end
 rbf_jacobian( m::RBFModel, x :: T where{T<:Real} ) = rbf_jacobian( m, [x])
+
+# === Hessians of the model ===
+# note ∂ᵢ ∂kernel(r(x)) = (x_i -c_i) * ∂∂kernel(x)
+∂∂kernel( ::Val{:exp}, r, s = 1.0 ) = 2 * s^2 * (2* r^2 * s^2 - 1) * kernel( Val(:exp), r, s );
+∂∂kernel( ::Val{:multiquadric}, r, s = 1.0 ) = - s^2 / ((s*r)^2 + 1 )^(3/2) ;
+∂∂kernel( ::Val{:cubic}, r, s = 1.0 ) = 6 * s^3 * r;
+∂∂kernel( ::Val{:thin_plate_spline}, r, s = 1.0 ) = r == 0 ? 0.0 :
+    (-1)^(s+1) * r^(2*s-2) *(
+        4*s - 1 +
+        2*(2*s-1)*s*log(r)
+    );
+
+function rbf_hessian( m::RBFModel, ℓ :: Int64, x :: Vector{T}) where{T<:Real}
+    n_vars = length(m.training_sites[1])
+
+    coeff_ℓ = m.rbf_coefficients[:, ℓ]              # n_sites
+    differences = x_minus_sites(m,x)        # n_sites
+    distances = norm.( differences, 2 ); # n_sites
+
+    ∂kernel_eval = ∂kernel.( Val(m.kernel), distances, m.shape_parameter )   # n_sites
+    ∂∂kernel_eval = ∂∂kernel.( Val(m.kernel), distances, m.shape_parameter ) # n_sites
+
+    rbf_hessian_ℓ = zeros( T, n_vars, n_vars )
+    #rbf_hessian_ℓ .*= sum( coeff_ℓ .* ∂kernel_eval )
+    for i = 1 : length(coeff_ℓ)
+        φᵢ′ = ∂kernel_eval[i];
+        φᵢ′′ = ∂∂kernel_eval[i];
+        coeff_ℓ[i]
+        rᵢ = distances[i]
+        Dᵢ = differences[i];
+        if rᵢ != 0
+            𝚯ᵢ = ( (φᵢ′ / rᵢ) .* I(n_vars) ) .+ ( ( φᵢ′′ - φᵢ′/rᵢ ) / rᵢ^2  ) .* (Dᵢ * Dᵢ')
+        else
+            𝚯ᵢ = φᵢ′′ .* I(n_vars)
+        end
+        rbf_hessian_ℓ .+= coeff_ℓ[i] .* 𝚯ᵢ
+    end
+    return rbf_hessian_ℓ
+end
 
 # === Evaluate polynomial part of the model ===
 poly(m::RBFModel, ℓ, x, ::Val{-1} ) = 0.0                       # degree -1 ⇒ No polynomial part (ℓ-th output)
@@ -187,28 +253,38 @@ function poly_jacobian( m::RBFModel, x :: Vector{T} where{T<:Real} )
     hcat( [poly_grad(m, ℓ, x) for ℓ = 1 : length(m.training_values[1] ) ]... )'
 end
 
+#=
+## For polynomials of degree at most 1 the hessian is always zero
+poly_hessian( m::RBFModel, ℓ::Int64, x::Vector{T} where T<:Real)
+=#
+
 # === Combined model output ===
 @doc "Evaluate ℓ-th (scalar) model output at vector x."
 function output( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
     rbf_output( m, ℓ, x ) + poly_output( m, ℓ, x )
 end
-output( m::RBFModel, ℓ :: Int64, x :: Real ) = output(m, ℓ, [x])
+#output( m::RBFModel, ℓ :: Int64, x :: Real ) = output(m, ℓ, [x])
 
 @doc "Evaluate all (scalar) model outputs at vector x and return k-vector of results."
 function output( m::RBFModel, x :: Vector{T} where{T<:Real} )
     vec(rbf_output( m, x ) .+ poly_output( m, x ))
 end
-output( m::RBFModel, x :: Real ) = output(m, [x])
+#output( m::RBFModel, x :: Real ) = output(m, [x])
 
 function grad( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
     rbf_grad( m, ℓ, x ) + poly_grad( m, ℓ, x)
 end
-grad(m::RBFModel, ℓ::Int64, x::Real) = grad(m, ℓ, [x])   # if n_vars == 1 and RBFModel is used outside of Optimization
+#grad(m::RBFModel, ℓ::Int64, x::Real) = grad(m, ℓ, [x])   # if n_vars == 1 and RBFModel is used outside of Optimization
 
 function jac( m::RBFModel, x :: Vector{T} where{T<:Real} )
     rbf_jacobian( m, x ) + poly_jacobian( m , x )
 end
-jac(m::RBFModel, x::Real) = jac(m,[x])         # if n_vars == 1 and RBFModel is used outside of Optimization
+#jac(m::RBFModel, x::Real) = jac(m,[x])         # if n_vars == 1 and RBFModel is used outside of Optimization
+
+function hess(m :: RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real})
+    rbf_hessian(m,ℓ,x) # + poly_hessian == zeros
+end
+#hess(m::RBFModel, ℓ::Int64, x::Real) = hess(m,ℓ,[x,])         # if n_vars == 1 and RBFModel is used outside of Optimization
 
 # === Utiliy functions for solving the normal equations
 get_Π( m :: RBFModel, ::Val{-1} ) =  Matrix{Float64}( undef, 0, length(m.training_sites) );
@@ -256,10 +332,15 @@ function solve_rbf_problem( Π :: T1, Φ :: T2, f :: T3, :: Val{true} ) where{ T
     Z = Q[:, size(Π,1) + 1 : end ]
 
     ZΦZ = Hermitian( Z'Φ*Z );
-    L = cholesky( ZΦZ ).L     # should also be empty at this point
+    #@show eigen(ZΦZ).values
+    try
+        L = cholesky( ZΦZ ).L     # should also be empty at this point
+        λ, v = null_space_coefficients( Q, R, Z, L, f, Φ)
+        return vcat( λ, v )
 
-    λ, v = null_space_coefficients( Q, R, Z, L, f, Φ)
-    return vcat( λ, v )
+    catch PosDefException
+        return solve_rbf_problem(Π,Φ,f,Val(false))
+    end
 end
 
 @doc "Solve the RBF linear equation system using LU or QR factorization."
@@ -312,7 +393,9 @@ end
 
 # same as train! but using a null space method with data available from 'add_points!' method
 # USE ONLY FOR MODELS WITH is_valid(m) == true !!!
-function train!(m::RBFModel, Q :: T1 , R :: T2 , Z :: T3, L :: T4, Φ :: T5 ) where{ T1, T2, T3, T4, T5 <: AbstractArray{Float64}}
+function train!(m::RBFModel, Q :: T1 , R :: T2 , Z :: T3, L :: T4, Φ :: T5 ) where{
+        T1, T2, T3, T4, T5 <: AbstractArray{Float64}
+    }
 
     RHS = hcat( m.training_values... )';
     λ, v = null_space_coefficients( Q, R, Z, L, RHS, Φ)

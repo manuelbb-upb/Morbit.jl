@@ -5,6 +5,8 @@
 
 fully_linear( lm :: LagrangeModel ) = lm.fully_linear;
 
+max_evals( cfg :: LagrangeConfig ) = cfg.max_evals;
+
 # make the canonical polynomial basis available in `LagrangeConfig`
 function prepare!(objf :: VectorObjectiveFunction, cfg :: LagrangeConfig, ac::AlgoConfig )
     n = ac.n_vars;
@@ -43,6 +45,7 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     # by recycling the old basis. However keeping track of the indices becomes
     # somewhat difficult.
 
+    # look for points in a slightly enlarged box 
     θ = sensible_θ(Val(problem.is_constrained), θ_enlarge, x, Δ )
     Δ_1 = θ * Δ;
 
@@ -55,7 +58,6 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     setdiff!(box_indices, x_index)
     insert!(box_indices, 1, x_index)
 
-
     # Algorithm 6.2 (p. 95, Conn)
     # # select or generate a poised set suited for interpolation
     # # also computes the lagrange basis functions
@@ -63,36 +65,35 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     p = length( lagrange_basis );
     p_init = length(box_indices);
 
-    accepted_indices = zeros(Bool, p_init);
     new_sites = Vector{Vector{Float64}}();
+    recycled_indices = Int64[];
 
     for i = 1 : p
-        Y = [
-            sites_db[ box_indices[ .!(accepted_indices) ] ];
-            new_sites
-        ]
+        Y = sites_db[ box_indices ];
         lyᵢ, jᵢ = isempty(Y) ? (0,0) : findmax( abs.( lagrange_basis[i].(Y)) )
         if lyᵢ > ε_accept
             yᵢ = Y[jᵢ]
-            accepted_indices[jᵢ] = true;    # exclude from further investigation
+            push!(recycled_indices, box_indices[jᵢ])
+            deleteat!(box_indices, jᵢ)
         else
-            @info "\t It. 1:$i: Computing a poised point by Optimization."
-            opt = Opt(:LN_BOBYQA, 2)
+            @info "\t 1) It. $i: Computing a poised point by Optimization."
+            opt = Opt(:LN_BOBYQA, n_vars)
             opt.lower_bounds = lb_eff
             opt.upper_bounds = ub_eff
-            opt.min_objective = (x,g) -> lagrange_basis[i](x)
+            opt.maxeval = 300;
+            opt.max_objective = (x,g) -> abs(lagrange_basis[i](x))
             y₀ = rand_box_point()
-            (_, yᵢ, _) = optimize(opt, y₀)
-
+            (_, yᵢ, ret) = optimize(opt, y₀)
             push!(new_sites, yᵢ)
         end
 
         # Normalization
+        lagrange_basis[i](yᵢ)
         lagrange_basis[i] /= lagrange_basis[i](yᵢ)
 
         # Orthogonalization
-        for j = 1:p
-            if j≠i
+        for j = 1 : p
+            if j ≠ i
                 lagrange_basis[j] -= (lagrange_basis[j](yᵢ) * lagrange_basis[i])
             end
         end
@@ -101,35 +102,39 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     # We now have a point set suited for unique interpolation…
     # But "poisedness" does not suffice for full linearity
     fully_linear = false;
-    recycled_indices = box_indices[ accepted_indices ];
 
     # We hence need
     # Algorithm 6.3 (p.96 Conn)
     # to guarantee Λ-poisedness
-    while true
+    print_counter = 0;
+    while !isinf(Λ)
+        print_counter += 1;
+
         Y = [
             sites_db[ recycled_indices ];
             new_sites
         ]
         num_recycled = length(recycled_indices);
-        @show recycled_indices
-        @show length(new_sites)
-        @show length(Y)
 
         # 1) Λ calculation
         Λₖ₋₁ = -Inf;    # max_i max_x |l_i(x)|
         iₖ = -1;        # index of point to swap if set is not Λ-poised
         yₖ = zeros(Float64, n_vars);    # replacement site if not Λ-poised
         for i = 1 : p
-            opt = Opt(:LN_BOBYQA, 2)
+            opt = Opt(:LN_BOBYQA, n_vars)
             opt.lower_bounds = lb_eff
             opt.upper_bounds = ub_eff
+            opt.maxeval = 300;
             opt.max_objective = (x,g) -> abs(lagrange_basis[i](x))
             y₀ = rand_box_point()
             (abs_lᵢ, yᵢ, _) = optimize(opt, y₀)
 
             update_Λₖ₋₁ = abs_lᵢ > Λₖ₋₁;
-            if abs_lᵢ > Λ
+
+            if abs_lᵢ > Λ   
+                # the algo works with any point satisfying `abs_lᵢ > Λ`
+                # we increase `iₖ` if it was pointing to a recycled site 
+                # or to choose favor the argmax
                 if iₖ <= num_recycled || update_Λₖ₋₁
                     iₖ = i;
                     yₖ[:] = yᵢ[:];
@@ -142,7 +147,7 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
 
         # 2) Point swap
         if Λₖ₋₁ ≥ Λ
-            @info("\t Λₖ₋₁ is $Λₖ₋₁. Performing a point swap for index $iₖ.")
+            @info("\t It. $print_counter: Λₖ₋₁ is $Λₖ₋₁. Performing a point swap for index $iₖ…")
             if iₖ > num_recycled
                 # delete the site referenced by iₖ from new_sites
                 deleteat!( new_sites, iₖ - num_recycled)
@@ -151,6 +156,8 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
                 deleteat!( recycled_indices, iₖ )
             end
             push!( new_sites, yₖ )
+            # sort basis so that polynomial for iₖ is last
+            lagrange_basis[ [ iₖ; iₖ+1:p ] ] = lagrange_basis[ [iₖ+1:p; iₖ ] ]
         else
             fully_linear = true;
             break;
@@ -158,13 +165,11 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
 
         # 3) Lagrange Basis update
         ## Normalization
-        lagrange_basis[iₖ] /= lagrange_basis[iₖ]( yₖ )
+        lagrange_basis[p] /= lagrange_basis[p]( yₖ )
 
         # Orthogonalization
-        for j = 1 : p
-            if j ≠ iₖ
-                lagrange_basis[ j ] -= ( lagrange_basis[j]( yₖ) * lagrange_basis[ iₖ ] )
-            end
+        for j = 1 : p-1
+            lagrange_basis[ j ] -= ( lagrange_basis[j]( yₖ) * lagrange_basis[ p ] )
         end
     end
 
@@ -206,5 +211,8 @@ function get_jacobian( lm :: LagrangeModel, ξ :: Vector{Float64})
     transpose( hcat( [ get_gradient(lm, ξ, ℓ) for ℓ = 1 : lm.n_out ]... ) )
 end
 
-make_linear!( ::LagrangeModel, ::LagrangeMeta, ::AlgoConfig, ::VectorObjectiveFunction, ::LagrangeConfig, ::Bool ) = false;
+function make_linear!( ::LagrangeModel, ::LagrangeMeta, ::AlgoConfig, ::VectorObjectiveFunction, ::LagrangeConfig, ::Bool )
+    true
+end
+
 improve!( ::LagrangeModel, ::LagrangeMeta, ::AlgoConfig, ::VectorObjectiveFunction, ::LagrangeConfig )  = false;

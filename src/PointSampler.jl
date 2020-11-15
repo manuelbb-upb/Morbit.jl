@@ -105,7 +105,7 @@ end
 
     The returned point set is constructed starting with the points in `seeds`. If `seeds` is empty (default), then the singleton set containing the zero vector is used.
 """
-function monte_carlo_th( n_points :: Int64, n_dims :: Int64 ; seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}}(), spawn_factor :: Int64 = 50, pdist_threshold_tolerance :: Float64 = 0.5 )
+function monte_carlo_th( n_points :: Int64, n_dims :: Int64 ; seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}}(), spawn_factor :: Int64 = 100, pdist_threshold_tolerance :: Float64 = 0.5 )
 
     n_seeds = length(seeds);
     if n_seeds > 0
@@ -220,7 +220,7 @@ function Base.iterate( des :: MonteCarloThDesign, point_array :: Vector{Vector{F
             pdist_factor = (N+1)/2;
             th = 1 / N;
 
-            candidates = [ rand(d) for j = 1 : max( 500, N * spawn_factor )];
+            candidates = [ rand(d) for j = 1 : max(500, N * spawn_factor )];
 
             score_fn = p -> intersite_factor * minimum( distance( p, point_array ) ) + pdist_factor * minimum( projected_distance_thresholded(p, point_array, th) )
             scores = score_fn.(candidates)

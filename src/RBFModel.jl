@@ -1,5 +1,5 @@
 # This file defines the required data structures and methods for vector-valued
-# Taylor models.
+# RBF models.
 #
 # This file is included from within "Surrogates.jl".
 # We therefore can refer to other data structures used there.
@@ -7,9 +7,9 @@
 # (un)scale( mop :: MixedMop, x )
 # imported from "Objectives.jl" in "Surrogates.jl"
 
-# import basic definitions from standalone module
-
 fully_linear(m :: RBFModel) = m.fully_linear
+
+max_evals( cfg :: RbfConfig ) = cfg.max_evals;
 
 import Base: ==
 ==( config1 :: RbfConfig, config2 :: RbfConfig ) = begin

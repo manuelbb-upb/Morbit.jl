@@ -105,6 +105,7 @@ function init_objective( mop :: MixedMOP, func :: T where{T <: Function},
 
     objf = VectorObjectiveFunction(
         n_out = n_out,
+        max_evals = max_evals( model_config ),
         function_handle = wrapped_func,
         model_config = model_config,
         internal_indices = collect( mop.n_objfs + 1 : mop.n_objfs + n_out ),
@@ -137,7 +138,9 @@ end
 function add_objective!(mop :: MixedMOP, func :: T where{T <: Function},
         model_config :: M where M <: ModelConfig; batch_eval = false )
     objf = init_objective( mop, func, model_config, batch_eval, 1 )
-
+    
+    push!( mop.original_functions, (func, 1) )
+    
     combine_objectives!(mop, objf, model_config)
     mop.n_objfs += 1;
 end
@@ -152,6 +155,8 @@ function add_vector_objective!(mop :: MixedMOP, func :: T where{T <: Function},
     end
 
     objf = init_objective( mop, func, model_config, batch_eval, n_out )
+    
+    push!( mop.original_functions, (func, n_out) )
 
     combine_objectives!(mop, objf, model_config)
     mop.n_objfs += n_out;
@@ -159,6 +164,19 @@ end
 
 
 # Helper functions …
+@doc "Set `n_evals` to 0 for each VectorObjectiveFunction in `m.vector_of_objectives`."
+function reset_evals!(m :: MixedMOP)
+    for objf ∈ m.vector_of_objectives
+        objf.n_evals = 0
+    end
+end
+
+function max_evals!( m :: MixedMOP, M :: Int64 )
+    for objf ∈ m.vector_of_objectives
+        objf.max_evals = min( objf.max_evals, M )
+    end
+end
+
 # to internally scale sites to the unit hypercube [0,1]^n
 # or unscale them based on variable boundaries given in a `MixedMOP`
 scale( mop :: MixedMOP, x :: Vector{Float64} , :: Val{true} ) = ( x .- mop.lb ) ./ ( mop.ub .- mop.lb );

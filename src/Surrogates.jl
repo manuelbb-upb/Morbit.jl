@@ -39,8 +39,9 @@ optimization.
     model_list :: Vector{Any} = [] ;
     model_meta :: Vector{Any} = [] ;
     n_objfs :: Int64 = 0;   # number of scalar(ized) objectives
-    lb :: Union{Nothing, Vector{Float64}} = nothing;
-    width :: Union{Nothing, Vector{Float64}} = nothing; # ub - lb
+    #lb :: Union{Nothing, Vector{Float64}} = nothing;
+    #width :: Union{Nothing, Vector{Float64}} = nothing; # ub - lb
+    output_to_objf_index :: Union{Nothing, Vector{Tuple{Int64,Int64}}} = nothing;
 end
 
 function unscale( x :: Vector{Float64}, sc :: SurrogateContainer )
@@ -57,14 +58,24 @@ function init_surrogates( ac :: AlgoConfig )
     sc = SurrogateContainer(
         objf_list = mop.vector_of_objectives,
         n_objfs = mop.n_objfs,
-        lb = mop.lb,
-        width = mop.ub .- mop.lb,
+        #lb = mop.lb,
+        #width = mop.ub .- mop.lb,
     )
 
+    set_output_objf_list!(sc)
     for objf in sc.objf_list
         prepare!(objf, objf.model_config, ac)
     end
     return sc
+end
+
+function set_output_objf_list!(sc)
+    sc.output_to_objf_index = Vector{NTuple{2,Int64}}();
+    for (objf_index, objf) ∈ enumerate( sc.objf_list )
+        for int_index ∈ eachindex(objf.internal_indices)
+            push!(sc.output_to_objf_index, (objf_index, int_index))
+        end
+    end
 end
 
 function build_models!(sc :: SurrogateContainer, ac :: AlgoConfig, crit_flag :: Bool = false )
@@ -146,15 +157,31 @@ end
 @doc """
 Return a function handle to be used with `NLopt` for output `ℓ` of `sc`.
 Index `ℓ` is assumed to be an internal index in the range of 1,…,n_objfs,
-where n_objfs is the total number of (scalarized) objetives stored in `sc`.
+where n_objfs is the total number of (scalarized) objectives stored in `sc`.
 """
 function get_optim_handle( sc :: SurrogateContainer, ℓ :: Int64 )
-    for (objf_index, objf) ∈ enumerate(sc.objf_list)
-        l = findfirst( L -> L == ℓ, objf.internal_indices)
-        if !isnothing(l)
-            return get_optim_handle( sc.model_list[objf_index], l )
-        end
-    end
+    #for (objf_index, objf) ∈ enumerate(sc.objf_list)
+        #l = findfirst( objf.internal_indices == ℓ )
+        #if !isnothing(l)
+        i,l = sc.output_to_objf_index[ℓ]
+            return get_optim_handle( sc.model_list[i], l )
+        #end
+    #end
 end
 
+@doc """
+Return a  gradient handle to be used with `NLopt` for output `ℓ` of `sc`.
+Index `ℓ` is assumed to be an internal index in the range of 1,…,n_objfs,
+where n_objfs is the total number of (scalarized) objectives stored in `sc`.
+"""
+function get_gradient( sc :: SurrogateContainer, ξ :: Vector{Float64}, ℓ :: Int64 )
+    i,l = sc.output_to_objf_index[ℓ]
+    return get_gradient( sc.model_list[i], ξ, l )
+end
+
+@doc "Output ℓ of model container at site x."
+function eval_models( sc :: SurrogateContainer, x :: Vector{Float64}, ℓ :: Int64 )
+    i,l = sc.output_to_objf_index[ℓ]
+    return eval_models( sc.model_list[i], x, l )
+end
 #end#module

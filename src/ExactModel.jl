@@ -37,7 +37,7 @@ end
 
 @doc "Gradient vector of output `ℓ` of `em` at scaled site `ξ`."
 function get_gradient( em :: ExactModel, ξ :: Vector{Float64}, ℓ :: Int64)
-    return em.objf_obj.model_config.gradient_handles[ℓ]( em.unscale_function(ξ) )
+    return em.objf_obj.model_config.gradients[ℓ]( em.unscale_function(ξ) )
 end
 
 @doc "Jacobian Matrix of ExactModel `em` at scaled site `ξ`"

@@ -9,6 +9,8 @@
 
 fully_linear( tm :: TaylorModel ) = true;
 
+max_evals( cfg :: TaylorConfig ) = cfg.max_evals;
+
 function prepare!(objf :: VectorObjectiveFunction, cfg :: TaylorConfig, ::AlgoConfig )
     @info("Preparing Taylor Models")
     set_gradients!( cfg, objf )

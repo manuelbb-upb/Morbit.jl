@@ -74,7 +74,8 @@ function find_affinely_independent_points(
    candidate_indices = find_points_in_box(x, Δ, sites_array, Val(x_in_sites));
    accepted_flags = zeros(Bool, length(candidate_indices));
 
-   n_missing = n_vars - size(Y,2);
+   n_start = size(Y,2);
+   n_missing = n_vars - n_start;
 
    # TODO PARALLELIZE inner LOOP
    min_projected_value = Δ * θ_pivot #*sqrt(n_vars);   # the projected value of any site (scaled by 1/(c_k*Δ) has to be >= θ_pivot)
@@ -112,7 +113,7 @@ function find_affinely_independent_points(
        Z = Matrix{typeof(x[1])}(undef, n_vars, 0);
    end
 
-   @info("\t Found $(size(Y,2)) affinely independent sites in box with Δ=$Δ for pivot value $min_projected_value.")
+   @info("\t Found $(size(Y,2) - n_start) affinely independent sites in box with Δ=$Δ for pivot value $min_projected_value.")
    return (candidate_indices[ accepted_flags ], Y, Z)
 end
 
@@ -134,6 +135,7 @@ function add_points!( m :: RBFModel, objf::VectorObjectiveFunction,
     @unpack Δ_max, iter_data , problem = config_struct;
     @unpack θ_enlarge_2 = cfg;
     @unpack sites_db, x = iter_data;
+
     # Check whether there is anything left to do
     unused_indices = non_rbf_training_indices( meta_data, iter_data );
     if isempty(unused_indices)
@@ -165,13 +167,12 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction, meta_data 
 
    @info "\t•Box search for more points."
 
-   ϑ_enlarge_2 = sensible_θ( Val(problem.is_constrained), θ_enlarge_2, x, Δ_max )
-   Δ_2 = ϑ_enlarge_2 * Δ_max;
-
    num_candidates = length(candidate_indices);
    if num_candidates <= max_model_points
        chosen_indices = candidate_indices
    else
+       chosen_indices = reverse(candidate_indices)[1:max_model_points]
+       #=
        chosen_indices = Int64[];
        while length(chosen_indices) < max_model_points
            ci = ceil(Int64, randquart() * (num_candidates-1));
@@ -180,6 +181,7 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction, meta_data 
                push!(chosen_indices, ind)
            end
        end
+       =#
    end
 
    @info("\t\tFound $(length(chosen_indices)) additional training sites")
@@ -188,6 +190,10 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction, meta_data 
    training_indices = rbf_training_indices(meta_data)
    N = max_model_points - length(training_indices)
    if use_max_points && N > 0
+
+       ϑ_enlarge_2 = sensible_θ( Val(problem.is_constrained), θ_enlarge_2, x, Δ_max )
+       Δ_2 = ϑ_enlarge_2 * Δ_max;
+
        @info("Trying to actively sample $N additional sites to use full number of allowed sites.")
        lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2, Val(problem.is_constrained));
        seeds = sites_db[training_indices];
@@ -254,8 +260,8 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction,
        lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2, Val(problem.is_constrained));
        seeds = m.training_sites;
        additional_sites = Vector{Vector{Float64}}();
-
-       for y ∈ drop( MonteCarloThDesign( 30 * N, lb_eff, ub_eff, seeds ), length(seeds) )  # NOTE factor 30 chosen at random
+       n_seeds = length(seeds)
+       for y ∈ drop( MonteCarloThDesign( min( n_seeds + N , max(100, n_seeds + 30*N)) , lb_eff, ub_eff, seeds ), n_seeds )  # NOTE factor 30 chosen at random
            τ_y², Qy, Ry, Zy, Ly, Lyⁱ, Φy, Πy = test_y(m, y, φ₀, θ_pivot_cholesky, Q, R, Z, L, Lⁱ, Φ, Π )
            if !isempty(Qy)
                Q, R, Z, L, Lⁱ, Φ, Π = Qy, Ry, Zy, Ly, Lyⁱ, Φy, Πy
@@ -410,12 +416,13 @@ function get_new_sites( :: Val{:monte_carlo}, N :: Int64, x :: Vector{Float64}, 
     additional_sites = Vector{Vector{Float64}}();
     min_pivot = Δ * θ_pivot #* sqrt(n_vars)
     @info("\t Sampling at $(N) new sites in Δ = $Δ, pivot value is $min_pivot.")
-    for true_site ∈ drop( MonteCarloThDesign( 30 * N, lb_eff, ub_eff, seeds ), length(seeds) ) # TODO the factor 30 was chosen at random
+    n_seeds = length(seeds)
+    for true_site ∈ drop( MonteCarloThDesign( n_seeds + 30 * N, lb_eff, ub_eff, seeds ), n_seeds ) # TODO the factor 30 was chosen at random
         site = true_site .- x;
         piv_val = norm(Z*(Z'site),Inf)
         if piv_val >= min_pivot
             Y = hcat(Y, site )
-            Z_from_Y( Y )
+            Z = Z_from_Y( Y )
             push!(additional_sites, true_site);
             N -= 1
         end
@@ -447,7 +454,7 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
         cfg :: RbfConfig, criticality_round :: Bool = false )
     @info "Building an RBFModel for (internal indices) $(objf.internal_indices)."
 
-    @unpack θ_enlarge_1, θ_enlarge_2, θ_pivot, sampling_algorithm = cfg;
+    @unpack θ_enlarge_1, θ_enlarge_2, θ_pivot, sampling_algorithm, require_linear = cfg;
     @unpack n_vars, Δ_max, max_evals, problem = config_struct;
     @unpack iter_data = config_struct;
     @unpack x, x_index, Δ, sites_db = iter_data;
@@ -481,9 +488,9 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
         meta_data.fully_linear = true;
     else
         # n_missing > 0 ⇒ we have to search some more
-        if !criticality_round
+        if !(criticality_round || require_linear)
 
-            θ_pivot_2 = Δ_2/Δ_1 * θ_pivot
+            θ_pivot_2 = Δ_1/Δ_2 * θ_pivot
 
             # find additional points in bigger trust region
             new_indices, Y, Z = find_affinely_independent_points( sites_db[other_indices], x, Δ_2, θ_pivot_2, false, Y, Z )
@@ -512,7 +519,7 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
             @info "\tThere are still $n_missing sites missing. Sampling..."
         end
 
-        n_evals_left = max_evals - length(sites_db) - 1;
+        n_evals_left = min( max_evals, cfg.max_evals ) - length(sites_db) - 1;
         n_missing = Int64(min( n_missing , n_evals_left ));
 
         additional_sites, Y, Z = get_new_sites(Val(sampling_algorithm),
@@ -554,7 +561,7 @@ function rebuild_rbf_model( config_struct :: AlgoConfig,
     # sample along carthesian coordinates
     ## collect sites in an array (new_sites) to profit from batch evaluation afterwards
     Y = Matrix{Float64}(undef, n_vars, 0);
-    n_evals_left = max_evals - length(sites_db) - 1;
+    n_evals_left = min(max_evals, cfg.max_evals) - length(sites_db) - 1;
     n_steps = Int64( min( n_vars, n_evals_left ) );
     new_sites = Vector{Vector{Float64}}();
     for i = 1 : n_steps
@@ -593,13 +600,13 @@ function make_linear!(m :: RBFModel, meta_data :: RBFMeta, config_struct :: Algo
     make_linear!(m, meta_data, config_struct, objf, cfg, Val(criticality_round))
 end
 
-@doc "Perform several improvement steps on 'm::RBFModel' using the 'improve!' method until the model is fully linear on θ_enlarge_1*Δ."
+@doc "Perform several improvement steps on 'm::RBFModel'." #using the 'improve!' method until the model is fully linear on θ_enlarge_1*Δ."
 function make_linear!(m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoConfig,
         objf :: VectorObjectiveFunction, cfg :: RbfConfig)
     @unpack max_evals = config_struct;
     @unpack sites_db = config_struct.iter_data;
 
-    evals_left = max_evals - length(sites_db) - 1;
+    evals_left = min(max_evals, cfg.max_evals) - length(sites_db) - 1;
     n_improvement_steps = Int64(min(size(meta_data.Z,2), evals_left));
 
     # number of columns of Z is the number of missing sites for full linearity
@@ -607,6 +614,7 @@ function make_linear!(m :: RBFModel, meta_data :: RBFMeta, config_struct :: Algo
     for i = 1 : n_improvement_steps
         improvement_flag = improve!(m, meta_data, config_struct, objf, cfg )
         if !improvement_flag
+            @info("Rebuilding close to boundary.")
             # build a new fully linear model for smaller trust region
             new_model, new_meta = rebuild_rbf_model( config_struct, objf, cfg )
             as_second!(m, new_model);       # modify old model to equal new model
@@ -659,7 +667,7 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
 
         # update Y and Z matrices
         meta_data.Y = hcat( Y, new_site .- x );    # add new column to matrix Y
-        meta_data.Z = Z[:,2:end] #Z_from_Y(meta_data.Y);
+        meta_data.Z = Z_from_Y(meta_data.Y);
 
         # evaluate at new site and store in database
         new_val = eval_all_objectives(problem, new_site );  # unscaling is taken care of

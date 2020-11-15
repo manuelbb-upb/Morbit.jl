@@ -9,11 +9,11 @@ randquart() = - ( 1 - rand() )^(1/5) + 1
 @doc "Return an enlargment factor `θ` that is sensible for [0,1]^n constrained problems."
 function sensible_θ( constrained :: Val{true}, θ :: Float64,
         x :: Vector{Float64}, Δ :: Float64 )
-    # Define the effective trust region radius `effective_Δ` as
-    # the smallest box radius so some step of length at most `Δ` can be taken
+    # Define `maximum_Δ` as
+    # the smallest box radius so some step can be taken
     # whilst honoring the global box constraints [0,1]^n
-    effective_Δ = min( Δ, max( maximum( x ), maximum(1.0 .- x )) )
-    θ = min(  θ, effective_Δ / Δ )
+    maximum_Δ = max( maximum( x ), maximum(1.0 .- x ) )
+    θ = min( θ, maximum_Δ / Δ )
 end
 
 # the above function is not necessary in unconstrained problems...
