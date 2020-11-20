@@ -11,7 +11,7 @@ end
 
 # TODO make these available from AlgoConfig
 const backtrack_factor = 0.8;
-const max_backtrack = 20;   # to avoid infinite loop at Pareto point
+const max_backtrack = 40;   # to avoid infinite loop at Pareto point
 
 @doc """
 Perform a backtracking loop starting at `x` with an initial step of
