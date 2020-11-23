@@ -125,12 +125,11 @@ Broadcast.broadcastable( tm :: TaylorModel ) = Ref(tm);
 struct TaylorMeta <: SurrogateMeta end   # no construction meta data needed
 
 ############# Lagrange Model Types ##############
-@with_kw struct LagrangeModel <: SurrogateModel
+@with_kw mutable struct LagrangeModel <: SurrogateModel
     n_out :: Int64 = -1;
     degree :: Int64 = 1;
 
-    lagrange_basis :: Vector{Polynomial{N} where N} = [];
-    coefficients :: Vector{Vector{Float64}} = [];
+    lagrange_models :: Vector{Any} = [];
     fully_linear :: Bool = false;
 end
 Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
@@ -142,16 +141,21 @@ Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
     ε_accept :: Float64 = 1e-6;
     Λ :: Float64 = 1.5;
 
-    allow_not_linear :: Bool = true;
+    allow_not_linear :: Bool = false;
+
+    optimized_sampling :: Bool = true;
 
     # the basis is set by `prepare!`
-    canonical_basis :: Union{ Nothing, Vector{Polynomial} } = nothing
+    canonical_basis :: Union{ Nothing, Vector{Any} } = nothing
+    # fields to enable unoptimized (stencil) sampling
+    stencil_sites :: Vector{Vector{Float64}} = [];
 
     max_evals :: Int64 = typemax(Int64);
 end
 
 @with_kw mutable struct LagrangeMeta <: SurrogateMeta
     interpolation_indices :: Vector{Int64} = [];
+    lagrange_basis :: Vector{Any} = [];
 end
 
 ###############  MULTIOBJECTIVE OPTIMIZATION PROBLEM DEFINITION ##############
