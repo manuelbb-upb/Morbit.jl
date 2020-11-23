@@ -1,16 +1,66 @@
 # plotting recipes
 using RecipesBase
-import Plots: palette, plot, RGB
+using RecipesBase: plot
+using ColorSchemes: oslo, grayC, RGB
 
 import Base: +
 +(c::RGB, v :: Float64) = RGB( min(c.r + v, 1.0), min(c.g + v, 1.0), min(c.b + v,1.0) )
 
 export plot_decision_space, plot_objective_space
+export ParetoSet, ParetoFrontier
+
+##### Convenience structs for plotting #####
+
+@with_kw struct ParetoSet
+    n_vars :: Int64 = 0;
+    coordinate_arrays :: Vector{ Vector{Float64} } = [];
+end
+
+function ParetoSet( matrix :: Array{Float64, 2}; points_as_columns = true )
+    if points_as_columns
+        n_vars = size(matrix, 2)
+        arrays = collect( eachrow(matrix) )
+    else
+        n_vars = size( matrix, 1 )
+        arrays = collect( eachcol(matrix) )
+    end
+    ParetoSet( n_vars, arrays )
+end
+
+function ParetoSet( data::Vararg{ Vector{Float64} , N} ) where{N}
+    n_vars = length(data);
+    coordinate_arrays = [ data... ]
+    ParetoSet(n_vars, coordinate_arrays)
+end
+
+@with_kw struct ParetoFrontier
+    n_objfs :: Int64 = 0;
+    objective_arrays :: Vector{ Vector{Float64} } = [];
+end
+
+function ParetoFrontier( matrix :: Array{Float64, 2}; points_as_columns = true )
+    if points_as_columns
+        n_objf = size(matrix, 2)
+        arrays = collect( eachrow(matrix) )
+    else
+        n_objf = size( matrix, 1 )
+        arrays = collect( eachcol(matrix) )
+    end
+    ParetoFrontier( n_objf, arrays )
+end
+
+function ParetoFrontier( f :: T where{T <: Function}, pset :: ParetoSet )
+    n_points = length( pset.coordinate_arrays[1] )
+    evals = f.( [ [pset.coordinate_arrays[d][i] for d = 1 : pset.n_vars ] for i = 1 : n_points ] )
+    eval_matrix = hcat( evals... )
+    ParetoFrontier( eval_matrix )
+end
+###################
 
 default_line_color = :cornflowerblue
 default_pareto_color = :mediumseagreen
 default_data_color = :lightgoldenrod
-default_palette(n) = n > 1 ? palette( :oslo, n; rev = false ) : [RGB(zeros(3)...)]
+default_palette(n) = n > 1 ? get(oslo, range(0,1;length=n)) : [RGB(zeros(3)...)]
 markersizes_fn(n) = n > 1 ? map( x -> 3 + 3 * x^1.1, range(1,0; length = n ) ) : 3;
 
 # Decision Space Plotting
@@ -198,7 +248,6 @@ end
     iter_data = d.args[1].iter_data;
     stepsizes = iter_data.stepsize_array;
     ρs = iter_data.ρ_array;
-    linear_flags = [mi.fully_linear for mi ∈ iter_data.model_info_array];
     iterations = 1:length(stepsizes)
 
     title := "Step Sizes."
@@ -212,9 +261,7 @@ end
 
     green_points = findall( ρs .>= d.args[1].ν_success )
     blue_points = findall( d.args[1].ν_success .> ρs .>= d.args[1].ν_accept )
-    red = setdiff( iterations, [green_points;blue_points]);
-    red_points = red[ linear_flags[red] ]
-    red_diamonds = red[ .!(linear_flags)[red] ]
+    red_points = setdiff( iterations, [green_points;blue_points]);
 
     @series begin
         seriestype := :scatter
@@ -233,16 +280,8 @@ end
     @series begin
         seriestype := :scatter
         markercolor := :red
-        label := "unsucessfull"
+        label := "bad or improving"
         red_points, stepsizes[red_points]
-    end
-
-    @series begin
-        seriestype := :scatter
-        markercolor := :orange
-        label := "model improving"
-        marker := :diamond
-        red_diamonds, stepsizes[red_diamonds]
     end
 end
 
@@ -299,7 +338,7 @@ end
         #fillalpha := .25
 
         seriescolor := reverse(iter_colors)[ plot_iter_indices ]'
-        linecolor := length(plot_iter_indices) > 1 ? palette( :grayC, length(plot_iter_indices), rev = true ) : :lightgray
+        linecolor := length(plot_iter_indices) > 1 ? get(grayC, range(1,0;length=n)) : :lightgray
 
         ticks := n_out == 1 ? [1] : collect( 1 : n_out )
 
