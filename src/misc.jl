@@ -35,6 +35,7 @@ function find_points_in_box( x, Δ, sites_array, filter_x :: Val{false} )
    candidate_indices = findall( [ all( x_lb .<= site .<= x_ub ) for site ∈ sites_array ] )
 end
 
+# helper function
 @doc """
 Return array of solution vectors [x_1, …, x_len] to the equation
 ``x_1 + … + x_len = rhs``

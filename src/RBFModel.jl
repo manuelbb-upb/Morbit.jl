@@ -11,31 +11,6 @@ fully_linear(m :: RBFModel) = m.fully_linear
 
 max_evals( cfg :: RbfConfig ) = cfg.max_evals;
 
-import Base: ==
-==( config1 :: RbfConfig, config2 :: RbfConfig ) = begin
-    if  all( getfield( config1, fname ) == getfield( config2, fname )
-            for fname in fieldnames(RbfConfig) if fname != :shape_parameter
-        )
-
-        if isa( config1.shape_parameter, Float64 )
-            if isa( config2.shape_parameter, Float64 )
-                return config1.shape_parameter == config2.shape_parameter
-            else
-                return all( isapprox.( config1.shape_parameter, config2.shape_parameter.(0:0.1:1.0)))
-            end
-        else
-            return all(
-                isapprox.(
-                    config1.shape_parameter.(0:0.1:1.0),
-                    config2.shape_parameter.(0:0.1:1.0)
-                )
-            )
-        end
-    else
-        return false
-    end
-end
-
 @doc "Modify first meta data object to equal second."
 function as_second!(destination :: RBFMeta, source :: RBFMeta )
     @unpack_RBFMeta source;
