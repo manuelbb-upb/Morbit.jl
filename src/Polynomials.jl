@@ -6,8 +6,8 @@
 module Polynomials
 
 using Parameters: @with_kw
-
-export Polynomial, gradient, hessian
+using Combinatorics: multinomial
+export Polynomial, gradient, hessian, non_negative_solutions
 
 ############################### MultiIndex ###############################
 @doc """
@@ -196,6 +196,9 @@ end
 /(p :: Polynomial{N} where N, λ :: R where R<:Real) = p * (1/λ)
 
 import Base: +, -
+#=
+# NOTE I suppose this is a bit of an overkill.
+# It would suffice to concatenate the arrays `p1.monomials` and `p2.monomials`
 @doc """
 Add `p1` and `p2` symbolically:
 If there is a pair of monomials in `p1.monomials` and `p2.monomials` with the
@@ -225,9 +228,12 @@ function +(p1 :: Polynomial{N}, p2 :: Polynomial{N} )  where N
     push!( new_monomial_list, p2.monomials[ p2_accept ]... )
     return Polynomial( new_monomial_list )
 end
+=#
+function +(p1 :: Polynomial{N}, p2 :: Polynomial{N} )  where N
+    new_monomial_list = [ p1.monomials; p2.monomials ];
+    return Polynomial( new_monomial_list );
+end
 -(p1 :: Polynomial{N} where N, p2 :: Polynomial{N} where N ) = p1 + (p2 * (-1))
-# NOTE I suppose this is a bit of an overkill.
-# It would suffice to concatenate the arrays `p1.monomials` and `p2.monomials`
 
 
 @doc "Evaluate and return the gradient of `p` at site `x`."
@@ -240,13 +246,33 @@ function hessian( p :: Polynomial{N} where N, x :: Vector{R} where R<:Real )
     sum( hessian(m, x) for m ∈ p.monomials )
 end
 
+# helper function
+@doc """
+Return array of solution vectors [x_1, …, x_len] to the equation
+``x_1 + … + x_len = rhs``
+where the variables must be non-negative integers.
+"""
+function non_negative_solutions( rhs :: Int64, len :: Int64 )
+    if len == 1
+        return rhs
+    else
+        solutions = [];
+        for i = 0 : rhs
+            for shorter_solution ∈ non_negative_solutions( i, len - 1)
+                push!( solutions, [ rhs-i; shorter_solution ] )
+            end
+        end
+        return solutions
+    end
+end
+
 end
 
 #=
 # POOR MAN'S UNIT TESTING
 using .Polynomials
 
-p1 = Polynomial(1/3, (3, 0))    # x_1^2
+p1 = Morbit.Polynomial(1/3, (3, 0))    # x_1^2
 p2 = Polynomial(2.0, (1, 1))    # 2x_1x_2
 
 # ∇p1 = [ x_1^2; 0 ]

@@ -25,7 +25,7 @@ include("descent.jl")
 include("plotting.jl")
 include("saving.jl")
 
-include("true_omega_calc.jl")
+#include("true_omega_calc.jl")
 
 function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector{ R } where{R<:Real }, f_x₀ :: Vector{ R } where{R<:Real } = Float64[])
 
@@ -35,10 +35,12 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         γ_grow, γ_shrink, γ_shrink_much = config_struct;
     ## stopping criteria:
     @unpack max_iter, max_evals, max_critical_loops, Δ_critical, Δ_min,
-        stepsize_min, true_ω_stop = config_struct;
+        stepsize_min, x_stop_function = config_struct;
     ## descent related settings:
     @unpack radius_update, all_objectives_descent, descent_method, ideal_point,
         image_direction = config_struct;
+
+    X_STOP_FUNCTION = !isnothing(x_stop_function);
 
     # SANITY CHECKS
     # set variables that depend on the length of input
@@ -48,10 +50,12 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     end
 
     # make sure that the constraint flag is set correctly
-    if (isnothing(problem.lb) && !isnothing(problem.ub)) ||
-        (!isnothing(problem.lb) && isnothing(problem.ub))
+    isbadbound( :: Nothing ) = true;
+    isbadbound( arr :: Vector{R} where R<:Real ) = isempty(arr);
+    if (isbadbound(problem.lb) && !isbadbound(problem.ub)) ||
+        (!isbadbound(problem.lb) && isbadbound(problem.ub))
         @error("Problem must be fully box constrained or unconstrained.")
-    elseif isnothing(problem.lb) && isnothing(problem.ub)
+    elseif isbadbound(problem.lb) && isbadbound(problem.ub)
             problem.is_constrained = false
     else
         if all(isfinite.(problem.lb)) && all(isfinite.(problem.ub))
@@ -142,15 +146,6 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     @info("Initializing model container.")
     surrogates = init_surrogates( config_struct );
 
-    # if desired (for debugging and testing)
-    # initialize shadow surrogate container for true ω calculation
-    DEBUG_STOP = isfinite( true_ω_stop )
-    if DEBUG_STOP
-        shadow_surrogates = create_shadow_surrogates( config_struct );
-    else
-        shadow_surrogates = SurrogateContainer();
-    end
-
     # make availabe information arrays for introspection and analysis
     @unpack iterate_indices, stepsize_array, Δ_array, ω_array, ρ_array,
         num_crit_loops_array, model_meta = iter_data;
@@ -162,10 +157,10 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     steplength = Δ;
     non_linear_indices = Int64[];
     
-    TRUE_OMEGA_SMALL, true_ω = true_ω_small(Val(DEBUG_STOP), config_struct, shadow_surrogates) 
+    DEBUG_EXIT = X_STOP_FUNCTION && x_stop_function(unscale(problem,x));
 
     while budget_okay( problem, improvement_step ) && loop_check(Δ, steplength, iter_index;
-            Δ_min, Δ_critical, stepsize_min, max_iter, improvement_step) && !TRUE_OMEGA_SMALL
+            Δ_min, Δ_critical, stepsize_min, max_iter, improvement_step) && !DEBUG_EXIT
 
         if improvement_step
             improvement_counter += 1
@@ -205,7 +200,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
         # Criticallity Test
         num_critical_loops = 0;
-        if ω <= ε_crit      # analog to small gradient
+        if abs(ω) <= ε_crit      # analog to small gradient, abs as safeguard near 0
             Δ_old, ω_old = Δ, ω;    # for printing only
             @info("Entered criticallity test!")
 
@@ -221,7 +216,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
             # exit if model could not be made fully linear ( budget exhausted )
             steplength = norm( d, Inf );
             linear_flag, non_linear_indices = fully_linear(surrogates)
-            while ( Δ > μ * ω &&
+            while ( Δ > μ * abs(ω) &&
                 linear_flag &&
                 num_critical_loops < max_critical_loops &&
                 budget_okay(problem, false) &&
@@ -263,9 +258,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
         # Apply step and evaluate at new sites
         @info("Attempting descent of length $steplength.")
-
-        #x₊ = x .+ d;
-        #m_x₊ = eval_models( surrogates, x₊ );
+      
         m_x = eval_models( surrogates, x );
         f_x₊ = eval_all_objectives(problem, x₊)   # unscale and evaluate
 
@@ -286,8 +279,8 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         @info """\n
         We have the following evaluations:
         | f(x)  | $(f_x[1:min(end,5)])
-        | m(x)  | $(m_x[1:min(end,5)])
         | f(x₊) | $(f_x₊[1:min(end,5)])
+        | m(x)  | $(m_x[1:min(end,5)])
         | m(x₊) | $(m_x₊[1:min(end,5)])
         The error betwenn f(x) and m(x) is $(sum(abs.(f_x .- m_x))).
         The expensive indices are $(problem.non_exact_indices).
@@ -340,6 +333,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
             f_x = f_x₊;
             x_index = length(sites_db);
             iter_data.x_index = x_index;
+            DEBUG_EXIT = X_STOP_FUNCTION && x_stop_function(unscale(problem, x)) ;
         end
 
         @info """
@@ -354,11 +348,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         # update iteration data for subsequent subroutines
         push!(iterate_indices, x_index);
         @pack! iter_data = x, f_x, Δ
-        if accept_x₊
-            # if x changed then the true criticality measure too
-            TRUE_OMEGA_SMALL, true_ω = true_ω_small( Val(DEBUG_STOP), config_struct, shadow_surrogates );
-        end
-
+        
         # Update nice-to-know iter data information
         push!( iter_data.trial_point_indices, length(sites_db) )
         push!( Δ_array, Δ_old);
@@ -367,11 +357,13 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         push!( num_crit_loops_array, num_critical_loops );
         push!( ρ_array, ρ );
         push!( model_meta, surrogates.model_meta ); # list of lists
+        
     end
     @info """\n
     |--------------------------------------------
     | FINISHED
     |--------------------------------------------
+    $(DEBUG_EXIT ? "|  DEBUG_EXIT triggered!" : "\r")
     |  No. iterations:       $iter_index
     |  No. database entries: $(length(sites_db)).
     |  Final iterate has index $(iterate_indices[end]) and true coordinates
@@ -387,7 +379,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     if !isempty(ideal_point) reverse_internal_sorting!( problem, ideal_point) end
     if !isempty(image_direction) reverse_internal_sorting!( problem, image_direction ) end
 
-    return sites_db[x_index], values_db[x_index], true_ω
+    return sites_db[x_index], values_db[x_index]
 end
 
 # Stopping functions
