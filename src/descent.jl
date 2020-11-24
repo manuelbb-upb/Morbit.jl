@@ -176,11 +176,11 @@ function compute_descent_direction( type::Val{:ps},
         return χ[1]
     end
 
-    opt = Opt(:LD_MMA, n_vars + 1)
+    opt = Opt(:GN_ISRES, n_vars + 1)
     opt.lower_bounds = [-1; lb];
     opt.upper_bounds = [0; ub];
-    opt.xtol_rel = 1e-6;
-    opt.maxeval = 200;
+    opt.xtol_rel = 1e-3;
+    opt.maxeval = 400*(n_vars+2);
     opt.min_objective = opt_objf;
     for ℓ = 1 : length(f_x)
         ℓth_constraint = function( χ, g )
@@ -196,7 +196,7 @@ function compute_descent_direction( type::Val{:ps},
 
     (τ,χ_min,ret) = NLopt.optimize(opt, x_0 );
 
-    ω = -τ;
+    ω = abs(τ);
     x₊ = χ_min[2:end];
     m_x₊ = eval_models(sc, x₊)
     dir = x₊ .- x;
@@ -301,11 +301,11 @@ function compute_ideal_point( config_struct :: AlgoConfig, sc :: SurrogateContai
             x_0 = intobounds(x, lb, ub);
             for l = 1 : length(f_x)
                 # setup an optimization problem
-                opt = Opt(:LD_MMA, n_vars)
+                opt = Opt(:GN_ISRES, n_vars)
                 opt.lower_bounds = lb;
                 opt.upper_bounds = ub;
-                opt.xtol_rel = 1e-6;
-                opt.maxeval = 200;
+                opt.xtol_rel = 1e-3;
+                 opt.maxeval = 400*(n_vars+1);
                 opt.min_objective = get_optim_handle( sc, l )
                 (minf,minx,ret) = NLopt.optimize(opt, x_0 );
                 ideal_point[l] = minf;

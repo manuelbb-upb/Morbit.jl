@@ -623,6 +623,7 @@ function make_linear!(m :: RBFModel, meta_data :: RBFMeta, config_struct :: Algo
             break
         end
     end
+    train!(m);
     return n_improvement_steps > 0
 end
 
@@ -632,7 +633,7 @@ end
 The model parameters 'Y' and 'z' and its fully_linear flag are potentially modified.
 Returns the newly sampled site and its value vector as given by f."
 function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoConfig,
-        objf :: VectorObjectiveFunction, cfg :: RbfConfig )
+        objf :: VectorObjectiveFunction, cfg :: RbfConfig; retrain :: Bool = true )
     @unpack iter_data, problem, n_vars = config_struct;
     @unpack x, Δ, sites_db, values_db = iter_data;
     @unpack θ_pivot, θ_enlarge_1 = cfg;
@@ -679,7 +680,7 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
         push!(m.training_sites, new_site);
         push!(m.training_values, new_val[objf.internal_indices] )
 
-        train!(m);
+        if retrain train!(m); end
         if num_Z_cols == 1
             meta_data.fully_linear = m.fully_linear = true;
             @info("\t\tModel is now fully linear.")

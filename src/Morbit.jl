@@ -216,23 +216,27 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
             # exit if model could not be made fully linear ( budget exhausted )
             steplength = norm( d, Inf );
             linear_flag, non_linear_indices = fully_linear(surrogates)
-            while ( Δ > μ * abs(ω) &&
-                linear_flag &&
-                num_critical_loops < max_critical_loops &&
-                budget_okay(problem, false) &&
-                Δ_big_enough( Δ, steplength; Δ_min, Δ_critical, stepsize_min)
-            )
+            num_critical_loops = 0;
+            CONTINUE = (num_critical_loops < max_critical_loops &&
+                linear_flag && budget_okay( problem, false ) &&
+                Δ_big_enough( Δ, steplength; Δ_min, Δ_critical, stepsize_min) );
+
+            while Δ > μ * abs(ω) && CONTINUE
 
                 # shrink trust region radius
                 Δ *= γ_crit
                 @pack! iter_data = Δ;
                 @info("\t\tCritical loop no. $num_critical_loops with Δ = $Δ > $μ * $ω = $(μ*ω)")
-                build_models!( surrogates, config_struct )
+                build_models!( surrogates, config_struct, true)
 
                 ω, d, x₊, m_x₊ = compute_descent_direction( config_struct, surrogates );
                 steplength = norm( d, Inf );
                 linear_flag, non_linear_indices = fully_linear(surrogates);
                 num_critical_loops += 1
+
+                CONTINUE = (num_critical_loops < max_critical_loops &&
+                    linear_flag && budget_okay( problem, false ) &&
+                    Δ_big_enough( Δ, steplength; Δ_min, Δ_critical, stepsize_min) );
             end
             Δ = min( Δ_old, max( Δ, β * ω ));
             @info """
@@ -245,11 +249,13 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
                 • Surrogates are $(linear_flag ? "" : "not") fully linear.
             """
 
-            if ( num_critical_loops == max_critical_loops ||
-                !Δ_big_enough( Δ, steplength; Δ_min, Δ_critical, stepsize_min) )
+            if !CONTINUE
                 @info """
-                \tExit from main loop because maximum number of critical loops is or reached
-                or stepsize is to small.
+                \tExit from main loop because
+                \t• maximum number of critical loops is reached or
+                \t• stepsize is to small or 
+                \t• model cannot be made fully linear or 
+                \t• budget exhausted.
                 """
                 break; # breack from main loop
             end

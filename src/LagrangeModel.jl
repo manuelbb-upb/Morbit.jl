@@ -236,7 +236,7 @@ function build_model_stencil(ac :: AlgoConfig, objf :: VectorObjectiveFunction,
         new_sites, recycled_indices, lagrange_basis = find_poised_set( ε_accept, 
             cfg.canonical_basis, [X,], X, Δ, 1, zeros(n_vars), ones(n_vars) );
         # make Λ poised
-        improve_poised_set!(lagrange_basis, new_sites, recycled_indices, min( 1.2, Λ ), 
+        improve_poised_set!(lagrange_basis, new_sites, recycled_indices, Λ, 
             [X,], zeros(n_vars), ones(n_vars) );
 
         # save pre-calculated Lagrange basis in config
