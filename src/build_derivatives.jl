@@ -1,3 +1,10 @@
+
+import FiniteDiff#erences
+const FD = FiniteDiff#erences
+
+import ForwardDiff
+const AD = ForwardDiff
+
 @doc "Set fields `gradients` or/and `jacobian` of `model_config`."
 function set_gradients!(
         model_config :: Union{ExactConfig, TaylorConfig},

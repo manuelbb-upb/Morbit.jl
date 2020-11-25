@@ -1,13 +1,11 @@
-####################### Surrogate Stuff Abstract #################
+
 abstract type ModelConfig end
 abstract type SurrogateModel end
 abstract type SurrogateMeta end
 
-max_evals( m :: M where M <: ModelConfig ) = typemax(Int64);
+###############  MULTIOBJECTIVE OPTIMIZATION PROBLEM DEFINITION ##############
 
-############## CUSTOM FUNCTION SUB TYPES ##############
-
-# … to allow for batch evaluation outside of julia
+# Custom function to allow for batch evaluation outside of julia
 # or to exploit parallelized objective functions
 @with_kw struct BatchObjectiveFunction <: Function
     function_handle :: Union{T, Nothing} where{T<:Function} = nothing
@@ -27,138 +25,6 @@ end
     internal_indices :: Vector{Int64} = [];
     problem_position :: Int64 = 0;
 end
-
-############# RBF Model Types ##############
-# wrapper to make RBFModel a subtype of SurrogateModel interface
-# # NOTE the distinction:
-# # • RBFModel from module .RBF
-# # • RbfModel the actual SurrogateModel used in the algorithm
-struct RbfModel <: SurrogateModel
-    model :: RBFModel
-end
-Broadcast.broadcastable( M :: RbfModel ) = Ref(M);
-
-@with_kw mutable struct RbfConfig <: ModelConfig
-    kernel :: Symbol = :cubic;
-    shape_parameter :: Union{F where {F<:Function}, R where R<:Real} = 1;
-    polynomial_degree :: Int64 = 1;
-
-    θ_enlarge_1 :: Float64 = 2.0;
-    θ_enlarge_2 :: Float64 = 5.0;  # reset
-    θ_pivot :: Float64 = 1.0 / (2 * θ_enlarge_1);
-    θ_pivot_cholesky :: Float64 = 1e-7;
-
-    require_linear = false;
-
-    max_model_points :: Int64 = -1; # is probably reset in the algorithm
-    use_max_points :: Bool = false;
-
-    sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
-
-    constrained :: Bool = false;    # restrict sampling of new sites
-
-    max_evals :: Int64 = typemax(Int64);
-
-    @assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
-    @assert kernel ∈ Symbol.(["exp", "multiquadric", "cubic", "thin_plate_spline"]) "Kernel '$kernel' not supported yet."
-    @assert kernel != :thin_plate_spline || shape_parameter isa Int && shape_parameter >= 1
-    #@assert θ_enlarge_1 >=1 && θ_enlarge_2 >=1 "θ's must be >= 1."
-end
-
-# meta data object to be used during sophisticated sampling
-@with_kw mutable struct RBFMeta <: SurrogateMeta
-    center_index :: Int64 = 1;
-    round1_indices :: Vector{Int64} = [];
-    round2_indices :: Vector{Int64} = [];
-    round3_indices :: Vector{Int64} = [];
-    round4_indices :: Vector{Int64} = [];
-    fully_linear :: Bool = false;
-    Y :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
-    Z :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
-end
-
-############# Exact Model Types ##############
-
-@with_kw struct ExactModel <: SurrogateModel
-    objf_obj :: Union{Nothing, VectorObjectiveFunction} = nothing;
-    unscale_function :: Union{Nothing, F where F<:Function} = nothing;
-end
-Broadcast.broadcastable( em :: ExactModel ) = Ref(em);
-
-@with_kw mutable struct ExactConfig <: ModelConfig
-    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :autodiff
-
-    # alternative keyword, usage discouraged...
-    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
-
-    max_evals :: Int64 = typemax(Int64)
-end
-
-struct ExactMeta <: SurrogateMeta end   # no construction meta data needed
-
-############# Taylor Model Types ##############
-@with_kw mutable struct TaylorConfig <: ModelConfig
-    n_out :: Int64 = 1; # used internally when setting hessians
-    degree :: Int64 = 1;
-
-    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :fdm
-    hessians ::  Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = gradients
-
-    # alternative to specifying individual gradients
-    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
-
-    max_evals :: Int64 = typemax(Int64);
-end
-
-@with_kw mutable struct TaylorModel <: SurrogateModel
-    n_out :: Int64 = -1;
-    degree :: Int64 = 2;
-    x :: Vector{R} where{R<:Real} = Float64[];
-    f_x :: Vector{R} where{R<:Real} = Float64[];
-    g :: Vector{Vector{R}} where{R<:Real} = Array{Float64,1}[];
-    H :: Vector{Array{R,2}} where{R<:Real} = Array{Float64,2}[];
-    unscale_function :: Union{Nothing, F where F<:Function} = nothing;
-    @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
-end
-Broadcast.broadcastable( tm :: TaylorModel ) = Ref(tm);
-
-struct TaylorMeta <: SurrogateMeta end   # no construction meta data needed
-
-############# Lagrange Model Types ##############
-@with_kw mutable struct LagrangeModel <: SurrogateModel
-    n_out :: Int64 = -1;
-    degree :: Int64 = 1;
-
-    lagrange_models :: Vector{Any} = [];
-    fully_linear :: Bool = false;
-end
-Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
-
-@with_kw mutable struct LagrangeConfig <: ModelConfig
-    degree :: Int64 = 1;
-    θ_enlarge :: Float64 = 2;
-
-    ε_accept :: Float64 = 1e-6;
-    Λ :: Float64 = 1.5;
-
-    allow_not_linear :: Bool = false;
-
-    optimized_sampling :: Bool = true;
-
-    # the basis is set by `prepare!`
-    canonical_basis :: Union{ Nothing, Vector{Any} } = nothing
-    # fields to enable unoptimized (stencil) sampling
-    stencil_sites :: Vector{Vector{Float64}} = [];
-
-    max_evals :: Int64 = typemax(Int64);
-end
-
-@with_kw mutable struct LagrangeMeta <: SurrogateMeta
-    interpolation_indices :: Vector{Int64} = [];
-    lagrange_basis :: Vector{Any} = [];
-end
-
-###############  MULTIOBJECTIVE OPTIMIZATION PROBLEM DEFINITION ##############
 
 @with_kw mutable struct MixedMOP
     #vector_of_objectives :: Vector{ Union{ ObjectiveFunction, VectorObjectiveFunction } } = [];

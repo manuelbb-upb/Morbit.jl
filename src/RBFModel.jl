@@ -6,6 +6,58 @@
 # NOTE Scaling of training SITES is provided by functions
 # (un)scale( mop :: MixedMop, x )
 # imported from "Objectives.jl" in "Surrogates.jl"
+using Lazy: @forward
+
+include("RBFBase.jl")
+import .RBF: RBFModel, train!, is_valid, get_Π, get_Φ, φ, Π_col, as_second!, min_num_sites
+
+# wrapper to make RBFModel a subtype of SurrogateModel interface
+# # NOTE the distinction:
+# # • RBFModel from module .RBF
+# # • RbfModel the actual SurrogateModel used in the algorithm
+struct RbfModel <: SurrogateModel
+    model :: RBFModel
+end
+Broadcast.broadcastable( M :: RbfModel ) = Ref(M);
+
+@with_kw mutable struct RbfConfig <: ModelConfig
+    kernel :: Symbol = :cubic;
+    shape_parameter :: Union{F where {F<:Function}, R where R<:Real} = 1;
+    polynomial_degree :: Int64 = 1;
+
+    θ_enlarge_1 :: Float64 = 2.0;
+    θ_enlarge_2 :: Float64 = 5.0;  # reset
+    θ_pivot :: Float64 = 1.0 / (2 * θ_enlarge_1);
+    θ_pivot_cholesky :: Float64 = 1e-7;
+
+    require_linear = false;
+
+    max_model_points :: Int64 = -1; # is probably reset in the algorithm
+    use_max_points :: Bool = false;
+
+    sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
+
+    constrained :: Bool = false;    # restrict sampling of new sites
+
+    max_evals :: Int64 = typemax(Int64);
+
+    @assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
+    @assert kernel ∈ Symbol.(["exp", "multiquadric", "cubic", "thin_plate_spline"]) "Kernel '$kernel' not supported yet."
+    @assert kernel != :thin_plate_spline || shape_parameter isa Int && shape_parameter >= 1
+    #@assert θ_enlarge_1 >=1 && θ_enlarge_2 >=1 "θ's must be >= 1."
+end
+
+# meta data object to be used during sophisticated sampling
+@with_kw mutable struct RBFMeta <: SurrogateMeta
+    center_index :: Int64 = 1;
+    round1_indices :: Vector{Int64} = [];
+    round2_indices :: Vector{Int64} = [];
+    round3_indices :: Vector{Int64} = [];
+    round4_indices :: Vector{Int64} = [];
+    fully_linear :: Bool = false;
+    Y :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
+    Z :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
+end
 
 fully_linear(m :: RBFModel) = m.fully_linear
 

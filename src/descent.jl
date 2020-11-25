@@ -180,7 +180,7 @@ function compute_descent_direction( type::Val{:ps},
     opt.lower_bounds = [-1; lb];
     opt.upper_bounds = [0; ub];
     opt.xtol_rel = 1e-3;
-    opt.maxeval = 400*(n_vars+2);
+    opt.maxeval = 500*(n_vars+2);
     opt.min_objective = opt_objf;
     for ℓ = 1 : length(f_x)
         ℓth_constraint = function( χ, g )
@@ -243,7 +243,8 @@ function compute_descent_direction( type::Val{:direct_search},
 
             set_optimizer_attribute(prob,"eps_rel",1e-5)
             set_optimizer_attribute(prob, "polish", true)
-
+            
+            # slightly adapted version of directed search (allow only non-anscent directions)
             @variable(prob, D[1:n_vars] )
             @objective(prob, Min, sum(( ∇m * D .- image_direction ).^2) )
             @constraint(prob, norm_constraint, -1.0 .<= D .<= 1.0)
@@ -253,10 +254,14 @@ function compute_descent_direction( type::Val{:direct_search},
             end
             JuMP.optimize!(prob)
             d = value.(D)
+            
             #=
+            # This probably corresponds best to directed search
             @variable(prob, 0.0 <= λ <= 1.0)
             @objective(prob, Max, λ )
-            @constraint(prob, global_constraints, 0.0 .<= x .+ λ .* (∇m⁺ * image_direction) .<= 1.0 );
+            if problem.is_constrained
+                @constraint(prob, global_constraints, 0.0 .<= x .+ λ .* (∇m⁺ * image_direction) .<= 1.0 );
+            end
             @constraint(prob, norm_constraints, -1.0 .<= λ .* (∇m⁺ * image_direction) .<= 1.0 );
             JuMP.optimize!(prob)
 
@@ -264,10 +269,11 @@ function compute_descent_direction( type::Val{:direct_search},
             d = λ_opt .* (∇m⁺ * image_direction);
             @show λ_opt
             =#
-
+             
         end
         dir, step_size = get_initial_step( d, Δ )
-        ω = let o = maximum( abs.(∇m * dir) ); problem.is_constrained ? min( o, 1.0 ) : o end
+        # taking minimum of abs values because near critical points the signs get confused
+        ω = let o = minimum( abs.(∇m * dir) ); problem.is_constrained ? min( o, 1.0 ) : o end
 
         x₊, m_x₊, dir = backtrack(x, f_x, dir, step_size, ω, sc, all_objectives_descent)
     end
@@ -305,7 +311,7 @@ function compute_ideal_point( config_struct :: AlgoConfig, sc :: SurrogateContai
                 opt.lower_bounds = lb;
                 opt.upper_bounds = ub;
                 opt.xtol_rel = 1e-3;
-                 opt.maxeval = 400*(n_vars+1);
+                opt.maxeval = 500*(n_vars+1);
                 opt.min_objective = get_optim_handle( sc, l )
                 (minf,minx,ret) = NLopt.optimize(opt, x_0 );
                 ideal_point[l] = minf;

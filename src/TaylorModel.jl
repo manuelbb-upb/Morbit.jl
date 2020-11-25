@@ -7,6 +7,33 @@
 # (un)scale( mop :: MixedMop, x )
 # imported from "Objectives.jl" in "Surrogates.jl"
 
+@with_kw mutable struct TaylorConfig <: ModelConfig
+    n_out :: Int64 = 1; # used internally when setting hessians
+    degree :: Int64 = 1;
+
+    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :fdm
+    hessians ::  Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = gradients
+
+    # alternative to specifying individual gradients
+    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
+
+    max_evals :: Int64 = typemax(Int64);
+end
+
+@with_kw mutable struct TaylorModel <: SurrogateModel
+    n_out :: Int64 = -1;
+    degree :: Int64 = 2;
+    x :: Vector{R} where{R<:Real} = Float64[];
+    f_x :: Vector{R} where{R<:Real} = Float64[];
+    g :: Vector{Vector{R}} where{R<:Real} = Array{Float64,1}[];
+    H :: Vector{Array{R,2}} where{R<:Real} = Array{Float64,2}[];
+    unscale_function :: Union{Nothing, F where F<:Function} = nothing;
+    @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
+end
+Broadcast.broadcastable( tm :: TaylorModel ) = Ref(tm);
+
+struct TaylorMeta <: SurrogateMeta end   # no construction meta data needed
+
 fully_linear( tm :: TaylorModel ) = true;
 
 max_evals( cfg :: TaylorConfig ) = cfg.max_evals;

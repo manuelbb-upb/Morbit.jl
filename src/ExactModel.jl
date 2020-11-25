@@ -4,6 +4,22 @@
 # This file is included from within "Surrogates.jl".
 # We therefore can refer to other data structures used there.
 
+@with_kw struct ExactModel <: SurrogateModel
+    objf_obj :: Union{Nothing, VectorObjectiveFunction} = nothing;
+    unscale_function :: Union{Nothing, F where F<:Function} = nothing;
+end
+Broadcast.broadcastable( em :: ExactModel ) = Ref(em);
+
+@with_kw mutable struct ExactConfig <: ModelConfig
+    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :autodiff
+
+    # alternative keyword, usage discouraged...
+    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
+
+    max_evals :: Int64 = typemax(Int64)
+end
+
+struct ExactMeta <: SurrogateMeta end   # no construction meta data needed
 
 fully_linear( em :: ExactModel ) = true;
 

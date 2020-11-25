@@ -12,6 +12,7 @@ import Base: isempty, Broadcast, broadcasted
 
 export optimize!
 
+include("Interfaces.jl");
 # import MOP structures and utilities; make key features available outside this module
 include("Surrogates.jl")
 

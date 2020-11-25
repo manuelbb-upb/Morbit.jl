@@ -1,28 +1,20 @@
-#module Surrogates
+#module Surrogate
 
 import Base.Broadcast: broadcastable, broadcasted
 using Parameters: @with_kw, @pack!, @unpack
 
-using Lazy: @forward
-include("RBFBase.jl")
-import .RBF: RBFModel, train!, is_valid, get_Π, get_Φ, φ, Π_col, as_second!, min_num_sites
+max_evals( m :: M where M <: ModelConfig ) = typemax(Int64);
+prepare!(::VectorObjectiveFunction, :: M where M<:ModelConfig , ::AlgoConfig) = nothing
 
-#include("Polynomials.jl")
-#using .Polynomials
+include("RBFModel.jl")
+include("TaylorModel.jl")
+include("ExactModel.jl")
+include("LagrangeModel.jl")
 
-include("interfaces.jl")
-include("Objectives.jl")
+include("objectives.jl");
 
 include("misc.jl")
 include("build_derivatives.jl")
-
-include("RBFModel.jl")
-
-include("TaylorModel.jl")
-include("ExactModel.jl")
-include("LagrangeModel.jl") # TODO
-
-prepare!(::VectorObjectiveFunction, :: M where M<:ModelConfig , ::AlgoConfig) = nothing
 
 @doc """
 A container for all (possibly vector-valued) surrogate models used during
@@ -58,8 +50,6 @@ function init_surrogates( ac :: AlgoConfig )
     sc = SurrogateContainer(
         objf_list = mop.vector_of_objectives,
         n_objfs = mop.n_objfs,
-        #lb = mop.lb,
-        #width = mop.ub .- mop.lb,
     )
 
     set_output_objf_list!(sc)

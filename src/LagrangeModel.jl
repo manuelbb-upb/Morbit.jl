@@ -3,6 +3,41 @@
 # It is included from within "Surrogates.jl".
 # We therefore can refer to other data structures used there.
 using DynamicPolynomials
+using FileIO, JLD2;
+
+@with_kw mutable struct LagrangeModel <: SurrogateModel
+    n_out :: Int64 = -1;
+    degree :: Int64 = 1;
+
+    lagrange_models :: Vector{Any} = [];
+    fully_linear :: Bool = false;
+end
+Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
+
+@with_kw mutable struct LagrangeConfig <: ModelConfig
+    degree :: Int64 = 1;
+    θ_enlarge :: Float64 = 2;
+
+    ε_accept :: Float64 = 1e-6;
+    Λ :: Float64 = 1.5;
+
+    allow_not_linear :: Bool = false;
+
+    optimized_sampling :: Bool = true;
+
+    # the basis is set by `prepare!`
+    canonical_basis :: Union{ Nothing, Vector{Any} } = nothing
+    # fields to enable unoptimized (stencil) sampling
+    stencil_sites :: Vector{Vector{Float64}} = [];
+    use_saved_sites :: Bool = true;
+
+    max_evals :: Int64 = typemax(Int64);
+end
+
+@with_kw mutable struct LagrangeMeta <: SurrogateMeta
+    interpolation_indices :: Vector{Int64} = [];
+    lagrange_basis :: Vector{Any} = [];
+end
 
 # helper function to easily evaluate polynomial
 function eval_poly(p ::T where T<:Union{Monomial, Polynomial, Term, PolyVar},
@@ -105,7 +140,8 @@ function find_poised_set(ε_accept :: R where R<:Real, start_basis :: Vector{Any
             opt = Opt(:LN_BOBYQA, n_vars)
             opt.lower_bounds = box_lb
             opt.upper_bounds = box_ub
-            opt.maxeval = 300;
+            opt.maxeval = max( 300, 250*(n_vars + 1) );
+            opt.xtol_rel = 1e-3;
             opt.max_objective = (x,g) -> abs( eval_poly( lagrange_basis[i], x ) )
             y₀ = rand_box_point()
             (_, yᵢ, ret) = optimize(opt, y₀)
@@ -163,7 +199,8 @@ function improve_poised_set!( lagrange_basis :: Vector{Any},
             opt = Opt(:LN_BOBYQA, n_vars)
             opt.lower_bounds = box_lb;
             opt.upper_bounds = box_ub;
-            opt.maxeval = 300;
+            opt.maxeval = max( 300, 250*(n_vars + 1) );
+            opt.xtol_rel = 1e-3;
             opt.max_objective = (x,g) -> abs( eval_poly( lagrange_basis[i], x ) )
             y₀ = rand_box_point()
             (abs_lᵢ, yᵢ, _) = optimize(opt, y₀)
@@ -230,18 +267,32 @@ function build_model_stencil(ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     @unpack Δ, x, x_index, f_x, sites_db, values_db = iter_data;
 
     # Find a nice point set in the unit hypercube
+    stencil_sites = [];
     if isempty(cfg.stencil_sites)
-        X = .5 .* ones(n_vars); # center point
-        # find poiset set in hypercube
-        new_sites, recycled_indices, lagrange_basis = find_poised_set( ε_accept, 
-            cfg.canonical_basis, [X,], X, Δ, 1, zeros(n_vars), ones(n_vars) );
-        # make Λ poised
-        improve_poised_set!(lagrange_basis, new_sites, recycled_indices, Λ, 
-            [X,], zeros(n_vars), ones(n_vars) );
+        # maybe there is a precalculated set in data folder?
+        if cfg.use_saved_sites
+            fn = joinpath(@__DIR__, "data", "lagrange_basis_$(n_vars)_vars.jld2" );
+            precalculated_data = load(fn);
+            if precalculated_data["Λ"] <= Λ
+                lagrange_basis = precalculated_data["lagrange_basis"];
+                stencil_sites = precalculated_data["stencil_sites"];
+            end
+        end
+    
+        if isempty(stencil_sites)
+            X = .5 .* ones(n_vars); # center point
+            # find poiset set in hypercube
+            new_sites, recycled_indices, lagrange_basis = find_poised_set( ε_accept, 
+                cfg.canonical_basis, [X,], X, 0.5, 1, zeros(n_vars), ones(n_vars) );
+            # make Λ poised
+            improve_poised_set!(lagrange_basis, new_sites, recycled_indices, Λ, 
+                [X,], zeros(n_vars), ones(n_vars) );
+            stencil_sites = [ [X,][recycled_indices]; new_sites ];
+        end
 
         # save pre-calculated Lagrange basis in config
         cfg.canonical_basis = lagrange_basis;
-        cfg.stencil_sites = [ [X,][recycled_indices]; new_sites ];
+        cfg.stencil_sites = stencil_sites;
     end
 
     # scale sites to current trust region

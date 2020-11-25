@@ -1,11 +1,4 @@
 import Base: broadcasted
-using Parameters: @with_kw
-
-import FiniteDiff#erences
-const FD = FiniteDiff#erences
-
-import ForwardDiff
-const AD = ForwardDiff
 
 # HELPER FUNCTIONS TO STAY IN FEASIBLE SET
 const ε_bounds = 1e-17; # tolerancy for projection into feasible set
