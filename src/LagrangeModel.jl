@@ -272,10 +272,13 @@ function build_model_stencil(ac :: AlgoConfig, objf :: VectorObjectiveFunction,
         # maybe there is a precalculated set in data folder?
         if cfg.use_saved_sites
             fn = joinpath(@__DIR__, "data", "lagrange_basis_$(n_vars)_vars.jld2" );
-            precalculated_data = load(fn);
-            if precalculated_data["Λ"] <= Λ
-                lagrange_basis = precalculated_data["lagrange_basis"];
-                stencil_sites = precalculated_data["stencil_sites"];
+            if isfile(fn)
+                precalculated_data = load(fn);
+                if precalculated_data["Λ"] <= Λ
+                    @info "\tUsing saved sites and Lagrange Basis."
+                    lagrange_basis = precalculated_data["lagrange_basis"];
+                    stencil_sites = precalculated_data["sites"];
+                end
             end
         end
     

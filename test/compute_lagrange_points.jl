@@ -2,6 +2,10 @@ using Morbit
 using DynamicPolynomials
 using FileIO,JLD2
 
+using Logging
+logger = ConsoleLogger(stdout, Logging.Warn)
+global_logger(logger);
+
 # This is not really a Test script but rather a utility...
 # Pre-generate beautiful interpolation sets for Lagrange DynamicPolynomial
 # Save a dictionary mapping the number of variables to the corresponding 
@@ -10,13 +14,14 @@ using FileIO,JLD2
 # SETTINGS
 SAVE_PATH = joinpath( @__DIR__, "..", "src", "data");
 
-N = 2;  # max number of variables
+NVARS = collect(6:40);
 D = 2;  # Lagrange polynomial degree
 Λ = 1.2;
 
 ε_accept = 1e-6; 
 
-for n = 2 : N
+Threads.@threads for n ∈ NVARS
+    println("NUM VAR $n")
 
     p = binomial( n + D, n)
     # Generate the canonical basis for space of polynomial of degree at most D
@@ -28,7 +33,6 @@ for n = 2 : N
             push!(canonical_basis, poly)
         end
     end
-
 
     # Find a nice point set in the unit hypercube
     X = .5 .* ones(n); # center point
@@ -43,7 +47,7 @@ for n = 2 : N
         # save pre-calculated Lagrange basis in config
 
     stencil_sites = [ [X,][recycled_indices]; new_sites ];
-
+    println( joinpath( SAVE_PATH, "lagrange_basis_$(n)_vars.jld2" ) );
     save( joinpath( SAVE_PATH, "lagrange_basis_$(n)_vars.jld2" ), Dict( 
         "Λ" => Λ,
         "lagrange_basis" => lagrange_basis, 
