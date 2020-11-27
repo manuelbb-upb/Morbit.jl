@@ -30,7 +30,7 @@ function intersect_bounds(x :: T, d :: T, lb :: T, ub :: T ) where{T<:Vector{Flo
     if !any(non_zero)
         return Inf, -Inf
     else
-        ε = 1e-15;
+        ε = 1e-18;
         σ_lb = (lb[non_zero] .+ ε .- x[non_zero]) ./ d[non_zero];
         σ_ub = (ub[non_zero] .- ε .- x[non_zero]) ./ d[non_zero];
 

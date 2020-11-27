@@ -1,5 +1,7 @@
 import Base: broadcasted
 
+numevals( objf :: VectorObjectiveFunction ) = objf.n_evals;
+
 # HELPER FUNCTIONS TO STAY IN FEASIBLE SET
 const ε_bounds = 1e-17; # tolerancy for projection into feasible set
 

@@ -48,7 +48,7 @@ function RBFModel( cfg :: RbfConfig, objf :: VectorObjectiveFunction, meta :: RB
        shape_parameter = shape_param,
        polynomial_degree = polynomial_degree,
        fully_linear = meta.fully_linear
-   )
+   );
    return model
 end
 
@@ -172,16 +172,6 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction, meta_data 
        chosen_indices = candidate_indices
    else
        chosen_indices = reverse(candidate_indices)[1:max_model_points]
-       #=
-       chosen_indices = Int64[];
-       while length(chosen_indices) < max_model_points
-           ci = ceil(Int64, randquart() * (num_candidates-1));
-           ind = candidate_indices[ ci ]
-           if ind ∉ chosen_indices
-               push!(chosen_indices, ind)
-           end
-       end
-       =#
    end
 
    @info("\t\tFound $(length(chosen_indices)) additional training sites")
@@ -519,7 +509,7 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
             @info "\tThere are still $n_missing sites missing. Sampling..."
         end
 
-        n_evals_left = min( max_evals, cfg.max_evals ) - length(sites_db) - 1;
+        n_evals_left = min( max_evals, cfg.max_evals ) - numevals(objf) - 1;
         n_missing = Int64(min( n_missing , n_evals_left ));
 
         additional_sites, Y, Z = get_new_sites(Val(sampling_algorithm),
@@ -561,7 +551,7 @@ function rebuild_rbf_model( config_struct :: AlgoConfig,
     # sample along carthesian coordinates
     ## collect sites in an array (new_sites) to profit from batch evaluation afterwards
     Y = Matrix{Float64}(undef, n_vars, 0);
-    n_evals_left = min(max_evals, cfg.max_evals) - length(sites_db) - 1;
+    n_evals_left = min(max_evals, cfg.max_evals) - numevals(objf) - 1;
     n_steps = Int64( min( n_vars, n_evals_left ) );
     new_sites = Vector{Vector{Float64}}();
     for i = 1 : n_steps
@@ -606,7 +596,7 @@ function make_linear!(m :: RBFModel, meta_data :: RBFMeta, config_struct :: Algo
     @unpack max_evals = config_struct;
     @unpack sites_db = config_struct.iter_data;
 
-    evals_left = min(max_evals, cfg.max_evals) - length(sites_db) - 1;
+    evals_left = min(max_evals, cfg.max_evals) - numevals(objf) - 1;
     n_improvement_steps = Int64(min(size(meta_data.Z,2), evals_left));
 
     # number of columns of Z is the number of missing sites for full linearity
@@ -668,7 +658,7 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
 
         # update Y and Z matrices
         meta_data.Y = hcat( Y, new_site .- x );    # add new column to matrix Y
-        meta_data.Z = Z_from_Y(meta_data.Y);
+        meta_data.Z = Z[:,2:end]; #Z_from_Y(meta_data.Y);
 
         # evaluate at new site and store in database
         new_val = eval_all_objectives(problem, new_site );  # unscaling is taken care of
@@ -676,7 +666,7 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
         push!(values_db, new_val);
 
         # update RBFMeta data and model
-        push!(meta_data.round3_indices, length(sites_db));
+        push!(meta_data.round3_indices, numevals(objf));
         push!(m.training_sites, new_site);
         push!(m.training_values, new_val[objf.internal_indices] )
 

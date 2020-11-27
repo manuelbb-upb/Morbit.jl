@@ -2,11 +2,11 @@
 
 # Continue Backtracking if true, suppose all_objectives_descent = true (= Val)
 function continue_while( :: Val{true}, m_x₊, f_x, step_size, ω )
-    any( f_x .- m_x₊ .< step_size * 1e-7 * ω )
+    any( f_x .- m_x₊ .< step_size * 1e-6 * ω )
 end
 # Continue Backtracking if true, suppose all_objectives_descent = false (= Val)
 function continue_while( :: Val{false}, m_x₊, f_x, step_size, ω )
-    maximum(f_x) - maximum(m_x₊) <  step_size * 1e-7 * ω
+    maximum(f_x) - maximum(m_x₊) <  step_size * 1e-6 * ω
 end
 
 # TODO make these available from AlgoConfig
@@ -221,8 +221,6 @@ function compute_descent_direction( type::Val{:direct_search},
     @unpack x, f_x, Δ = iter_data;
 
     ∇m = get_jacobian( sc, x )
-
-    ε_pinv = 1e-3;  # distance from bounds up to which pseudo-inverse is used
 
     ideal_point, image_direction = compute_ideal_point( config_struct, sc :: SurrogateContainer )
 

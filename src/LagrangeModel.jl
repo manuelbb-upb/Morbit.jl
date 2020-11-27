@@ -107,12 +107,13 @@ end
 function find_poised_set(ε_accept :: R where R<:Real, start_basis :: Vector{Any}, 
         point_database :: Vector{Vector{R}} where R<:Real,
         x :: Vector{R} where R<:Real, Δ :: Float64, x_index :: Int, box_lb :: Vector{R} where R<:Real,
-        box_ub :: Vector{R} where R<:Real )
+        box_ub :: Vector{R} where R<:Real; max_solver_evals = nothing :: Union{Nothing, Int})
     # Algorithm 6.2 (p. 95, Conn)
     # # select or generate a poised set suited for interpolation
     # # also computes the lagrange basis functions
 
     n_vars = length(x);
+    if isnothing( max_solver_evals ) max_solver_evals = 300*(n_vars + 1); end
     rand_box_point() = box_lb .+ (box_ub .- box_lb) .* rand(n_vars);
     
     # find currently valid points
@@ -140,7 +141,7 @@ function find_poised_set(ε_accept :: R where R<:Real, start_basis :: Vector{Any
             opt = Opt(:LN_BOBYQA, n_vars)
             opt.lower_bounds = box_lb
             opt.upper_bounds = box_ub
-            opt.maxeval = max( 300, 250*(n_vars + 1) );
+            opt.maxeval = max_solver_evals; 
             opt.xtol_rel = 1e-3;
             opt.max_objective = (x,g) -> abs( eval_poly( lagrange_basis[i], x ) )
             y₀ = rand_box_point()
@@ -175,10 +176,12 @@ function improve_poised_set!( lagrange_basis :: Vector{Any},
         new_sites :: Vector{Vector{R}} where R<:Real, recycled_indices :: Vector{Int},
         Λ :: Float64,
         point_database :: Vector{Vector{R}} where R<:Real, box_lb :: Vector{R} where R<:Real,
-        box_ub :: Vector{R} where R<:Real )
+        box_ub :: Vector{R} where R<:Real; max_solver_evals = nothing :: Union{Nothing, Int})
+       
     
     n_vars = isempty(point_database) ? length(new_sites[1]) : length( point_database[1] );
     p = length(lagrange_basis);
+    if isnothing( max_solver_evals ) max_solver_evals = 300*(n_vars + 1); end
     rand_box_point() = box_lb .+ (box_ub .- box_lb) .* rand(n_vars);
 
     print_counter = 0;
@@ -199,7 +202,7 @@ function improve_poised_set!( lagrange_basis :: Vector{Any},
             opt = Opt(:LN_BOBYQA, n_vars)
             opt.lower_bounds = box_lb;
             opt.upper_bounds = box_ub;
-            opt.maxeval = max( 300, 250*(n_vars + 1) );
+            opt.maxeval = max_solver_evals; 
             opt.xtol_rel = 1e-3;
             opt.max_objective = (x,g) -> abs( eval_poly( lagrange_basis[i], x ) )
             y₀ = rand_box_point()
@@ -265,60 +268,64 @@ function build_model_stencil(ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     @unpack ε_accept, θ_enlarge, Λ, allow_not_linear = cfg;
     @unpack n_vars, iter_data, problem = ac;
     @unpack Δ, x, x_index, f_x, sites_db, values_db = iter_data;
-
-    # Find a nice point set in the unit hypercube
-    stencil_sites = [];
-    if isempty(cfg.stencil_sites)
-        # maybe there is a precalculated set in data folder?
-        if cfg.use_saved_sites
-            fn = joinpath(@__DIR__, "data", "lagrange_basis_$(n_vars)_vars.jld2" );
-            if isfile(fn)
-                precalculated_data = load(fn);
-                if precalculated_data["Λ"] <= Λ
-                    @info "\tUsing saved sites and Lagrange Basis."
-                    lagrange_basis = precalculated_data["lagrange_basis"];
-                    stencil_sites = precalculated_data["sites"];
+    
+    if numevals(objf) < max_evals(cfg)
+        # Find a nice point set in the unit hypercube
+        stencil_sites = [];
+        if isempty(cfg.stencil_sites)
+            # maybe there is a precalculated set in data folder?
+            if cfg.degree >= 2 && cfg.use_saved_sites
+                fn = joinpath(@__DIR__, "data", "lagrange_basis_$(n_vars)_vars.jld2" );
+                if isfile(fn)
+                    precalculated_data = load(fn);
+                    if precalculated_data["Λ"] <= Λ
+                        @info "\tUsing saved sites and Lagrange Basis."
+                        lagrange_basis = precalculated_data["lagrange_basis"];
+                        stencil_sites = precalculated_data["sites"];
+                    end
                 end
             end
-        end
-    
-        if isempty(stencil_sites)
-            X = .5 .* ones(n_vars); # center point
-            # find poiset set in hypercube
-            new_sites, recycled_indices, lagrange_basis = find_poised_set( ε_accept, 
-                cfg.canonical_basis, [X,], X, 0.5, 1, zeros(n_vars), ones(n_vars) );
-            # make Λ poised
-            improve_poised_set!(lagrange_basis, new_sites, recycled_indices, Λ, 
-                [X,], zeros(n_vars), ones(n_vars) );
-            stencil_sites = [ [X,][recycled_indices]; new_sites ];
+        
+            if isempty(stencil_sites)
+                X = .5 .* ones(n_vars); # center point
+                # find poiset set in hypercube
+                new_sites, recycled_indices, lagrange_basis = find_poised_set( ε_accept, 
+                    cfg.canonical_basis, [X,], X, 0.5, 1, zeros(n_vars), ones(n_vars);
+                    max_solver_evals = 200*(n_vars+1)^cfg.degree );
+                # make Λ poised
+                improve_poised_set!(lagrange_basis, new_sites, recycled_indices, Λ, 
+                    [X,], zeros(n_vars), ones(n_vars);
+                    max_solver_evals = 200*(n_vars+1)^cfg.degree );
+                stencil_sites = [ [X,][recycled_indices]; new_sites ];
+            end
+
+            # save pre-calculated Lagrange basis in config
+            cfg.canonical_basis = lagrange_basis;
+            cfg.stencil_sites = stencil_sites;
         end
 
-        # save pre-calculated Lagrange basis in config
-        cfg.canonical_basis = lagrange_basis;
-        cfg.stencil_sites = stencil_sites;
+        # scale sites to current trust region
+        θ = sensible_θ(Val(problem.is_constrained), θ_enlarge, x, Δ )
+        Δ_1 = θ * Δ;
+        lb_eff, ub_eff = effective_bounds_vectors( x, Δ_1, Val(problem.is_constrained) )   
+        
+        # scale stencil sites to current trust region box
+        new_sites = ( ξ -> lb_eff .+ (ub_eff .- lb_eff) .* ξ ).( cfg.stencil_sites )
+
+        # modify lagrange basis such that sites are unscaled to unit hypercube
+        χ = variables( cfg.canonical_basis[1] );
+        scaling_poly = (χ .- lb_eff) ./ (ub_eff .- lb_eff)
+        lagrange_basis = [ subs(lp, χ => scaling_poly) for lp in cfg.canonical_basis  ]
+        
+        # evaluate and build model
+        @info("\tNeed to evaluate at $(length(new_sites)) additional sites.")
+
+        new_indices = eval_new_sites( ac, new_sites );
+
+        lmodel, lmeta = get_final_model( lagrange_basis, new_indices, 
+            objf, iter_data, cfg.degree, true );
+        return lmodel, lmeta
     end
-
-    # scale sites to current trust region
-    θ = sensible_θ(Val(problem.is_constrained), θ_enlarge, x, Δ )
-    Δ_1 = θ * Δ;
-    lb_eff, ub_eff = effective_bounds_vectors( x, Δ_1, Val(problem.is_constrained) )   
-    
-    # scale stencil sites to current trust region box
-    new_sites = ( ξ -> lb_eff .+ (ub_eff .- lb_eff) .* ξ ).( cfg.stencil_sites )
-
-    # modfy lagrange basis such that sites are unscaled to unit hypercube
-    χ = variables( cfg.canonical_basis[1] );
-    scaling_poly = (χ .- lb_eff) ./ (ub_eff .- lb_eff)
-    lagrange_basis = [ subs(lp, χ => scaling_poly) for lp in cfg.canonical_basis  ]
-    
-    # evaluate and build model
-    @info("\tNeed to evaluate at $(length(new_sites)) additional sites.")
-
-    new_indices = eval_new_sites( ac, new_sites );
-
-    lmodel, lmeta = get_final_model( lagrange_basis, new_indices, 
-        objf, iter_data, cfg.degree, true );
-    return lmodel, lmeta
 end
 
 function build_model_optimized( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
@@ -333,13 +340,17 @@ function build_model_optimized( ac :: AlgoConfig, objf :: VectorObjectiveFunctio
     lb_eff, ub_eff = effective_bounds_vectors( x, Δ_1, Val(problem.is_constrained) )   
 
     # find a poised set
+    if numevals(objf) < max_evals(cfg) 
     new_sites, recycled_indices, lagrange_basis = find_poised_set( ε_accept, 
-        cfg.canonical_basis, sites_db, x, Δ, x_index, lb_eff, ub_eff );
+        cfg.canonical_basis, sites_db, x, Δ, x_index, lb_eff, ub_eff;
+        max_solver_evals = 200*(n_vars+1)^cfg.degree );
+    end
 
     fully_linear = false;
     # make the set Λ poised for full linearity
-    if !allow_not_linear || crit_flag
-        improve_poised_set!(lagrange_basis,new_sites, recycled_indices, Λ, sites_db, lb_eff, ub_eff)
+    if !allow_not_linear || crit_flag && numevals(objf) < max_evals(cfg)
+        improve_poised_set!(lagrange_basis,new_sites, recycled_indices, Λ, sites_db, lb_eff, ub_eff;
+            max_solver_evals = 200*(n_vars+1)^cfg.degree );
         fully_linear = true
     end
     
