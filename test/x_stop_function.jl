@@ -64,4 +64,4 @@ opt = AlgoConfig(
 
 X, FX = Morbit.optimize!(opt, mop, x_0);
 
-@test x_stop_function( X )
+@test x_stop_function( X ) < 5e-2
