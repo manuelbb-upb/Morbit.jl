@@ -11,10 +11,10 @@ mop = MixedMOP(lb = LB, ub = UB);
 # test optimized sampling
 mop1 = deepcopy(mop);
 add_objective!(mop1, g1, :cheap);
-add_objective!(mop1, g2, LagrangeConfig(Λ=10, optimized_sampling = true, degree=2));
+add_objective!(mop1, g2, LagrangeConfig(Λ=1.5, optimized_sampling = true, degree=2));
 opt_settings = AlgoConfig(
     Δ₀ = 0.2,
-    max_iter = 10,
+    max_iter = 20,
 );
    
 x,fx = optimize!( opt_settings, mop1, x0 );
@@ -23,10 +23,10 @@ x,fx = optimize!( opt_settings, mop1, x0 );
 # test unoptimized samling
 mop1 = deepcopy(mop);
 add_objective!(mop1, g1, :cheap);
-add_objective!(mop1, g2, LagrangeConfig(Λ=10, optimized_sampling = false, degree=2));
+add_objective!(mop1, g2, LagrangeConfig(Λ=1.5, optimized_sampling = false, degree=2));
 opt_settings = AlgoConfig(
     Δ₀ = 0.2,
-    max_iter = 10,
+    max_iter = 20,
 );
    
 x,fx = optimize!( opt_settings, mop1, x0 );
@@ -36,11 +36,11 @@ x,fx = optimize!( opt_settings, mop1, x0 );
 # test optimized samling with possibly non fully linear models
 mop1 = deepcopy(mop);
 add_objective!(mop1, g1, :cheap);
-add_objective!(mop1, g2, LagrangeConfig(Λ=10, optimized_sampling = true, allow_not_linear = true, degree=2));
+add_objective!(mop1, g2, LagrangeConfig(Λ=1.5, optimized_sampling = true, allow_not_linear = true, degree=2));
 opt_settings = AlgoConfig(
     Δ₀ = 0.1,
     Δ_max = .3,
-    max_iter = 15,
+    max_iter = 25,
 );
    
 x,fx = optimize!( opt_settings, mop1, x0 );
