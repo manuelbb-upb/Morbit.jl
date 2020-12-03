@@ -316,7 +316,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
             accept_x₊ = true
         else
             if linear_flag
-                if isnan(ρ) || ρ < ν_accept
+                if isnan(ρ) || ρ <= ν_accept
                     if radius_update == :standard
                         Δ *= γ_shrink_much;
                     elseif radius_update == :steplength
@@ -378,7 +378,6 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     |  Final values are $(f_x[1:min(5,end)])...
     |--------------------------------------------
     """
-    @show unscale(problem,x);
     # Reverse scaling on all decision vectors
     unscale!.(problem, sites_db )
     # Reverse sorting on all value vectors

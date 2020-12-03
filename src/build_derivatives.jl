@@ -62,7 +62,7 @@ function set_gradients!(
             @goto build_grads
         else
             grad_fun = function (x :: Vector{R} where{R<:Real})
-                AD.gradient( objf.function_handle , x )
+                return AD.gradient( objf.function_handle , x )
             end
             model_config.gradients = [ grad_fun, ];
         end
