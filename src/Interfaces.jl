@@ -20,7 +20,7 @@ end
 
     model_config :: Union{ Nothing, C } where {C <: ModelConfig } = nothing;
 
-    function_handle :: Union{T, Nothing} where{T <: Function, F <: Function} = nothing
+    function_handle :: Union{T, Nothing} where{T <: Function}  = nothing
 
     internal_indices :: Vector{Int64} = [];
     problem_position :: Int64 = 0;
@@ -81,6 +81,7 @@ Broadcast.broadcastable(id :: IterData) = Ref(id);
     problem :: Union{MixedMOP,Nothing} = nothing;
 
     max_iter :: Int64 = 500;
+    count_nonlinear_iterations :: Bool = false; # include nonlinear iterations in 'max_iter'?
     max_evals :: Int64 = typemax(Int64);    # maxiumm number of expensive function evaluations
 
     descent_method :: Symbol = :steepest # :steepest, :cg, :ps (Pascoletti-Serafini) or :direct_search 

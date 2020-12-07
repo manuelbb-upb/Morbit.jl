@@ -29,10 +29,30 @@ Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
     canonical_basis :: Union{ Nothing, Vector{Any} } = nothing
     # fields to enable unoptimized (stencil) sampling
     stencil_sites :: Vector{Vector{Float64}} = [];
+
+    # if optimized_sampling = false, shall we use saved sites?
     use_saved_sites :: Bool = true;
+    io_lock :: Union{Nothing, ReentrantLock, Threads.SpinLock} = nothing;
 
     max_evals :: Int64 = typemax(Int64);
 end
+
+function Base.deepcopy( cfg :: LagrangeConfig)
+    new_cfg = LagrangeConfig();
+    for fname in fieldnames(LagrangeConfig)
+        if fname != :io_lock
+            setfield!(new_cfg, fname, deepcopy(getfield(cfg, fname)) );
+        else
+            setfield!(new_cfg, fname, getfield(cfg, fname) );
+        end
+    end
+    return new_cfg
+end
+
+#Base.lock( f, ::Nothing ) = try f() catch end;
+function Base.lock(::Nothing) end
+function Base.unlock(::Nothing) end
+
 
 @with_kw mutable struct LagrangeMeta <: SurrogateMeta
     interpolation_indices :: Vector{Int64} = [];
@@ -275,16 +295,22 @@ function build_model_stencil(ac :: AlgoConfig, objf :: VectorObjectiveFunction,
         if isempty(cfg.stencil_sites)
             # maybe there is a precalculated set in data folder?
             if cfg.degree >= 2 && cfg.use_saved_sites
-                fn = joinpath(@__DIR__, "data", "lagrange_basis_$(n_vars)_vars.jld2" );
-                if isfile(fn)
-                    precalculated_data = load(fn);
-                    if precalculated_data["Λ"] <= Λ
-                        @info "\tUsing saved sites and Lagrange Basis."
-                        lagrange_basis = precalculated_data["lagrange_basis"];
-                        stencil_sites = precalculated_data["sites"];
-                    end
-                end
-            end
+                lock( cfg.io_lock )
+                try 
+                    fn = joinpath(@__DIR__, "data", "lagrange_basis_$(n_vars)_vars.jld2" );
+                    if isfile(fn)                    
+                        precalculated_data = load(fn);
+                        if precalculated_data["Λ"] <= Λ
+                            @info "\tUsing saved sites and Lagrange Basis."
+                            lagrange_basis = precalculated_data["lagrange_basis"];
+                            stencil_sites = precalculated_data["sites"];
+                        end
+                    end# isfile
+                catch
+                finally
+                    unlock( cfg.io_lock )
+                end#try                     
+            end#deg
         
             if isempty(stencil_sites)
                 X = .5 .* ones(n_vars); # center point

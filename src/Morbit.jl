@@ -28,62 +28,123 @@ include("saving.jl")
 
 #include("true_omega_calc.jl")
 
+function prepare_mop!( problem :: MixedMOP, cfg :: AlgoConfig )
+     # make sure that the constraint flag is set correctly
+     isbadbound( :: Nothing ) = true;
+     isbadbound( arr :: Vector{R} where R<:Real ) = isempty(arr);
+     if (isbadbound(problem.lb) && !isbadbound(problem.ub)) ||
+         (!isbadbound(problem.lb) && isbadbound(problem.ub))
+         @error("Problem must be fully box constrained or unconstrained.")
+     elseif isbadbound(problem.lb) && isbadbound(problem.ub)
+             problem.is_constrained = false
+     else
+         if all(isfinite.(problem.lb)) && all(isfinite.(problem.ub))
+             problem.is_constrained = true
+         else
+             @error("Boundaries must be finite.")
+         end
+     end
+ 
+     reset_evals!(problem)   # if warm start: reset evals to zero
+     max_evals!(problem, cfg.max_evals)  # cap the maximum evaluation number
+     set_non_exact_indices!(problem) # for decrease ratio calculation
+     check_sorting!(problem) # to make availabe sorting via `apply_internal_sorting`
+   
+     return nothing
+end
+
+function prepare_utopia!( config_struct :: AlgoConfig)
+      
+    # reorder `ideal_point` and `image_direction` because the objective functions
+    # could have different interal indices
+    if !isempty(config_struct.ideal_point)
+        # Val(false) ⇒ Don't check if sorting index has been generated
+        apply_internal_sorting!( config_struct.problem, config_struct.ideal_point, Val(false) )
+    end
+    if !isempty(config_struct.image_direction)
+        apply_internal_sorting!( config_struct.problem, config_struct.image_direction, Val(false) )
+    end
+    
+    return nothing
+end
+
+function unprepare_utopia!( config_struct :: AlgoConfig )
+    if !isempty( config_struct.ideal_point) 
+        reverse_internal_sorting!( config_struct.problem, config_struct.ideal_point) 
+    end
+    if !isempty(config_struct.image_direction) 
+        reverse_internal_sorting!( config_struct.problem, config_struct.image_direction ) 
+    end
+    return nothing
+end
+
+function prepare_iter_data!( config_struct :: AlgoConfig, 
+    x :: Vector{R} where R<:Real, f_x :: Vector{R} where R<:Real, Δ :: Float64)
+    # Initialize `IterData` object to store iteration dependent data and
+    # provide `sites_db` and `values_db` as databases for evaluations
+    if isnothing( config_struct.iter_data )
+        iter_data = IterData(
+            x = x,
+            f_x = f_x,
+            x_index = 1,
+            Δ = Δ,
+            sites_db = [copy(x),],
+            values_db = [copy(f_x),],
+        );
+    else
+        # re-use old database entries to warm-start the optimization
+        iter_data = IterData(
+            x = x,
+            f_x = f_x,
+            Δ = Δ,
+            sites_db = scale.(config_struct.problem, config_struct.iter_data.sites_db),
+            values_db = apply_internal_sorting.( config_struct. problem,
+                config_struct.iter_data.values_db, Val(false) ),
+        );
+        # look for x in old data
+        let x_index = findfirst( [ X ≈ x for X in iter_data.sites_db ]  );   # TODO check atol
+            if isnothing(x_index)
+                push!(iter_data.sites_db , x )
+                push!(iter_data.values_db, f_x)
+                x_index = length(sites_db)
+            end
+            if !( iter_data.values_db[x_index] ≈ f_x )
+                @error "f_x at starting point does not equal provided database value (at index $x_index)!"
+            end
+            iter_data.x_index = x_index
+        end
+    end
+    @pack! config_struct = iter_data;
+end
+
 function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector{ R } where{R<:Real }, f_x₀ :: Vector{ R } where{R<:Real } = Float64[])
 
     # unpack parameters from settings object `config_struct`
     ## internal algorithm parameters:
     @unpack  n_vars, Δ₀, Δ_max, μ, β, ε_crit, ν_success, ν_accept, γ_crit,
-        γ_grow, γ_shrink, γ_shrink_much = config_struct;
+        γ_grow, γ_shrink, γ_shrink_much, count_nonlinear_iterations = config_struct;
     ## stopping criteria:
     @unpack max_iter, max_evals, max_critical_loops, Δ_critical, Δ_min,
         stepsize_min, x_stop_function = config_struct;
     ## descent related settings:
-    @unpack radius_update, all_objectives_descent, descent_method, ideal_point,
-        image_direction = config_struct;
-
+    @unpack radius_update, all_objectives_descent, descent_method = config_struct;
     X_STOP_FUNCTION = !isnothing(x_stop_function);
 
     # SANITY CHECKS
     # set variables that depend on the length of input
-    if n_vars == 0
+    if n_vars <= 0
         n_vars = length( x₀ );
         @pack! config_struct = n_vars;
     end
 
-    # make sure that the constraint flag is set correctly
-    isbadbound( :: Nothing ) = true;
-    isbadbound( arr :: Vector{R} where R<:Real ) = isempty(arr);
-    if (isbadbound(problem.lb) && !isbadbound(problem.ub)) ||
-        (!isbadbound(problem.lb) && isbadbound(problem.ub))
-        @error("Problem must be fully box constrained or unconstrained.")
-    elseif isbadbound(problem.lb) && isbadbound(problem.ub)
-            problem.is_constrained = false
-    else
-        if all(isfinite.(problem.lb)) && all(isfinite.(problem.ub))
-            problem.is_constrained = true
-        else
-            @error("Boundaries must be finite.")
-        end
-    end
-
-    reset_evals!(problem)   # if warm start: reset evals to zero
-    max_evals!(problem, max_evals)  # cap the maximum evaluation number
-    set_non_exact_indices!(problem) # for decrease ratio calculation
-    check_sorting!(problem) # to make availabe sorting via `apply_internal_sorting`
-
     # reference `problem` in `config_struct` to make it accesible from subroutines
+    prepare_mop!(problem, config_struct);
     @pack! config_struct = problem;
 
-    # reorder `ideal_point` and `image_direction` because the objective functions
-    # could have different interal indices
-    if !isempty(ideal_point)
-        # Val(false) ⇒ Don't check if sorting index has been generated
-        apply_internal_sorting!( problem, ideal_point, Val(false) )
-    end
-    if !isempty(image_direction)
-        apply_internal_sorting!( problem, image_direction, Val(false) )
-    end
-
+    # prepare image direction/ utopia point; 
+    # must be done AFTER setting up problem
+    prepare_utopia!(config_struct);
+    
     # INITILIZATION OF OPTIMIZATION ROUTINE
     ## initialize iteration site and trust region radius
     Δ = Δ₀;
@@ -106,51 +167,18 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         end
     end
 
-    # Initialize `IterData` object to store iteration dependent data and
-    # provide `sites_db` and `values_db` as databases for evaluations
-    if isnothing( config_struct.iter_data )
-        iter_data = IterData(
-            x = x,
-            f_x = f_x,
-            x_index = 1,
-            Δ = Δ,
-            sites_db = [copy(x),],
-            values_db = [copy(f_x),],
-        );
-    else
-        # re-use old database entries to warm-start the optimization
-        iter_data = IterData(
-            x = x,
-            f_x = f_x,
-            Δ = Δ,
-            sites_db = scale.(problem, config_struct.iter_data.sites_db),
-            values_db = apply_internal_sorting.( problem,
-                config_struct.iter_data.values_db, Val(false) ),
-        );
-        # look for x in old data
-        let x_index = findfirst( [ X ≈ x for X in iter_data.sites_db ]  );   # TODO check atol
-            if isnothing(x_index)
-                push!(iter_data.sites_db , x )
-                push!(iter_data.values_db, f_x)
-                x_index = length(sites_db)
-            end
-            if !( iter_data.values_db[x_index] ≈ f_x )
-                @error "f_x at starting point does not equal provided database value (at index $x_index)!"
-            end
-            iter_data.x_index = x_index
-        end
-    end
-    @pack! config_struct = iter_data;
+    prepare_iter_data!( config_struct, x, f_x, Δ );
+    @unpack iter_data = config_struct;
+    
     @unpack sites_db, values_db = iter_data;
-
-    # initialize surrogate model container and build the surrogates at first `x`
-    @info("Initializing model container.")
-    surrogates = init_surrogates( config_struct );
-
     # make availabe information arrays for introspection and analysis
     @unpack iterate_indices, stepsize_array, Δ_array, ω_array, ρ_array,
         num_crit_loops_array, model_meta = iter_data;
     push!(iterate_indices, iter_data.x_index);
+
+    # initialize surrogate model container and build the surrogates at first `x`
+    @info("Initializing model container.")
+    surrogates = init_surrogates( config_struct );
 
     # enter optimization loop
     iter_index = 0.0;
@@ -163,7 +191,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     while budget_okay( problem, improvement_step ) && loop_check(Δ, steplength, iter_index;
             Δ_min, Δ_critical, stepsize_min, max_iter, improvement_step) && !DEBUG_EXIT
 
-        if improvement_step
+        if improvement_step && !count_nonlinear_iterations
             improvement_counter += 1
             iter_index = div(iter_index,1) + (1 - exp( -improvement_counter - 1) )
         else
@@ -201,7 +229,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
         # Criticallity Test
         num_critical_loops = 0;
-        if abs(ω) <= ε_crit      # analog to small gradient, abs as safeguard near 0
+        if ω <= ε_crit  && (!linear_flag || Δ > μ * ω )    # analog to small gradient, abs as safeguard near 0
             Δ_old, ω_old = Δ, ω;    # for printing only
             @info("Entered criticallity test!")
 
@@ -222,7 +250,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
                 linear_flag && budget_okay( problem, false ) &&
                 Δ_big_enough( Δ, steplength; Δ_min, Δ_critical, stepsize_min) );
 
-            while Δ > μ * abs(ω) && CONTINUE
+            while Δ > μ * ω && CONTINUE
 
                 # shrink trust region radius
                 Δ *= γ_crit
@@ -382,8 +410,8 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     unscale!.(problem, sites_db )
     # Reverse sorting on all value vectors
     reverse_internal_sorting!.( problem, values_db )
-    if !isempty(ideal_point) reverse_internal_sorting!( problem, ideal_point) end
-    if !isempty(image_direction) reverse_internal_sorting!( problem, image_direction ) end
+    
+    unprepare_utopia!(config_struct);
 
     return sites_db[x_index], values_db[x_index]
 end

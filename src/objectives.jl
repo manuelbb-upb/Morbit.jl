@@ -108,7 +108,7 @@ function init_objective( mop :: MixedMOP, func :: T where{T <: Function},
         function_handle = wrapped_func,
         model_config = deepcopy(model_config),
         internal_indices = collect( mop.n_objfs + 1 : mop.n_objfs + n_out ),
-    );
+    );         
 end
 
 import Base: ==

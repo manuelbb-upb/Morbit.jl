@@ -602,7 +602,7 @@ function make_linear!(m :: RBFModel, meta_data :: RBFMeta, config_struct :: Algo
     # number of columns of Z is the number of missing sites for full linearity
     # perform as many improvement steps and modify data in place
     for i = 1 : n_improvement_steps
-        improvement_flag = improve!(m, meta_data, config_struct, objf, cfg )
+        improvement_flag = improve!(m, meta_data, config_struct, objf, cfg; retrain = false )
         if !improvement_flag
             @info("Rebuilding close to boundary.")
             # build a new fully linear model for smaller trust region

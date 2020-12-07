@@ -73,10 +73,13 @@ function steepest_direction( x :: Vector{R} where R<:Real,
     if constrained
         @constraint(prob, box_constraints, 0.0 .<= x .+ d .<= 1.0 )
     end
-
-    JuMP.optimize!(prob)
-    #@show x .+ value.(d)
-    return value.(d), -value(α)
+    try
+        JuMP.optimize!(prob)
+        #@show x .+ value.(d)
+        return value.(d), -value(α)
+    catch e
+        return zeros( n_vars ), -Inf
+    end
 end
 
 @doc """
