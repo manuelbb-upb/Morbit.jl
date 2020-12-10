@@ -48,7 +48,7 @@ end
 function init_surrogates( ac :: AlgoConfig )
     mop = ac.problem;
     sc = SurrogateContainer(
-        objf_list = mop.vector_of_objectives,
+        objf_list = mop.vector_of_objectives, # NOTE deepcopy here?
         n_objfs = mop.n_objfs,
     )
 
@@ -70,8 +70,11 @@ end
 
 function build_models!(sc :: SurrogateContainer, ac :: AlgoConfig, crit_flag :: Bool = false )
     sc.model_list = Any[];
-    sc.model_meta = Any[]
+    sc.model_meta = Any[];
+    
     for (ℓ,objf) ∈ enumerate(sc.objf_list)
+        @show ℓ 
+        @show typeof(objf.model_config)
         new_model, new_meta = build_model( ac, objf, objf.model_config, crit_flag )
         push!(sc.model_list, new_model)
         push!(sc.model_meta, new_meta)
@@ -150,13 +153,8 @@ Index `ℓ` is assumed to be an internal index in the range of 1,…,n_objfs,
 where n_objfs is the total number of (scalarized) objectives stored in `sc`.
 """
 function get_optim_handle( sc :: SurrogateContainer, ℓ :: Int64 )
-    #for (objf_index, objf) ∈ enumerate(sc.objf_list)
-        #l = findfirst( objf.internal_indices == ℓ )
-        #if !isnothing(l)
-        i,l = sc.output_to_objf_index[ℓ]
-            return get_optim_handle( sc.model_list[i], l )
-        #end
-    #end
+    i,l = sc.output_to_objf_index[ℓ]
+    return get_optim_handle( sc.model_list[i], l )
 end
 
 @doc """

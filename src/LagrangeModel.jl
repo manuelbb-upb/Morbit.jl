@@ -56,7 +56,7 @@ function Base.unlock(::Nothing) end
 
 @with_kw mutable struct LagrangeMeta <: SurrogateMeta
     interpolation_indices :: Vector{Int64} = [];
-    lagrange_basis :: Vector{Any} = [];
+    #lagrange_basis :: Vector{Any} = [];
 end
 
 # helper function to easily evaluate polynomial
@@ -109,7 +109,7 @@ end
 
 @doc "Return list of training values for current Lagrange Model described by `cfg` and `meta`."
 function get_training_values( objf :: VectorObjectiveFunction, meta :: LagrangeMeta, id :: IterData )
-    [ val[objf.internal_indices] for val ∈ id.values_db[ meta.interpolation_indices ] ]
+    [ deepcopy(val[objf.internal_indices]) for val ∈ id.values_db[ meta.interpolation_indices ] ]
 end
 
 @doc """
@@ -233,19 +233,23 @@ function improve_poised_set!( lagrange_basis :: Vector{Any},
             if abs_lᵢ > Λ   
                 # the algo works with any point satisfying `abs_lᵢ > Λ`
                 # we increase `iₖ` if it was pointing to a recycled site 
-                # or to choose favor the argmax
+                # or to favor the argmax
                 if iₖ <= num_recycled || update_Λₖ₋₁
                     iₖ = i;
                     yₖ[:] = yᵢ[:];
                 end
-            end
-            if update_Λₖ₋₁
-                Λₖ₋₁ = abs_lᵢ
+                
+                # update the max
+                # note that it is ok to do so only if abs_lᵢ > Λ because we test Λₖ₋₁ > Λ and …
+                # … if no abs_li is bigger than Λ then the max cannot be bigger as well
+                if update_Λₖ₋₁
+                    Λₖ₋₁ = abs_lᵢ
+                end
             end
         end
 
         # 2) Point swap
-        if Λₖ₋₁ ≥ Λ
+        if Λₖ₋₁ > Λ
             @info("\t It. $print_counter: Λₖ₋₁ is $Λₖ₋₁. Performing a point swap for index $iₖ…")
             if iₖ > num_recycled
                 # delete the site referenced by iₖ from new_sites
@@ -286,7 +290,7 @@ end
 function build_model_stencil(ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     cfg :: LagrangeConfig, crit_flag :: Bool = true )
     @unpack ε_accept, θ_enlarge, Λ, allow_not_linear = cfg;
-    @unpack n_vars, iter_data, problem = ac;
+    @unpack n_vars, iter_data, problem, use_eval_database = ac;
     @unpack Δ, x, x_index, f_x, sites_db, values_db = iter_data;
     
     if numevals(objf) < max_evals(cfg)
@@ -350,6 +354,10 @@ function build_model_stencil(ac :: AlgoConfig, objf :: VectorObjectiveFunction,
 
         lmodel, lmeta = get_final_model( lagrange_basis, new_indices, 
             objf, iter_data, cfg.degree, true );
+
+        if !use_eval_database
+            reset_database!(iter_data);
+        end
         return lmodel, lmeta
     end
 end
@@ -357,7 +365,7 @@ end
 function build_model_optimized( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
         cfg :: LagrangeConfig, crit_flag :: Bool = true )
     @unpack ε_accept, θ_enlarge, Λ, allow_not_linear = cfg;
-    @unpack n_vars, iter_data, problem = ac;
+    @unpack n_vars, iter_data, problem, use_eval_database = ac;
     @unpack Δ, x, x_index, f_x, sites_db, values_db = iter_data;
 
     # use a slightly enlarged box …
@@ -367,9 +375,9 @@ function build_model_optimized( ac :: AlgoConfig, objf :: VectorObjectiveFunctio
 
     # find a poised set
     if numevals(objf) < max_evals(cfg) 
-    new_sites, recycled_indices, lagrange_basis = find_poised_set( ε_accept, 
-        cfg.canonical_basis, sites_db, x, Δ, x_index, lb_eff, ub_eff;
-        max_solver_evals = 200*(n_vars+1)^cfg.degree );
+        new_sites, recycled_indices, lagrange_basis = find_poised_set( ε_accept, 
+            cfg.canonical_basis, sites_db, x, Δ, x_index, lb_eff, ub_eff;
+            max_solver_evals = 200*(n_vars+1)^cfg.degree );
     end
 
     fully_linear = false;
@@ -386,6 +394,10 @@ function build_model_optimized( ac :: AlgoConfig, objf :: VectorObjectiveFunctio
 
     lmodel, lmeta = get_final_model( lagrange_basis, [recycled_indices; new_indices], 
         objf, iter_data, cfg.degree, fully_linear );
+
+    if !use_eval_database && fully_linear
+        reset_database!(iter_data);
+    end
 
     return lmodel, lmeta
 end
@@ -417,7 +429,7 @@ end
 function improve!( lm::LagrangeModel, lmeta::LagrangeMeta, ac::AlgoConfig, 
     objf::VectorObjectiveFunction, cfg::LagrangeConfig )
     @unpack θ_enlarge, Λ, allow_not_linear = cfg;
-    @unpack iter_data, problem = ac;
+    @unpack iter_data, problem, use_eval_database = ac;
     @unpack Δ, x, x_index, f_x, sites_db, values_db = iter_data;
 
     # use a slightly enlarged box …
@@ -442,6 +454,11 @@ function improve!( lm::LagrangeModel, lmeta::LagrangeMeta, ac::AlgoConfig,
    
     as_second!(lm, lmodel);
     as_second!(lmeta, lmeta2);
+
+    if !use_eval_database
+        reset_database!(iter_data);
+    end
+
     return isempty(new_sites);
 end
 
@@ -450,8 +467,9 @@ function get_final_model( lagrange_basis :: Vector{T} where T,
         interpolation_indices :: Union{Vector{Int}, AbstractRange}, 
         objf :: VectorObjectiveFunction, iter_data :: IterData, 
         degree :: Int, fully_linear :: Bool)
+    
     lmeta = LagrangeMeta( 
-        lagrange_basis = lagrange_basis,
+        #lagrange_basis = lagrange_basis,
         interpolation_indices = interpolation_indices 
     );
 

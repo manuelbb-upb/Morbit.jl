@@ -40,7 +40,8 @@ function n_in(m::RBFModel)
         if length(m.training_sites) > 0
             m.n_in = length(m.training_sites[0])
         else
-            @error "Could not determine number of input variables for RBFModel and infer minimum number of interpolation sites."
+            error( "Could not determine number of input variables for RBFModel and 
+            infer minimum number of interpolation sites.")
         end
     end
     return m.n_in

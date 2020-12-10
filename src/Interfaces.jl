@@ -121,6 +121,8 @@ Broadcast.broadcastable(id :: IterData) = Ref(id);
     stepsize_min = Δ_critical * 1e-2;   # stop if Δ < Δ_critical & step_size < stepsize_min
     # NOTE thomann uses stepsize in image space due to PS scalarization
 
+    use_eval_database :: Bool = true; # NOTE this was a quick hack!! don't use when employing different surrogates
+    use_info_database :: Bool = true;
     iter_data :: Union{Nothing,IterData} = nothing; # Refercnce to an object storing the iteration information
 
     # assertions for parameter consistency

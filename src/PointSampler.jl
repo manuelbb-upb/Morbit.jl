@@ -112,7 +112,7 @@ function monte_carlo_th( n_points :: Int64, n_dims :: Int64 ; seeds :: Vector{Ve
         if n_seeds < n_points
             P = deepcopy(seeds);
             if length(P[1]) != n_dims
-                @error "`n_dims` and length of your `seeds` do not match."
+                error( "`n_dims` and length of your `seeds` do not match.")
             end
         else
             return seeds
@@ -134,10 +134,10 @@ end
 @doc "Scale the design returned by the unconstrained version of this function to the box defined by `lb` and `ub`."
 function monte_carlo_th( n_points :: Int64, lb = Vector{Float64}, ub = Vector{Float64}; seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}}(), spawn_factor :: Int64 = 50, pdist_threshold_tolerance :: Float64 = 0.5, clean_seeds ::Bool = true )
     if isempty( lb ) || isempty(ub)
-        @error "Both lower and upper variable boundaries must be provided."
+        error( "Both lower and upper variable boundaries must be provided.")
     else
         if length(lb) != length(ub)
-            @error "`lb` and `ub` must have samle length."
+            error( "`lb` and `ub` must have samle length.")
         else
             n_dims = length(lb)
         end
@@ -190,10 +190,10 @@ function MonteCarloThDesign( n_points :: Int64, lb :: T, ub :: T, seeds :: Vecto
             scaled_seeds = scale_to_unit_square( seeds[seed_indices], lb, ub )
             return MonteCarloThDesign( n_points, dims, lb, ub, scaled_seeds )
         else
-            @error "Dimensions of `lb` and `ub` do not match or lb > ub for some index!"
+            error( "Dimensions of `lb` and `ub` do not match or lb > ub for some index!")
         end
     else
-        @error "`n_points` must be non-negative."
+        error( "`n_points` must be non-negative.")
     end
 end
 

@@ -1,7 +1,7 @@
 import Base: broadcasted
 
 numevals( objf :: VectorObjectiveFunction ) = objf.n_evals;
-
+max_evals( objf:: VectorObjectiveFunction ) = objf.max_evals;
 # HELPER FUNCTIONS TO STAY IN FEASIBLE SET
 const ε_bounds = 1e-17; # tolerancy for projection into feasible set
 
@@ -84,6 +84,7 @@ function combine( objf1 :: VectorObjectiveFunction, objf2 :: VectorObjectiveFunc
     new_objf = VectorObjectiveFunction(
         n_out = objf1.n_out + objf2.n_out,
         n_evals = max( objf1.n_evals, objf2.n_evals ),
+        max_evals = min( objf1.max_evals, objf2.max_evals),
         model_config = objf1.model_config,
         function_handle = new_func( objf1.function_handle, objf2.function_handle ),
         internal_indices = [ objf1.internal_indices; objf2.internal_indices ],
@@ -102,7 +103,7 @@ function init_objective( mop :: MixedMOP, func :: T where{T <: Function},
         model_config :: M where{M <: ModelConfig}, batch_eval :: Bool , n_out :: Int64 )
     wrapped_func = wrap_func(mop, func, batch_eval)
 
-    objf = VectorObjectiveFunction(
+    objf = VectorObjectiveFunction(;
         n_out = n_out,
         max_evals = max_evals( model_config ),
         function_handle = wrapped_func,
@@ -117,10 +118,11 @@ function ==( cfg1 :: C, cfg2 :: C) where{C <: Union{RbfConfig, LagrangeConfig, T
 end
 
 function combine_objectives!(mop :: MixedMOP, objf :: VectorObjectiveFunction ,
-        model_config :: Union{RbfConfig, LagrangeConfig, TaylorConfig})
+        model_config :: Union{RbfConfig, LagrangeConfig})
     # check if there is some other objective with same settings to save work
     for (other_objf_index, other_objf) ∈ enumerate(mop.vector_of_objectives)
         if other_objf.model_config == model_config
+            @info("Combining two (vec) objectives of type $(typeof(model_config)).")
             deleteat!( mop.vector_of_objectives, other_objf_index )
             new_objf = combine( other_objf, objf )
             push!(mop.vector_of_objectives, new_objf)
@@ -133,7 +135,7 @@ function combine_objectives!(mop :: MixedMOP, objf :: VectorObjectiveFunction ,
 end
 
 function combine_objectives!(mop :: MixedMOP, objf :: VectorObjectiveFunction ,
-        model_config :: ExactConfig)
+        model_config :: Union{ExactConfig, TaylorConfig})
     push!(mop.vector_of_objectives, objf)
 end
 
@@ -155,7 +157,8 @@ end
 function add_vector_objective!(mop :: MixedMOP, func :: T where{T <: Function},
         model_config :: M where M <: ModelConfig; n_out :: Int64, batch_eval = false )
     if n_out < 1
-        @error "You must specify the number (positive integer) of outputs of `func` with the mandatory keyword argument `n_out`."
+        error( "You must specify the number (positive integer) of outputs of
+             `func` with the mandatory keyword argument) `n_out`.")
     end
 
     objf = init_objective( mop, func, model_config, batch_eval, n_out )
@@ -368,7 +371,7 @@ function add_objective!( mop :: MixedMOP, func :: T where{T <: Function}, type :
             gradients = :autodiff
         )
     else
-        @error "Type must be either `:expensive` or `cheap`."
+        error( "Type must be either `:expensive` or) `cheap`.")
     end
 
     if n_out > 1

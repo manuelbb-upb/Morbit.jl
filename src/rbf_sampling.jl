@@ -41,9 +41,9 @@ function RBFModel( cfg :: RbfConfig, objf :: VectorObjectiveFunction, meta :: RB
    @unpack kernel, shape_parameter, polynomial_degree = cfg;
    shape_param = isa( shape_parameter, Function ) ? shape_parameter( id.Δ ) : shape_parameter;
 
-   model = RBFModel(
-       training_sites = get_training_sites( meta, id ),
-       training_values = get_training_values( objf, meta, id ),
+   model = RBFModel(;
+       training_sites = deepcopy(get_training_sites( meta, id )),
+       training_values = deepcopy(get_training_values( objf, meta, id )),
        kernel = kernel,
        shape_parameter = shape_param,
        polynomial_degree = polynomial_degree,
@@ -165,7 +165,7 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction, meta_data 
    @unpack max_model_points, use_max_points, θ_enlarge_2 = cfg;
    @unpack x, Δ, sites_db, values_db = iter_data;
 
-   @info "\t•Box search for more points."
+   @info "\t•Looking for more points…"
 
    num_candidates = length(candidate_indices);
    if num_candidates <= max_model_points
@@ -445,12 +445,12 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
     @info "Building an RBFModel for (internal indices) $(objf.internal_indices)."
 
     @unpack θ_enlarge_1, θ_enlarge_2, θ_pivot, sampling_algorithm, require_linear = cfg;
-    @unpack n_vars, Δ_max, max_evals, problem = config_struct;
+    @unpack n_vars, Δ_max, max_evals, problem, use_eval_database = config_struct;
     @unpack iter_data = config_struct;
-    @unpack x, x_index, Δ, sites_db = iter_data;
+    @unpack x, f_x, x_index, Δ, sites_db = iter_data;
 
     # initalize new RBFModel
-    meta_data = RBFMeta( center_index = x_index )
+    meta_data = RBFMeta( center_index = x_index );
 
     other_indices = non_rbf_training_indices( meta_data, iter_data );
 
@@ -512,10 +512,11 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
         n_evals_left = min( max_evals, cfg.max_evals ) - numevals(objf) - 1;
         n_missing = Int64(min( n_missing , n_evals_left ));
 
-        additional_sites, Y, Z = get_new_sites(Val(sampling_algorithm),
+        additional_sites, Y, Z = get_new_sites(
+            Val(sampling_algorithm),
             n_missing, x, Δ_1, θ_pivot, Y, Z, problem.is_constrained,
             get_training_sites( meta_data, iter_data)
-            )
+        );
         if length(additional_sites) < n_missing
             return rebuild_rbf_model(config_struct, objf, cfg)
         end
@@ -532,6 +533,11 @@ function build_rbf_model( config_struct :: AlgoConfig, objf :: VectorObjectiveFu
     add_points!(m, objf, meta_data, cfg, config_struct)
 
     @info("\tModel$(m.fully_linear ? " " : " not ")linear!")
+
+    if !use_eval_database && m.fully_linear
+        reset_database!(iter_data);
+    end
+        
     return m, meta_data
 end
 
@@ -539,11 +545,13 @@ end
 function rebuild_rbf_model( config_struct :: AlgoConfig,
         objf :: VectorObjectiveFunction, cfg :: RbfConfig )
     @info "\tREBUILDING model along coordinate axes."
-    @unpack n_vars, max_evals, iter_data, problem = config_struct
+    @unpack n_vars, max_evals, iter_data, problem, use_eval_database = config_struct
     @unpack θ_pivot, θ_enlarge_1 = cfg;
-    @unpack x, x_index, Δ, sites_db = iter_data;
+    @unpack x, f_x, x_index, Δ, sites_db = iter_data;
 
-    meta_data = RBFMeta( center_index = x_index )
+    meta_data = RBFMeta( center_index = x_index );
+    @assert use_eval_database || length(sites_db) == 1 
+
     ϑ_enlarge_1 = sensible_θ( Val(problem.is_constrained), θ_enlarge_1, x, Δ )
     Δ_1 = ϑ_enlarge_1 * Δ;
     min_pivot = Δ*θ_pivot;
@@ -579,6 +587,10 @@ function rebuild_rbf_model( config_struct :: AlgoConfig,
 
     ## backtracking search in unused points
     add_points!(m, objf, meta_data, cfg, config_struct)
+
+    if !use_eval_database && m.fully_linear
+        reset_database!(iter_data);
+    end
 
     return m, meta_data
 end
@@ -624,7 +636,7 @@ The model parameters 'Y' and 'z' and its fully_linear flag are potentially modif
 Returns the newly sampled site and its value vector as given by f."
 function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoConfig,
         objf :: VectorObjectiveFunction, cfg :: RbfConfig; retrain :: Bool = true )
-    @unpack iter_data, problem, n_vars = config_struct;
+    @unpack iter_data, problem, n_vars, use_eval_database = config_struct;
     @unpack x, Δ, sites_db, values_db = iter_data;
     @unpack θ_pivot, θ_enlarge_1 = cfg;
 
@@ -666,7 +678,7 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
         push!(values_db, new_val);
 
         # update RBFMeta data and model
-        push!(meta_data.round3_indices, numevals(objf));
+        push!(meta_data.round3_indices, length(sites_db));
         push!(m.training_sites, new_site);
         push!(m.training_values, new_val[objf.internal_indices] )
 
@@ -674,6 +686,9 @@ function improve!( m :: RBFModel, meta_data :: RBFMeta, config_struct :: AlgoCon
         if num_Z_cols == 1
             meta_data.fully_linear = m.fully_linear = true;
             @info("\t\tModel is now fully linear.")
+            if !use_eval_database
+                reset_database!(iter_data);
+            end
         else
             meta_data.fully_linear = m.fully_linear = false;
             @info("\t\tModel is not fully linear and there still is an improving direction.")

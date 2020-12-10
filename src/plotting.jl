@@ -242,7 +242,7 @@ end
 @recipe function f( d :: PlotStepSizes )
 
     if !( isa( d.args[1], AlgoConfig ) )
-        error("plotstepsizes needs an 'AlgoConfig' object as the only argument.")
+        error("plotstepsizes needs an 'AlgoConfig' object as the only) argument.")
     end
 
     iter_data = d.args[1].iter_data;

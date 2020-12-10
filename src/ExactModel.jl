@@ -22,6 +22,7 @@ end
 struct ExactMeta <: SurrogateMeta end   # no construction meta data needed
 
 fully_linear( em :: ExactModel ) = true;
+max_evals( emc :: ExactConfig ) = emc.max_evals
 
 function prepare!(objf :: VectorObjectiveFunction, cfg :: ExactConfig, ::AlgoConfig )
     @info("Preparing Exact Models")

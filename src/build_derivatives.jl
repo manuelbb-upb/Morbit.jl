@@ -29,7 +29,7 @@ function set_gradients!(
        model_config.gradients = [ x -> vec(model_config.jacobian(x)), ]
     elseif isa( model_config.gradients, Vector{F} where {F<:Function } )
         if length( model_config.gradients ) != objf.n_out
-            @error "Length of gradient array does not match number of vector objective outputs."
+            error( "Length of gradient array does not match number of vector objective outputs." )
         end
     elseif objf.n_out >= 2 && isa( model_config.jacobian, F where{F<:Function} )
         @goto build_grads
@@ -40,7 +40,7 @@ function set_gradients!(
         mode = model_config.jacobian
         @goto build_jacobian
     else
-        @error "No derivative method (:fdm or :autodiff) or gradient function handle(s) provided."
+        error( "No derivative method (:fdm or :autodiff) or gradient function handle(s) provided." )
     end
 
     return nothing
@@ -67,13 +67,13 @@ function set_gradients!(
             model_config.gradients = [ grad_fun, ];
         end
     else
-        @error "No derivative method (:fdm or :autodiff) or gradient function handle(s) provided."
+        error( "No derivative method (:fdm or :autodiff) or gradient function handle(s) provided.")
     end
     return nothing
 
     # Set gradient handles based on the jacobian
     @label build_grads
-    @warn "Building gradients from jacobian. This could lead to many unnecessary evaluations!"
+    objf.n_out > 1 && @warn "Building gradients from jacobian. This could lead to many unnecessary evaluations!"
     gradients = [];
     for i = 1 : objf.n_out
         push!( gradients, x -> vec(model_config.jacobian(x)[i, :]) )
@@ -100,7 +100,7 @@ function set_hessians!(model_config :: TaylorConfig, objf :: VectorObjectiveFunc
         if length( model_config.hessians ) == objf.n_out
             return
         else
-            @error "Nmuber of hessian handles does not match n_out."
+            error( "Number of hessian handles does not match n_out.")
         end
     else
         new_hessians = []
@@ -116,7 +116,7 @@ function set_hessians!(model_config :: TaylorConfig, objf :: VectorObjectiveFunc
                     AD.hessian( ξ -> objf.function_handle(ξ)[i], x )
                 end
             else
-                @error "No Hessian method (:fdm or :autodiff) or function handle for output $i provided."
+                error( "No Hessian method (:fdm or :autodiff) or function handle for output $(i) provided." )
             end
             push!( new_hessians, hessian_handle );
         end
