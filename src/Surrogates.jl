@@ -73,8 +73,6 @@ function build_models!(sc :: SurrogateContainer, ac :: AlgoConfig, crit_flag :: 
     sc.model_meta = Any[];
     
     for (ℓ,objf) ∈ enumerate(sc.objf_list)
-        @show ℓ 
-        @show typeof(objf.model_config)
         new_model, new_meta = build_model( ac, objf, objf.model_config, crit_flag )
         push!(sc.model_list, new_model)
         push!(sc.model_meta, new_meta)

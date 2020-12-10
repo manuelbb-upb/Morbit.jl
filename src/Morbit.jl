@@ -461,8 +461,6 @@ function budget_okay( problem :: MixedMOP, improvement_step :: Bool )
     for objf ∈ problem.vector_of_objectives
         offset = (isa( objf.model_config, Union{LagrangeConfig, RbfConfig})
             && improvement_step) ? 2 : 1;
-        @show objf.n_evals
-        @show max_evals(objf)
         if numevals(objf) + offset > max_evals(objf)
             return false
         end
