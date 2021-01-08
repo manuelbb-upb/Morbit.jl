@@ -424,6 +424,8 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
         end
         
     end
+
+    fin_x = unscale(problem,x) 
     @info """\n
     |--------------------------------------------
     | FINISHED
@@ -432,7 +434,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     |  No. iterations:       $iter_index
     |  No. database entries: $(length(sites_db)).
     |  Final iterate has index $(x_index) and true coordinates
-    |    $(unscale(problem,x)[1:min(5,end)])...
+    |    $(fin_x[1:min(5,end)])...
     |  Final values are $(f_x[1:min(5,end)])...
     |--------------------------------------------
     """
@@ -443,7 +445,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     
     unprepare_utopia!(config_struct);
 
-    return unscale(problem, x), reverse_internal_sorting( problem, f_x )
+    return fin_x, reverse_internal_sorting( problem, f_x )
 end
 
 # Stopping functions

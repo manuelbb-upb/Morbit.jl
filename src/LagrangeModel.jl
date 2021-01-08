@@ -182,6 +182,32 @@ function find_poised_set(ε_accept :: R where R<:Real, start_basis :: Vector{Any
     return new_sites, recycled_indices, lagrange_basis
 end
 
+# little helper for improvement of non-linear models below 
+# orthogonalize "start_basis" using "points"
+function lagrange_basis_from_points( start_basis :: Vector{Any}, points :: Vector{Vector{R}} where R<:Real )
+    lagrange_basis = copy( start_basis )
+    p = length( lagrange_basis );
+
+    if p != length( points )
+        error("Lengths of initial basis array and point array don't match!")
+    end  
+
+    for i = 1 : p
+        yᵢ = points[i];
+
+        # Normalization
+        lagrange_basis[i] /= eval_poly( lagrange_basis[i], yᵢ)
+
+        # Orthogonalization
+        for j = 1 : p
+            if j ≠ i
+                lagrange_basis[j] -= (eval_poly( lagrange_basis[j], yᵢ) * lagrange_basis[i])
+            end
+        end
+    end
+    return lagrange_basis
+end
+
 @doc """
     improve_poised_set!( lagrange_basis, new_sites, recycled_indices, 
         Λ, point_database, box_lb, box_ub )
@@ -440,7 +466,8 @@ function improve!( lm::LagrangeModel, lmeta::LagrangeMeta, ac::AlgoConfig,
     # reuse the poised set from before
     new_sites = Vector{Vector{Float64}}();
     recycled_indices = lmeta.interpolation_indices;
-    lagrange_basis = lmeta.lagrange_basis;
+    #lagrange_basis = lmeta.lagrange_basis;
+    lagrange_basis = lagrange_basis_from_points( cfg.canonical_basis, sites_db[ recycled_indices ] );
 
     # make the set Λ poised for full linearity
     improve_poised_set!(lagrange_basis, new_sites, recycled_indices, Λ, sites_db, lb_eff, ub_eff)
