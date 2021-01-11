@@ -426,6 +426,8 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     end
 
     fin_x = unscale(problem,x) 
+    fin_fx = reverse_internal_sorting( problem, f_x )
+
     @info """\n
     |--------------------------------------------
     | FINISHED
@@ -435,7 +437,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     |  No. database entries: $(length(sites_db)).
     |  Final iterate has index $(x_index) and true coordinates
     |    $(fin_x[1:min(5,end)])...
-    |  Final values are $(f_x[1:min(5,end)])...
+    |  Final values are $(fin_fx[1:min(5,end)])...
     |--------------------------------------------
     """
     # Reverse scaling on all decision vectors
@@ -445,7 +447,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     
     unprepare_utopia!(config_struct);
 
-    return fin_x, reverse_internal_sorting( problem, f_x )
+    return fin_x, fin_fx
 end
 
 # Stopping functions

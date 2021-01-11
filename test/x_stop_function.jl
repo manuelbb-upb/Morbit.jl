@@ -1,7 +1,10 @@
 using Morbit;
 using Test;
 
-using JuMP, OSQP;
+using Pkg;
+old_env = Pkg.project().path;
+Pkg.activate( joinpath( @__DIR__, ".." ) );
+import JuMP, OSQP;
 
 #%%
 # Define 2-Parabola Problem
@@ -32,22 +35,22 @@ x_stop_function = function(x)
     prob = JuMP.Model( OSQP.Optimizer );
     JuMP.set_silent(prob);
 
-    set_optimizer_attribute(prob,"eps_rel",1e-5);
-    set_optimizer_attribute(prob,"polish",true);
+    JuMP.set_optimizer_attribute(prob,"eps_rel",1e-5);
+    JuMP.set_optimizer_attribute(prob,"polish",true);
 
-    @variable(prob, α );     # negative of marginal problem value
-    @variable(prob, d[1:n_vars] );   # direction vector
+    JuMP.@variable(prob, α );     # negative of marginal problem value
+    JuMP.@variable(prob, d[1:n_vars] );   # direction vector
     
-    @objective(prob, Min, α);
+    JuMP.@objective(prob, Min, α);
 
-    @constraint(prob, descent_contraints, ∇F*d .<= α);
-    @constraint(prob, norm_constraints, -1.0 .<= d .<= 1.0);
+    JuMP.@constraint(prob, descent_contraints, ∇F*d .<= α);
+    JuMP.@constraint(prob, norm_constraints, -1.0 .<= d .<= 1.0);
     
     # the MOP is constrained
-    @constraint(prob, box_constraints, LB .<= x .+ d .<= UB );
+    JuMP.@constraint(prob, box_constraints, LB .<= x .+ d .<= UB );
 
     JuMP.optimize!(prob)
-    @show ω = -value(α);
+    ω = - JuMP.value( α )
     return ω < STOP_TOL;
 end
 
@@ -65,3 +68,5 @@ opt = AlgoConfig(
 X, FX = Morbit.optimize!(opt, mop, x_0);
 
 @test x_stop_function( X )
+Pkg.activate( old_env );
+
