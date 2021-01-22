@@ -19,18 +19,13 @@ cpd_order( ::Val{:thin_plate_spline} ) = typemax(Int64) :: Int64;
     kernel :: Symbol = :multiquadric;
     shape_parameter :: Union{R, Vector{R}} where{R <: Real} = 1.0;
     fully_linear :: Bool = false;
-    polynomial_degree :: Int64 = 1;
+    polynomial_degree :: Int64 = 1; # -1 means *no polynomial*, not a rational function
 
     rbf_coefficients :: Array{Float64,2} = Matrix{Float64}(undef,0,0);
     poly_coefficients :: Array{Float64,2} = Matrix{Float64}(undef,0,0);
 
     function_handle :: Union{Nothing, Function} = nothing;      # TODO deprecate
 
-    #=
-    if polynomial_degree < cpd_order( Val(kernel) ) - 1
-        @warn "Polynomial degree is to small (should at least be $(cpu_order(kernel) - 1))."
-    end
-    =#
     @assert polynomial_degree <= 1 "For now only polynomials with degree -1, 0, or 1 are allowed."
 end
 
