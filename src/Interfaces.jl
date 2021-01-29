@@ -109,7 +109,7 @@ Broadcast.broadcastable(id :: IterData) = Ref(id);
     # trust region update parameters
     γ_crit :: Float64 = 0.5; # scaling factor for Δ in criticallity test
     γ_grow :: Float64 = 2;
-    γ_shrink :: Float64 = 0.9;
+    γ_shrink :: Float64 = 0.75;
     γ_shrink_much :: Float64 = 0.501;
 
     Δ₀ :: Float64 = 0.1;
