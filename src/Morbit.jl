@@ -357,7 +357,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
         accept_x₊ = false;
         improvement_step = false;
-        if !isnan(ρ) && ρ > ν_success
+        if !isnan(ρ) && ρ >= ν_success
             if Δ < β * ω
                 if radius_update == :standard
                     Δ = min( Δ_max, γ_grow * Δ );
@@ -368,7 +368,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
             accept_x₊ = true
         else
             if linear_flag
-                if isnan(ρ) || ρ <= ν_accept
+                if isnan(ρ) || ρ < ν_accept
                     if radius_update == :standard
                         Δ *= γ_shrink_much;
                     elseif radius_update == :steplength
