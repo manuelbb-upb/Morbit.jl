@@ -210,8 +210,12 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     
     DEBUG_EXIT = X_STOP_FUNCTION && x_stop_function(unscale(problem,x));
 
-    while budget_okay( problem, improvement_step ) && loop_check(Δ, steplength, iter_index;
-            Δ_min, Δ_critical, stepsize_min, max_iter, improvement_step) && !DEBUG_EXIT
+    while (
+        budget_okay( problem, improvement_step ) && 
+        loop_check(Δ, steplength, iter_index;
+            Δ_min, Δ_critical, stepsize_min, max_iter, improvement_step) && 
+        !DEBUG_EXIT
+    )
 
         if improvement_step && !count_nonlinear_iterations
             improvement_counter += 1
@@ -308,7 +312,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
                 \t• model cannot be made fully linear or 
                 \t• budget exhausted.
                 """
-                break; # breack from main loop
+                break; # break from main loop
             end
 
         end
@@ -466,6 +470,7 @@ function budget_okay( problem :: MixedMOP, improvement_step :: Bool )
         offset = (isa( objf.model_config, Union{LagrangeConfig, RbfConfig})
             && improvement_step) ? 2 : 1;
         if numevals(objf) + offset > max_evals(objf)
+            @info "Computational budget exhausted."
             return false
         end
     end
@@ -475,7 +480,7 @@ end
 function loop_check(Δ :: Float64, stepsize :: Float64, iter_index :: Float64;
         Δ_min :: Float64, Δ_critical :: Float64, stepsize_min :: Float64,
         max_iter :: Int64, improvement_step :: Bool )
-
+    
     iterations_okay = iter_index < max_iter;
     !iterations_okay && @info """
     Maximum number of iterations reached.
