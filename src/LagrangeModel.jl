@@ -3,6 +3,7 @@
 # It is included from within "Surrogates.jl".
 # We therefore can refer to other data structures used there.
 using DynamicPolynomials
+#using TypedPolynomials
 using FileIO, JLD2;
 
 @with_kw mutable struct LagrangeModel <: SurrogateModel
@@ -62,7 +63,7 @@ end
 # helper function to easily evaluate polynomial
 function eval_poly(p ::T where T<:Union{Monomial, Polynomial, Term, PolyVar},
         x :: Vector{R} where R<:Real)
-    p( variables(p) => x ) 
+    return p( variables(p) => x ) 
 end
 # helper function to easily evaluate polynomial array for gradient
 function eval_poly(p::Vector{T} where T<:Union{Monomial, Polynomial, Term, PolyVar},
@@ -267,7 +268,7 @@ function improve_poised_set!( lagrange_basis :: Vector{Any},
                 
                 # update the max
                 # note that it is ok to do so only if abs_lᵢ > Λ because we test Λₖ₋₁ > Λ and …
-                # … if no abs_li is bigger than Λ then the max cannot be bigger as well
+                # … if no abs_li is bigger than Λ then the max cannot be bigger neither
                 if update_Λₖ₋₁
                     Λₖ₋₁ = abs_lᵢ
                 end
@@ -288,7 +289,7 @@ function improve_poised_set!( lagrange_basis :: Vector{Any},
             # sort basis so that polynomial for iₖ is last
             lagrange_basis[ [ iₖ; iₖ+1:p ] ] = lagrange_basis[ [iₖ+1:p; iₖ ] ]
         else
-            @info("\t Λₖ₋₁ is $Λₖ₋₁ < Λ = $(Λ)!")
+            @info("\t Λₖ₋₁ is $(Λₖ₋₁) < Λ = $(Λ)!")
             return nothing            
         end
 
@@ -436,7 +437,16 @@ end
 
 function get_gradient( lm :: LagrangeModel, ξ :: Vector{Float64}, ℓ :: Int64 )
     grad_poly = differentiate.( lm.lagrange_models[ℓ], variables(lm.lagrange_models[ℓ] ) )
-    return eval_poly(grad_poly, ξ)
+    grad = eval_poly(grad_poly, ξ)
+    try 
+        @assert length(grad) != 0;
+    catch
+        @show ℓ, ξ
+        @show lm.lagrange_models[ℓ]
+        @show variables( lm.lagrange_models[ℓ] )
+        @show grad_poly
+    end
+    return grad;
 end
 
 function eval_models( lm :: LagrangeModel, ξ :: Vector{Float64})
@@ -500,8 +510,9 @@ function get_final_model( lagrange_basis :: Vector{T} where T,
         interpolation_indices = interpolation_indices 
     );
 
-    lagrange_models = sum( lagrange_basis[i] .* get_training_values( objf, lmeta, iter_data)[i] 
-        for i = eachindex(lagrange_basis) );
+    t_vals = get_training_values( objf, lmeta, iter_data);
+
+    lagrange_models = sum( lagrange_basis[i] .* t_vals[i] for i = eachindex(lagrange_basis) );
 
     lmodel = LagrangeModel(
         n_out = objf.n_out,
