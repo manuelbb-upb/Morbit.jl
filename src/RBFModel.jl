@@ -25,12 +25,12 @@ Broadcast.broadcastable( M :: RbfModel ) = Ref(M);
     shape_parameter :: Union{F where {F<:Function}, R where R<:Real} = 1;
     polynomial_degree :: Int64 = 1;
 
-    θ_enlarge_1 :: Float64 = 2.0;
-    θ_enlarge_2 :: Float64 = 5.0;  # reset
-    θ_pivot :: Float64 = 1.0 / (2 * θ_enlarge_1);
-    θ_pivot_cholesky :: Float64 = 1e-7;
+    θ_enlarge_1 :: Real = 2;
+    θ_enlarge_2 :: Real = 5;  # reset
+    θ_pivot :: Real = 1 / (2 * θ_enlarge_1);
+    θ_pivot_cholesky :: Real = Float16(1e-7);
 
-    require_linear = false;
+    require_linear :: Bool = false;
 
     max_model_points :: Int64 = -1; # is probably reset in the algorithm
     use_max_points :: Bool = false;
@@ -55,8 +55,8 @@ end
     round3_indices :: Vector{Int64} = [];
     round4_indices :: Vector{Int64} = [];
     fully_linear :: Bool = false;
-    Y :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
-    Z :: Array{Float64,2} = Matrix{Float64}(undef, 0, 0);
+    Y :: Array{R,2} where R<:Real = Matrix{Float64}(undef, 0, 0);
+    Z :: Array{R,2} where R<:Real = Matrix{Float64}(undef, 0, 0);
 end
 
 fully_linear(m :: RBFModel) = m.fully_linear
@@ -72,10 +72,10 @@ end
 
 # use functions from base module for evaluation
 # (assumes that models are trained on the unit hypercube)
-eval_models( m :: RBFModel, x :: Vector{Float64}) = RBF.output(m, x)
-eval_models( m :: RBFModel, x :: Vector{Float64}, ℓ :: Int64) = RBF.output(m, ℓ, x)
-get_gradient( m :: RBFModel, x :: Vector{Float64}, ℓ :: Int64) = RBF.grad( m, ℓ, x )
-get_jacobian( m :: RBFModel, x :: Vector{Float64}) = RBF.jac( m, x )
+eval_models( m :: RBFModel, x :: Vector{R} where R<:Real) = RBF.output(m, x)
+eval_models( m :: RBFModel, x :: Vector{R} where R<:Real, ℓ :: Int64) = RBF.output(m, ℓ, x)
+get_gradient( m :: RBFModel, x :: Vector{R} where R<:Real, ℓ :: Int64) = RBF.grad( m, ℓ, x )
+get_jacobian( m :: RBFModel, x :: Vector{R} where R<:Real ) = RBF.jac( m, x )
 
 include("rbf_sampling.jl")
 

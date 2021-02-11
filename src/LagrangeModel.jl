@@ -17,10 +17,10 @@ Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
 
 @with_kw mutable struct LagrangeConfig <: ModelConfig
     degree :: Int64 = 1;
-    θ_enlarge :: Float64 = 2;
+    θ_enlarge :: Real = 2;
 
-    ε_accept :: Float64 = 1e-6;
-    Λ :: Float64 = 1.5;
+    ε_accept :: Real = 1e-6;
+    Λ :: Real = 1.5;
 
     allow_not_linear :: Bool = false;
 
@@ -29,7 +29,7 @@ Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
     # the basis is set by `prepare!`
     canonical_basis :: Union{ Nothing, Vector{Any} } = nothing
     # fields to enable unoptimized (stencil) sampling
-    stencil_sites :: Vector{Vector{Float64}} = [];
+    stencil_sites :: Vector{Vector{R}} where R<:Real = Vector{Float64}[];
 
     # if optimized_sampling = false, shall we use saved sites?
     use_saved_sites :: Bool = true;
@@ -127,7 +127,7 @@ end
 """
 function find_poised_set(ε_accept :: R where R<:Real, start_basis :: Vector{Any}, 
         point_database :: Vector{Vector{R}} where R<:Real,
-        x :: Vector{R} where R<:Real, Δ :: Float64, x_index :: Int, box_lb :: Vector{R} where R<:Real,
+        x :: Vector{R} where R<:Real, Δ :: Real, x_index :: Int, box_lb :: Vector{R} where R<:Real,
         box_ub :: Vector{R} where R<:Real; max_solver_evals = nothing :: Union{Nothing, Int})
     # Algorithm 6.2 (p. 95, Conn)
     # # select or generate a poised set suited for interpolation
@@ -221,7 +221,7 @@ end
 """
 function improve_poised_set!( lagrange_basis :: Vector{Any}, 
         new_sites :: Vector{Vector{R}} where R<:Real, recycled_indices :: Vector{Int},
-        Λ :: Float64,
+        Λ :: Real,
         point_database :: Vector{Vector{R}} where R<:Real, box_lb :: Vector{R} where R<:Real,
         box_ub :: Vector{R} where R<:Real; max_solver_evals = nothing :: Union{Nothing, Int})
        
@@ -244,7 +244,7 @@ function improve_poised_set!( lagrange_basis :: Vector{Any},
         # 1) Λ calculation
         Λₖ₋₁ = -Inf;    # max_i max_x |l_i(x)|
         iₖ = -1;        # index of point to swap if set is not Λ-poised
-        yₖ = zeros(Float64, n_vars);    # replacement site if not Λ-poised
+        yₖ = zeros(n_vars);    # replacement site if not Λ-poised
         for i = 1 : p
             opt = Opt(:LN_BOBYQA, n_vars)
             opt.lower_bounds = box_lb;
@@ -431,11 +431,11 @@ end
 
 @doc "Return vector of evaluations for output `ℓ` of a (vector) Lagrange Model
 `lm` at scaled site `ξ`."
-function eval_models( lm :: LagrangeModel, ξ :: Vector{Float64}, ℓ :: Int64 )
+function eval_models( lm :: LagrangeModel, ξ :: Vector{R} where R<:Real, ℓ :: Int64 )
    eval_poly( lm.lagrange_models[ℓ], ξ ) 
 end
 
-function get_gradient( lm :: LagrangeModel, ξ :: Vector{Float64}, ℓ :: Int64 )
+function get_gradient( lm :: LagrangeModel, ξ :: Vector{R} where R<:Real, ℓ :: Int64 )
     grad_poly = differentiate.( lm.lagrange_models[ℓ], variables(lm.lagrange_models[ℓ] ) )
     grad = eval_poly(grad_poly, ξ)
     try 
@@ -449,11 +449,11 @@ function get_gradient( lm :: LagrangeModel, ξ :: Vector{Float64}, ℓ :: Int64 
     return grad;
 end
 
-function eval_models( lm :: LagrangeModel, ξ :: Vector{Float64})
+function eval_models( lm :: LagrangeModel, ξ :: Vector{R} where R<:Real)
     vcat( [ eval_models(lm, ξ, ℓ) for ℓ = 1 : lm.n_out ]... )
 end
 
-function get_jacobian( lm :: LagrangeModel, ξ :: Vector{Float64})
+function get_jacobian( lm :: LagrangeModel, ξ :: Vector{R} where R<:Real)
     transpose( hcat( [ get_gradient(lm, ξ, ℓ) for ℓ = 1 : lm.n_out ]... ) )
 end
 

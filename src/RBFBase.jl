@@ -13,16 +13,16 @@ cpd_order( ::Val{:cubic} ) = 2 :: Int64;
 cpd_order( ::Val{:thin_plate_spline} ) = typemax(Int64) :: Int64;
 
 @with_kw mutable struct RBFModel
-    training_sites :: Array{Array{Float64, 1},1} = [];
-    training_values :: Array{Array{Float64, 1}, 1} = [];
+    training_sites :: Vector{Vector{R}} where R<:Real = Vector{R}[];
+    training_values :: Vector{Vector{R}} where R<:Real = Vector{R}[];
     n_in :: Int64 = length(training_sites) > 0 ? length(training_sites[1]) : -1;
     kernel :: Symbol = :multiquadric;
-    shape_parameter :: Union{R, Vector{R}} where{R <: Real} = 1.0;
+    shape_parameter :: Union{Real, Vector{R} where R<:Real} = 1;
     fully_linear :: Bool = false;
     polynomial_degree :: Int64 = 1; # -1 means *no polynomial*, not a rational function
 
-    rbf_coefficients :: Array{Float64,2} = Matrix{Float64}(undef,0,0);
-    poly_coefficients :: Array{Float64,2} = Matrix{Float64}(undef,0,0);
+    rbf_coefficients :: Array{R,2} where R<:Real = Matrix{Float16}(undef,0,0);
+    poly_coefficients :: Array{R,2} where R<:Real = Matrix{Float16}(undef,0,0);
 
     function_handle :: Union{Nothing, Function} = nothing;      # TODO deprecate
 
@@ -61,7 +61,7 @@ is_valid( m :: RBFModel ) = m.polynomial_degree >= cpd_order( Val(m.kernel) ) - 
 
 Broadcast.broadcastable(m::RBFModel) = Ref(m);
 
-function (m::RBFModel)(eval_site::Array{Float64, 1})
+function (m::RBFModel)(eval_site:: Vector{R} where R<:Real)
     m.function_handle(eval_site)  # return an array of arrays for ease of use in other methods
 end
 
@@ -73,11 +73,11 @@ function as_second!(destination :: RBFModel, source :: RBFModel )
 end
 
 # === Evaluate RBF part of the Model ===
-kernel( ::Val{:exp}, r, s = 1.0 ) = exp(-(r*s)^2);
-kernel( ::Val{:multiquadric} , r, s = 1.0 ) = - sqrt( 1 + (s*r)^2);
-kernel( ::Val{:cubic} , r, s = 1.0 ) = (r*s)^3;     # TODO better change this to r^s, s ∈ (2,4)
-function kernel( ::Val{:thin_plate_spline}, r::R where R<:Real, s::S where S<:Real = 1)
-    r == 0 ? 0.0 : (-1)^(s+1) * r^(2*s) * log(r)
+kernel( ::Val{:exp}, r::Real, s::Real = 1 ) = exp(-(r*s)^2);
+kernel( ::Val{:multiquadric}, r::Real, s::Real = 1 ) = - sqrt( 1 + (s*r)^2);
+kernel( ::Val{:cubic}, r::Real, s::Real = 1 ) = (r*s)^3;     # TODO better change this to r^s, s ∈ (2,4)
+function kernel( ::Val{:thin_plate_spline}, r::Real, s::Real = 1)
+    r == 0 ? 0 : (-1)^(s+1) * r^(2*s) * log(r)
 end
 
 @doc "Return n_sites-array with difference vectors (x_1 - c_{1,m}, …, x_n - c_{n,m}) of length n."
@@ -112,10 +112,10 @@ function rbf_output( m::RBFModel, x :: Vector{T} where{T<:Real} )
 end
 
 # d/dr kernel
-∂kernel( ::Val{:exp}, r :: R where R<:Real, s = 1.0 ) = - 2 * r * s^2 * kernel( Val(:exp), r, s )
-∂kernel( ::Val{:multiquadric}, r :: R where R<:Real, s = 1.0 ) = r * s^2 / kernel( Val(:multiquadric), r, s ) ;
-∂kernel( ::Val{:cubic}, r :: R where R<:Real, s = 1.0 ) = 3 * s^3 * r^2 ;
-∂kernel( ::Val{:thin_plate_spline}, r :: R where R<:Real, s = 1.0 ) = r == 0 ? 0.0 :
+∂kernel( ::Val{:exp}, r::Real, s::Real = 1 ) = - 2 * r * s^2 * kernel( Val(:exp), r, s )
+∂kernel( ::Val{:multiquadric}, r::Real, s::Real = 1 ) = r * s^2 / kernel( Val(:multiquadric), r, s ) ;
+∂kernel( ::Val{:cubic}, r::Real, s::Real = 1 ) = 3 * s^3 * r^2 ;
+∂kernel( ::Val{:thin_plate_spline}, r::Real, s::Real = 1 ) = r == 0 ? 0 :
     (-1)^(s+1) * r^(2*s-1) * (
         1 +
         2 * s * log(r)
@@ -183,10 +183,10 @@ rbf_jacobian( m::RBFModel, x :: T where{T<:Real} ) = rbf_jacobian( m, [x])
 
 # === Hessians of the model ===
 # note ∂ᵢ ∂kernel(r(x)) = (x_i -c_i) * ∂∂kernel(x)
-∂∂kernel( ::Val{:exp}, r, s = 1.0 ) = 2 * s^2 * (2* r^2 * s^2 - 1) * kernel( Val(:exp), r, s );
-∂∂kernel( ::Val{:multiquadric}, r, s = 1.0 ) = - s^2 / ((s*r)^2 + 1 )^(3/2) ;
-∂∂kernel( ::Val{:cubic}, r, s = 1.0 ) = 6 * s^3 * r;
-∂∂kernel( ::Val{:thin_plate_spline}, r, s = 1.0 ) = r == 0 ? 0.0 :
+∂∂kernel( ::Val{:exp}, r :: Real, s :: Real = 1 ) = 2 * s^2 * (2* r^2 * s^2 - 1) * kernel( Val(:exp), r, s );
+∂∂kernel( ::Val{:multiquadric}, r :: Real, s :: Real = 1 ) = - s^2 / ((s*r)^2 + 1 )^(3/2) ;
+∂∂kernel( ::Val{:cubic}, r :: Real, s :: Real = 1 ) = 6 * s^3 * r;
+∂∂kernel( ::Val{:thin_plate_spline}, r :: Real, s :: Real = 1 ) = r == 0 ? 0 :
     (-1)^(s+1) * r^(2*s-2) *(
         4*s - 1 +
         2*(2*s-1)*s*log(r)
@@ -221,12 +221,12 @@ function rbf_hessian( m::RBFModel, ℓ :: Int64, x :: Vector{T}) where{T<:Real}
 end
 
 # === Evaluate polynomial part of the model ===
-poly(m::RBFModel, ℓ, x, ::Val{-1} ) = 0.0                       # degree -1 ⇒ No polynomial part (ℓ-th output)
-poly(m::RBFModel, x, ::Val{-1} ) = 0.0                          # degree -1 ⇒ No polynomial part (all outputs)
+poly(m::RBFModel, ℓ, x, ::Val{-1} ) = 0                       # degree -1 ⇒ No polynomial part (ℓ-th output)
+poly(m::RBFModel, x, ::Val{-1} ) = 0                          # degree -1 ⇒ No polynomial part (all outputs)
 poly(m::RBFModel, ℓ, x, ::Val{0} ) = m.poly_coefficients[ℓ]     # degree 0 ⇒ constant (ℓ-th output)
 poly(m::RBFModel, x, ::Val{0} ) = m.poly_coefficients[:]        # degree 0 ⇒ constant (all outputs)
-poly(m::RBFModel, ℓ, x, ::Val{1} ) = [x;1.0]'m.poly_coefficients[:, ℓ] # affin linear tail (ℓ-th output)
-poly(m::RBFModel, x, ::Val{1} ) = vec([x;1.0]'m.poly_coefficients)    # affin linear tail (all outputs)
+poly(m::RBFModel, ℓ, x, ::Val{1} ) = [x;1]'m.poly_coefficients[:, ℓ] # affin linear tail (ℓ-th output)
+poly(m::RBFModel, x, ::Val{1} ) = vec([x;1]'m.poly_coefficients)    # affin linear tail (all outputs)
 
 @doc "Evaluate polynomial tail for output ℓ."
 function poly_output( m::RBFModel, ℓ :: Int64, x :: Vector{T} where{T<:Real} )
@@ -283,9 +283,10 @@ end
 #hess(m::RBFModel, ℓ::Int64, x::Real) = hess(m,ℓ,[x,])         # if n_vars == 1 and RBFModel is used outside of Optimization
 
 # === Utiliy functions for solving the normal equations
+# TODO right matrix types
 get_Π( m :: RBFModel, ::Val{-1} ) =  Matrix{Float64}( undef, 0, length(m.training_sites) );
 get_Π( m :: RBFModel, ::Val{0} ) = ones(1, length(m.training_sites));
-get_Π( m :: RBFModel, ::Val{1} ) = [ hcat( m.training_sites...); ones(1,length(m.training_sites)) ];
+get_Π( m :: RBFModel, ::Val{1} ) = [ hcat( m.training_sites...); ones(1, length(m.training_sites)) ];
 
 @doc "Return polynomial base matrix. Ones in last row."
 function get_Π(m::RBFModel)
@@ -293,21 +294,19 @@ function get_Π(m::RBFModel)
 end
 
 @doc "Return column vector to augment the polynomial base matrix `Π` if `y` were added."
-function Π_col( m :: RBFModel , y :: Vector{R} where{R<:Real} )
+function Π_col( m :: RBFModel , y :: Vector{R} where R<:Real )
     pd = m.polynomial_degree
     if pd == -1
         return Matrix{Float64}(undef, 0, 1)
     elseif pd == 0
-        return 1.0
+        return 1
     elseif pd == 1
-        return [ y ; 1.0 ]
+        return [ y ; 1 ]
     end
 end
 
 # see [WILD 2008]
-function null_space_coefficients( Q :: T1, R :: T2, Z :: T3, L :: T4, f :: T5, Φ :: T6 ) where{
-        T1, T2, T3, T4, T5, T6 <: AbstractArray{Float64}
-    }
+function null_space_coefficients( Q, R, Z , L, f, Φ )
     rhs = Z'f;
     w = L \ rhs;
     ω = L' \ w;
@@ -319,7 +318,7 @@ function null_space_coefficients( Q :: T1, R :: T2, Z :: T3, L :: T4, f :: T5, �
 end
 
 @doc "Solve RBF linear equation system using Cholesky based null space method as in [WILD 2008]."
-function solve_rbf_problem( Π :: T1, Φ :: T2, f :: T3, :: Val{true} ) where{ T1, T2, T3 <: AbstractArray{Float64}}
+function solve_rbf_problem( Π, Φ, f, :: Val{true} )
     Q, R = qr( Π' );
     R = [
         R;
@@ -340,7 +339,7 @@ function solve_rbf_problem( Π :: T1, Φ :: T2, f :: T3, :: Val{true} ) where{ T
 end
 
 @doc "Solve the RBF linear equation system using LU or QR factorization."
-function solve_rbf_problem( Π :: T1, Φ :: T2, f :: T3, :: Val{false} )  where{ T1, T2, T3 <: AbstractArray{Float64}}
+function solve_rbf_problem( Π, Φ, f, :: Val{false} )
     Φ_augmented = [ [Φ Π']; [Π zeros(size(Π,1),size(Π,1) )] ];
     f_augmented = [ f;
                     zeros( size(Π,1), size(f,2) ) ];
@@ -357,7 +356,7 @@ function solve_rbf_problem( Π :: T1, Φ :: T2, f :: T3, :: Val{false} )  where{
 end
 
 # === Training functions ===
-function set_coefficients!( m :: RBFModel, coefficients :: AbstractArray{Float64} )
+function set_coefficients!( m :: RBFModel, coefficients :: AbstractArray{R} where R<:Real)
     pd = m.polynomial_degree
     n_vars = n_in(m);
     n_out = length(m.training_values[1]);
@@ -389,9 +388,7 @@ end
 
 # same as train! but using a null space method with data available from 'add_points!' method
 # USE ONLY FOR MODELS WITH is_valid(m) == true !!!
-function train!(m::RBFModel, Q :: T1 , R :: T2 , Z :: T3, L :: T4, Φ :: T5 ) where{
-        T1, T2, T3, T4, T5 <: AbstractArray{Float64}
-    }
+function train!(m::RBFModel, Q , R, Z, L, Φ)
 
     RHS = hcat( m.training_values... )';
     λ, v = null_space_coefficients( Q, R, Z, L, RHS, Φ)

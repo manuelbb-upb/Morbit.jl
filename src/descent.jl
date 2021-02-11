@@ -18,9 +18,10 @@ Perform a backtracking loop starting at `x` with an initial step of
 `step_size .* dir` and return trial point `x₊`, the surrogate value-vector `m_x₊`
 and the final step `s = x₊ .- x`.
 """
-function backtrack( x :: V, f_x :: V, dir :: V, step_size :: F, ω :: F,
-        sc :: SurrogateContainer, descent_all :: Bool ) where{
-            V <: Vector{Float64}, F <: Float64 }
+function backtrack( x :: Vector{R}, dir :: Vector{F}, 
+        step_size :: Real, ω :: Real, sc :: SurrogateContainer, descent_all :: Bool 
+    ) where{ R<:Real, F<:Real }
+    
     global backtrack_factor, max_backtrack;
 
     x₊ = x .+ step_size .* dir
@@ -41,15 +42,15 @@ function backtrack( x :: V, f_x :: V, dir :: V, step_size :: F, ω :: F,
 end
 
 @doc """
-    get_initial_step( dir :: Vector{R}, Δ :: R )
+    get_initial_step( dir :: Vector{R}, Δ :: Real )
 
 Return the ∞-normed direction and a stepsize σ, so that
-* σ is the minimum of `Δ` and `norm(dir,Inf)` if any of those values is less than 1.0
+* σ is the minimum of `Δ` and `norm(dir,Inf)` if any of those values is less than 1
 * or σ is Δ elsewise.
 """
-function get_initial_step( dir :: Vector{Float64}, Δ :: Float64 )
+function get_initial_step( dir :: Vector{R} where R<:Real, Δ :: Real )
     d_norm = norm(dir,Inf);
-    step_size = (d_norm + 1e-10 < 1.0 || Δ <= 1.0) ? min( Δ, d_norm) : Δ;
+    step_size = (d_norm + 1e-10 < 1 || Δ <= 1) ? min( Δ, d_norm) : Δ;
     scaled_dir = dir ./ d_norm;
     return scaled_dir, step_size
 end
@@ -69,9 +70,9 @@ function steepest_direction( x :: Vector{R} where R<:Real,
 
     @variable(prob, d[1:n_vars] )   # direction vector
     @constraint(prob, descent_contraints, ∇m*d .<= α)
-    @constraint(prob, norm_constraints, -1.0 .<= d .<= 1.0);
+    @constraint(prob, norm_constraints, -1 .<= d .<= 1);
     if constrained
-        @constraint(prob, box_constraints, 0.0 .<= x .+ d .<= 1.0 )
+        @constraint(prob, box_constraints, 0 .<= x .+ d .<= 1 )
     end
     try
         JuMP.optimize!(prob)
@@ -101,9 +102,9 @@ function compute_descent_direction( type::Val{:steepest},
     ∇m = get_jacobian( sc, x )
     d, ω = steepest_direction( x , ∇m, problem.is_constrained )
 
-    ω = problem.is_constrained ? min( ω, 1.0 ) : ω
+    ω = problem.is_constrained ? min( ω, 1 ) : ω
     dir, step_size = get_initial_step( d, Δ )
-    x₊, m_x₊, dir = backtrack(x, f_x, dir, step_size, ω, sc, all_objectives_descent)
+    x₊, m_x₊, dir = backtrack(x, dir, step_size, ω, sc, all_objectives_descent)
 
     # safeguard if something went wrong in descent step calculation
     x₊ = intobounds(x₊, Val(problem.is_constrained))
@@ -120,10 +121,10 @@ function compute_descent_direction( type::Val{:cg},
     max_iter = n_vars;
 
     # initialization
-    d = dir = zeros(Float64, n_vars);
+    d = dir = zeros(valtype(c), n_vars);
     x₊ = copy(x);
     m_x₊ = f_x;
-    ω = 1.0;
+    ω = 1;
     for k = 1 : max_iter
         ∇m = get_jacobian( sc, x₊)
         v, ω₊ = steepest_direction( x , ∇m, problem.is_constrained )
@@ -132,7 +133,7 @@ function compute_descent_direction( type::Val{:cg},
         d = v .+ β .* d
 
         dir_0, step_size = get_initial_step( d, Δ )
-        x₊, m_x₊, dir  = backtrack(x₊, f_x, dir_0, step_size, ω₊, sc, all_objectives_descent)
+        x₊, m_x₊, dir  = backtrack(x₊, dir_0, step_size, ω₊, sc, all_objectives_descent)
 
         ω = ω₊;
         #@show ω
@@ -169,12 +170,12 @@ function compute_descent_direction( type::Val{:ps},
     r = - image_direction;
     m_x = eval_models( sc, x )
     lb, ub = effective_bounds_vectors( x, Δ, Val(problem.is_constrained));
-    x_0 = [0.0; intobounds(x, lb, ub)]
+    x_0 = [0; intobounds(x, lb, ub)]
 
     opt_objf = function( χ, g )
         if !isempty(g)
-            g[1] = 1.0
-            g[2:end] .= 0.0
+            g[1] = 1
+            g[2:end] .= 0
         end
         return χ[1]
     end
@@ -231,7 +232,7 @@ function compute_descent_direction( type::Val{:direct_search},
 
     if any( image_direction .>= 0 )
         # deem x critical point
-        ω = 0.0;
+        ω = 0;
         dir = zeros(n_vars);
         x₊ = x; m_x₊ = f_x;
     else
@@ -248,22 +249,22 @@ function compute_descent_direction( type::Val{:direct_search},
             # slightly adapted version of directed search (allow only non-anscent directions)
             @variable(prob, D[1:n_vars] )
             @objective(prob, Min, sum(( ∇m * D .- image_direction ).^2) )
-            @constraint(prob, norm_constraint, -1.0 .<= D .<= 1.0)
+            @constraint(prob, norm_constraint, -1 .<= D .<= 1)
             @constraint(prob, descent, ∇m*D .<= 0)
             if problem.is_constrained
-                @constraint(prob, global_constraint, 0.0 .<= x .+ D .<= 1.0 )
+                @constraint(prob, global_constraint, 0 .<= x .+ D .<= 1 )
             end
             JuMP.optimize!(prob)
             d = value.(D)
             
             #=
             # This probably corresponds best to directed search
-            @variable(prob, 0.0 <= λ <= 1.0)
+            @variable(prob, 0 <= λ <= 1)
             @objective(prob, Max, λ )
             if problem.is_constrained
-                @constraint(prob, global_constraints, 0.0 .<= x .+ λ .* (∇m⁺ * image_direction) .<= 1.0 );
+                @constraint(prob, global_constraints, 0 .<= x .+ λ .* (∇m⁺ * image_direction) .<= 1 );
             end
-            @constraint(prob, norm_constraints, -1.0 .<= λ .* (∇m⁺ * image_direction) .<= 1.0 );
+            @constraint(prob, norm_constraints, -1 .<= λ .* (∇m⁺ * image_direction) .<= 1 );
             JuMP.optimize!(prob)
 
             λ_opt = value(λ)
@@ -274,9 +275,9 @@ function compute_descent_direction( type::Val{:direct_search},
         end
         dir, step_size = get_initial_step( d, Δ )
         # taking minimum of abs values because near critical points the signs get confused
-        ω = let o = minimum( abs.(∇m * dir) ); problem.is_constrained ? min( o, 1.0 ) : o end
+        ω = let o = minimum( abs.(∇m * dir) ); problem.is_constrained ? min( o, 1 ) : o end
 
-        x₊, m_x₊, dir = backtrack(x, f_x, dir, step_size, ω, sc, all_objectives_descent)
+        x₊, m_x₊, dir = backtrack(x, dir, step_size, ω, sc, all_objectives_descent)
     end
     #x₊ = intobounds(x₊, Val(problem.is_constrained))
 

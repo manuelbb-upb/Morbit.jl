@@ -89,11 +89,11 @@ function reset_database!( id :: IterData )
 end
 
 function prepare_iter_data!( config_struct :: AlgoConfig, 
-    x :: Vector{R} where R<:Real, f_x :: Vector{R} where R<:Real, Δ :: Float64)
+    x :: Vector{R}, f_x :: Vector{T}, Δ :: Real) where {R<:AbstractFloat,T<:AbstractFloat}
     # Initialize `IterData` object to store iteration dependent data and
     # provide `sites_db` and `values_db` as databases for evaluations
     if isnothing( config_struct.iter_data )
-        iter_data = IterData(
+        iter_data = IterData{R,T}(
             x = x,
             f_x = f_x,
             Δ = Δ,
@@ -106,7 +106,7 @@ function prepare_iter_data!( config_struct :: AlgoConfig,
         
     else
         # re-use old database entries to warm-start the optimization
-        iter_data = IterData(
+        iter_data = IterData{R,T}(
             x = x,
             f_x = f_x,
             Δ = Δ,
@@ -137,7 +137,9 @@ function prepare_iter_data!( config_struct :: AlgoConfig,
     nothing
 end
 
-function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector{ R } where{R<:Real }, f_x₀ :: Vector{ R } where{R<:Real } = Float64[])
+function optimize!(
+    config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector{ R }, f_x₀ :: Vector{ T } = Float16[]
+    ) where{R<:AbstractFloat, T<:AbstractFloat}
 
     # unpack parameters from settings object `config_struct`
     ## internal algorithm parameters:
@@ -203,7 +205,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
     surrogates = init_surrogates( config_struct );
 
     # enter optimization loop
-    iter_index = 0.0;
+    iter_index = 0;
     improvement_step = false; improvement_counter = 0;
     steplength = Δ;
     non_linear_indices = Int64[];
@@ -328,7 +330,7 @@ function optimize!( config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector
 
         # acceptance test ratio
         if isempty(problem.non_exact_indices)
-            ρ = 1.0
+            ρ = 1
         else
             if all_objectives_descent
                 ρ = minimum( (F_x .- F_x₊) ./ (F_x .- M_x₊) )
@@ -460,8 +462,8 @@ Return true if either `Δ` is big enough. Both conditions must be satisfied:
     • `Δ` is at least as large as `Δ_min`
     • `Δ >= Δ_critical` OR `stepsize >= stepsize_min`
 """
-function Δ_big_enough( Δ :: Float64, stepsize :: Float64;
-        Δ_min :: Float64, Δ_critical::Float64, stepsize_min :: Float64 )
+function Δ_big_enough( Δ :: Real, stepsize :: Real;
+        Δ_min :: Real, Δ_critical::Real, stepsize_min :: Real )
     return  Δ >= Δ_min && !(Δ < Δ_critical && stepsize < stepsize_min )
 end
 
@@ -477,8 +479,8 @@ function budget_okay( problem :: MixedMOP, improvement_step :: Bool )
     return true
 end
 
-function loop_check(Δ :: Float64, stepsize :: Float64, iter_index :: Float64;
-        Δ_min :: Float64, Δ_critical :: Float64, stepsize_min :: Float64,
+function loop_check(Δ :: Real, stepsize :: Real, iter_index :: Real;
+        Δ_min :: Real, Δ_critical :: Real, stepsize_min :: Real,
         max_iter :: Int64, improvement_step :: Bool )
     
     iterations_okay = iter_index < max_iter;

@@ -4,8 +4,8 @@ intobounds(x, ::Val{false}) = x
 intobounds(x, lb, ub) = min.( max.(lb, x), ub)  # project x into unit hypercube
 
 @doc "Effective boundaries taking global constraints and Δ into account."
-function effective_bounds_vectors( x :: Vector{R}, Δ :: Float64 , lb :: Union{R, Vector{R}},
-        ub :: Union{R, Vector{R}} ) where{R<:Real}
+function effective_bounds_vectors( x :: Vector{R}, Δ :: Real , lb :: Union{Real, Vector{L}},
+        ub :: Union{Real, Vector{U}} ) where{R<:Real, L<:Real,U<:Real}
     lb_eff = max.( lb, x .- Δ )
     ub_eff = min.( ub, x .+ Δ )
     return lb_eff, ub_eff
@@ -13,20 +13,22 @@ end
 
 @doc "Return arrays `lb_eff` and `ub_eff` that provide effective lower bounds
 on the current trust region while assuming unit hypercube boundaries."
-function effective_bounds_vectors(  x :: Vector{R}, Δ :: Float64, constrained::Val{true} ) where{R<:Real}
-    lb_eff, ub_eff = effective_bounds_vectors( x, Δ, 0.0, 1.0 )
+function effective_bounds_vectors(  x :: Vector{R}, Δ :: Real, constrained::Val{true} ) where{R<:Real}
+    lb_eff, ub_eff = effective_bounds_vectors( x, Δ, 0, 1 )
     return lb_eff, ub_eff
 end
 
 @doc "Return arrays `lb_eff` and `ub_eff` that provide effective lower bounds
 on the current trust region for unconstrained problems."
-function effective_bounds_vectors(x :: Vector{R}, Δ :: Float64, constrained::Val{false} ) where{R<:Real}
+function effective_bounds_vectors(x :: Vector{R}, Δ :: Real, constrained::Val{false} ) where{R<:Real}
     return x .- Δ, x  .+ Δ
 end
 
 @doc "Find the scalars σ₊,σ₋ that so that x + σ±*d intersects the variable boundaries."
-function intersect_bounds(x :: T, d :: T, lb :: T, ub :: T ) where{T<:Vector{Float64}}
-    non_zero = (d .!= 0.0); # TODO tolerance
+function intersect_bounds(x ::Vector{R} where R<:Real, d::Vector{R} where R<:Real,
+        lb::Vector{R} where R<:Real, ub::Vector{R} where R<:Real 
+    )
+    non_zero = (d .!= 0); # TODO tolerance
     if !any(non_zero)
         return Inf, -Inf
     else
@@ -43,8 +45,8 @@ function intersect_bounds(x :: T, d :: T, lb :: T, ub :: T ) where{T<:Vector{Flo
     end
 end
 
-function intersect_bounds( x :: Array{Float64,1}, d :: Array{Float64,1},
-        Δ :: Float64, constrained_flag :: Bool = true )
+function intersect_bounds( x :: Vector{R}, d :: Vector{D},
+        Δ :: Real, constrained_flag :: Bool = true ) where{R<:Real, D<:Real}
     lb, ub = effective_bounds_vectors( x, Δ , Val(constrained_flag));
     intersect_bounds(x, d, lb, ub)
 end

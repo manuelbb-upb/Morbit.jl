@@ -18,7 +18,7 @@ end
 
     max_evals :: Int64 = typemax(Int64);
 
-    model_config :: Union{ Nothing, C } where {C <: ModelConfig } = nothing;
+    model_config :: Union{ Nothing, C } where{C <: ModelConfig } = nothing;
 
     function_handle :: Union{T, Nothing} where{T <: Function}  = nothing
 
@@ -35,9 +35,9 @@ end
     reverse_sorting :: Vector{Int64} = [];
     non_exact_indices ::Vector{Int64} = [];     # indices of vector returned by `eval_all_objectives` corresponding to non-exact objectives
 
-    x_0 :: Vector{Float64} = [];
-    lb :: Union{Nothing,Vector{Float64}} = nothing;
-    ub :: Union{Nothing,Vector{Float64}} = nothing;
+    x_0 :: Vector{R} where R<:AbstractFloat = Float64[]; # TODO remove?
+    lb :: Union{Nothing,Vector{R} where R<:AbstractFloat} = nothing;
+    ub :: Union{Nothing,Vector{R} where R<:AbstractFloat} = nothing;
     is_constrained = begin
         !( isnothing(lb) || isnothing(ub) ) && 
         !( isempty(lb) || isempty(ub) )
@@ -51,27 +51,29 @@ Broadcast.broadcastable(m::MixedMOP) = Ref(m);
 ##################### INNER SETTINGS #########################################
 
 # collectible data during iterations (used for plotting and analysis)
-@with_kw mutable struct IterData
+@with_kw mutable struct IterData{R<:AbstractFloat, T<:AbstractFloat}
     # "global" data (used in each iteration)
-    x :: Vector{Float64} = []  # current iteration site
-    f_x :: Vector{Float64} = []  # true objective values at current iterate,
+    x :: Vector{R};  # current iteration site
+    f_x :: Vector{T}; # true objective values at current iterate,
     x_index :: Int64 = 0;
-    Δ :: Float64 = 0.0;
-    sites_db :: Vector{Vector{Float64}} = []; # array of all sites that have been evaluated (RBF or Lagrange)
-    values_db :: Vector{Vector{Float64}} = []; # array of all true values computed so far
+    Δ :: Real = 0;
+    sites_db :: Vector{Vector{R}} = Vector{R}[]; # array of all sites that have been evaluated (RBF or Lagrange)
+    values_db :: Vector{Vector{T}} = Vector{T}[]; # array of all true values computed so far
 
     model_meta :: Array{Any,1} = Any[]; # iteration dependent surrogate data
 
     # Arrays (1 entry per iteration)
     iterate_indices :: Vector{ Int64 } = [];
     trial_point_indices :: Vector{Int64} = [];
-    stepsize_array :: Vector{Float64} = [];  # a bit redundant, since iterates are given
-    Δ_array :: Vector{Float64} = [];
-    ω_array :: Vector{Float64} = [];
-    ρ_array :: Vector{Float64} = [];
+    stepsize_array :: Vector{R} = Float64[];  # a bit redundant, since iterates are given
+    Δ_array :: Vector{Float64} = Vector{Float64}[]  # using Float64 here because it just store information
+    ω_array :: Vector{Float64} = Vector{Float64}[]
+    ρ_array :: Vector{Float64} = Vector{Float64}[]
     num_crit_loops_array :: Vector{Int64} = [];
 end
 Broadcast.broadcastable(id :: IterData) = Ref(id);
+decision_type( :: IterData{R,T}) where{R,T} = R 
+image_type(:: IterData{R,T} ) where{R,T} = T
 
 @with_kw mutable struct AlgoConfig
 
@@ -85,18 +87,18 @@ Broadcast.broadcastable(id :: IterData) = Ref(id);
     max_evals :: Int64 = typemax(Int64);    # maxiumm number of expensive function evaluations
 
     descent_method :: Symbol = :steepest # :steepest, :cg, :ps (Pascoletti-Serafini) or :direct_search 
-    ideal_point :: Vector{Float64} = [];
-    image_direction :: Vector{Float64} = [];
-    θ_ideal_point :: Float64 = 1.5;
+    ideal_point :: Vector{T} where T<:Real = Float16[];
+    image_direction ::Vector{T} where T<:Real = Float16[];
+    θ_ideal_point :: Real = Float16(1.5);
 
     all_objectives_descent :: Bool = false;  # compute ρ as the minimum of descent ratios for ALL objetives
 
     radius_update :: Symbol = :standard # :standard or :steplength
 
     # criticallity parameters
-    μ :: Float64 = 2e3;
-    β :: Float64 = 1e3;
-    ε_crit :: Float64 = 1e-3;
+    μ :: Real = Float16(2e3);
+    β :: Real = Float16(1e3);
+    ε_crit :: Real = Float16(1e-3);
     max_critical_loops :: Int64 = 10;
 
     # User benchmark functions for stopping
@@ -104,21 +106,21 @@ Broadcast.broadcastable(id :: IterData) = Ref(id);
     # TODO other functions that depend on Δ, ρ or somesuch
 
     # acceptance parameters
-    ν_success :: Float64 = 0.4;
-    ν_accept :: Float64 = 0.0;
+    ν_success :: Real = Float16(0.4);
+    ν_accept :: Real = Float16(0.0);
     # trust region update parameters
-    γ_crit :: Float64 = 0.5; # scaling factor for Δ in criticallity test
-    γ_grow :: Float64 = 2;
-    γ_shrink :: Float64 = 0.75;
-    γ_shrink_much :: Float64 = 0.501;
+    γ_crit :: Real = Float16(0.5); # scaling factor for Δ in criticallity test
+    γ_grow :: Real = Float16(2);
+    γ_shrink :: Real = Float16(0.75);
+    γ_shrink_much :: Real = Float16(0.501);
 
-    Δ₀ :: Float64 = 0.1;
-    Δ_max :: Float64 = 1.0;
+    Δ₀ :: Real = Float16(0.1);
+    Δ_max :: Real = Float16(1.0);
 
     # additional stopping criteria (mostly inspired by thoman)
-    Δ_critical = 1e-4;
-    Δ_min = Δ_critical * 1e-3;
-    stepsize_min = Δ_critical * 1e-2;   # stop if Δ < Δ_critical & step_size < stepsize_min
+    Δ_critical :: Real = Float16(1e-4);
+    Δ_min :: Real = Δ_critical * Float16(1e-3);
+    stepsize_min :: Real = Δ_critical * Float16(1e-2);   # stop if Δ < Δ_critical & step_size < stepsize_min
     # NOTE thomann uses stepsize in image space due to PS scalarization
 
     use_eval_database :: Bool = true; # NOTE this was a quick hack!! don't use when employing different surrogates

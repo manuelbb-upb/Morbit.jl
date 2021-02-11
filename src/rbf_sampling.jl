@@ -52,7 +52,7 @@ function RBFModel( cfg :: RbfConfig, objf :: VectorObjectiveFunction, meta :: RB
    return model
 end
 
-function Z_from_Y( Y :: Array{Float64,2} )
+function Z_from_Y( Y :: Array{R,2} where R<:Real )
     Q,_ = qr(Y);
     Z = Q[:, size(Y,2) + 1 : end];
     if size(Z,2) > 0
@@ -65,9 +65,10 @@ end
 
 If each site is in `\\mathbb R^n` than at most `n+1` sites will be returned."""
 function find_affinely_independent_points(
-       sites_array:: Vector{Vector{Float64}}, x :: Vector{Float64}, Δ :: Float64,
-       θ_pivot ::Float64 , x_in_sites :: Bool, Y :: TY where TY <: Array{Float64,2},
-       Z :: TZ where TZ <: Array{Float64,2} )
+       sites_array:: Vector{Vector{R}}, x :: Vector{R}, Δ :: Real,
+       θ_pivot :: Real , x_in_sites :: Bool, Y :: AbstractArray{F,2} where F<:Real,
+       Z :: Array{F,2}  where F<:Real 
+    ) where R<:Real
 
    n_vars = length(x);
 
@@ -119,14 +120,15 @@ end
 
 
 function find_affinely_independent_points(
-       sites_array:: Vector{Vector{Float64}}, x :: Vector{Float64}, Δ :: Float64 = 0.1,
-       θ_pivot :: Float64 = 1e-3, x_in_sites :: Bool = false )
-   n_vars = length(x);
+        sites_array:: Vector{Vector{R}}, x :: Vector{R}, Δ :: Real = Float16(0.1),
+        θ_pivot :: Real = Float16(1e-3), x_in_sites :: Bool = false 
+    ) where R<:Real
+    n_vars = length(x);
 
-   Y = Matrix{Float64}(undef, n_vars, 0);    # initializing a 0-column matrix enables hstacking without problems
-   Z = zeros(Float64, n_vars, n_vars ) + I(n_vars);
+    Y = Matrix{R}(undef, n_vars, 0);    # initializing a 0-column matrix enables hstacking without problems
+    Z = zeros(R, n_vars, n_vars ) + I(n_vars);
 
-   find_affinely_independent_points( sites_array, x, Δ, θ_pivot, x_in_sites, Y, Z)
+    find_affinely_independent_points( sites_array, x, Δ, θ_pivot, x_in_sites, Y, Z)
 end
 
 @doc "Add points to model `m` and then train `m`."
@@ -203,7 +205,8 @@ end
 to the procedure described in (Wild,2008) by backtracking and Cholesky factorizations."
 function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction,
         meta_data :: RBFMeta, cfg :: RbfConfig, candidate_indices :: Vector{Int64},
-        config_struct :: AlgoConfig, chol :: Val{true} )
+        config_struct :: AlgoConfig, :: Val{true} 
+    )
     @unpack n_vars, Δ_max, iter_data, problem = config_struct;
     @unpack max_model_points, use_max_points, θ_enlarge_2, θ_pivot_cholesky = cfg;
     @unpack x, Δ, sites_db, values_db = iter_data;
@@ -221,7 +224,7 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction,
        R;
        zeros( size(Q,1) - size(R,1), size(R,2) )
     ]
-    Z = Q[:, min_num_sites( m ) + 1 : end ] # orthogonal basis for right kernel of Π, should be empty at this point i.e. == Matrix{Float64}(undef, size_Y + 1, 0)
+    Z = Q[:, min_num_sites( m ) + 1 : end ] # orthogonal basis for right kernel of Π, should be empty at this point i.e. == Matrix{R}(undef, size_Y + 1, 0)
 
     ZΦZ = Hermitian(Z'Φ*Z);
 
@@ -246,24 +249,31 @@ function add_points!( m :: RBFModel, objf :: VectorObjectiveFunction,
 
     N = max_model_points - length(m.training_sites)
     if use_max_points && N > 0
-       @info("Trying to actively sample $N additional sites to use full number of allowed sites.")
-       lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2, Val(problem.is_constrained));
-       seeds = m.training_sites;
-       additional_sites = Vector{Vector{Float64}}();
-       n_seeds = length(seeds)
-       for y ∈ drop( MonteCarloThDesign( min( n_seeds + N , max(100, n_seeds + 30*N)) , lb_eff, ub_eff, seeds ), n_seeds )  # NOTE factor 30 chosen at random
-           τ_y², Qy, Ry, Zy, Ly, Lyⁱ, Φy, Πy = test_y(m, y, φ₀, θ_pivot_cholesky, Q, R, Z, L, Lⁱ, Φ, Π )
-           if !isempty(Qy)
-               Q, R, Z, L, Lⁱ, Φ, Π = Qy, Ry, Zy, Ly, Lyⁱ, Φy, Πy
-               push!(additional_sites, y)
-               push!(m.training_sites, y)
-               N -= 1
-           end
+        @info("Trying to actively sample $N additional sites to use full number of allowed sites.")
+        lb_eff, ub_eff = effective_bounds_vectors(x, Δ_2, Val(problem.is_constrained));
+        seeds = m.training_sites;
+        additional_sites = Vector{Vector{valtype(x)}}();
+        n_seeds = length(seeds)
+        monte_carlo_iterator = drop( 
+            MonteCarloThDesign( 
+                min( n_seeds + N , max(100, n_seeds + 30*N)), 
+                lb_eff, ub_eff, seeds 
+            ),
+        n_seeds
+        ) 
+        for y ∈ monte_carlo_iterator # NOTE factor 30 chosen at random
+            τ_y², Qy, Ry, Zy, Ly, Lyⁱ, Φy, Πy = test_y(m, y, φ₀, θ_pivot_cholesky, Q, R, Z, L, Lⁱ, Φ, Π )
+            if !isempty(Qy)
+                Q, R, Z, L, Lⁱ, Φ, Π = Qy, Ry, Zy, Ly, Lyⁱ, Φy, Πy
+                push!(additional_sites, y)
+                push!(m.training_sites, y)
+                N -= 1
+            end
 
-           if N == 0
-               break;
-           end
-       end
+            if N == 0
+                break;
+            end
+        end
        # batch evaluate
        new_indices = eval_new_sites( config_struct, additional_sites )
        push!(meta_data.round4_indices, new_indices...)
@@ -309,7 +319,7 @@ function test_y(m, y, φ₀, θ_pivot_cholesky, Q, R, Z, L, Lⁱ, Φ, Π )
 
        Qy = [
            [ Q zeros( size(Q,1), 1) ];
-           [ zeros(1, size(Q,2)) 1.0 ]
+           [ zeros(1, size(Q,2)) 1 ]
        ] * Gᵀ
 
 
@@ -353,8 +363,9 @@ end
 
 @doc "Return a new site (possibly satisfying box constraints) along direction `d`
 eminating from `x` in box with radius `Δ`."
-function sample_new(constrained_flag :: Bool, x :: Vector{R}, Δ :: Float64,
-        direction :: Vector{D}, min_pivot_value :: Float64) where{ R <: Real ,D<:Real }
+function sample_new(constrained_flag :: Bool, x :: Vector{R}, Δ :: Real,
+        direction :: Vector{D}, min_pivot_value :: Real
+    ) where{ R<:Real, D<:Real }
 
     stepsizes = intersect_bounds(x, direction, Δ, constrained_flag)      # how much to move into positive, negative direction?
 
@@ -371,14 +382,15 @@ end
 
 @doc "Return `N` new samples along the directions given by the columns of `Z`.
 Return also (QR) updated matrices `Y` and `Z`."
-function get_new_sites( :: Val{:orthogonal}, N :: Int64, x :: Vector{Float64}, Δ :: Float64,
-        θ_pivot :: Float64, Y :: TY, Z :: TZ, constrained_flag :: Bool,
-        seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}}() )where{
-            TY <: AbstractArray, TZ <: AbstractArray }
+function get_new_sites( :: Val{:orthogonal}, N :: Int64, x :: Vector{R}, Δ :: Real,
+        θ_pivot :: Real, Y :: Array{F,2} where F<:Real, Z :: Array{F,2} where F<:Real,
+        constrained_flag :: Bool, seeds :: Vector{Vector{R}} = Vector{R}[] 
+    ) where{ R <: Real }
+
     n_vars = length(x);
     N = min( N, size(Z,2) );
 
-    additional_sites = Vector{Vector{Float64}}();
+    additional_sites = Vector{Vector{R}}();
     min_pivot = Δ * θ_pivot # * sqrt(n_vars);
     @info("\t Sampling at $(N) new sites in Δ = $Δ, pivot value is $min_pivot.")
     for i = 1 : N
@@ -396,14 +408,14 @@ end
 
 @doc "Use an iterator to sample `N` sites from a space-filling design (Crombecq, 2011).
 The sites must be sufficiently linearly independent. Return also updated `Y` and `Z`."
-function get_new_sites( :: Val{:monte_carlo}, N :: Int64, x :: Vector{Float64}, Δ :: Float64,
-        θ_pivot :: Float64, Y :: TY, Z :: TZ, constrained_flag :: Bool,
-        seeds :: Vector{Vector{Float64}} = Vector{Vector{Float64}} ) where{
-            TY <: AbstractArray, TZ <: AbstractArray }
+function get_new_sites( :: Val{:monte_carlo}, N :: Int64, x :: Vector{R}, Δ :: Real,
+        θ_pivot :: R, Y :: Array{F,2} where F<:Real, Z :: Array{F,2} where F<:Real, 
+        constrained_flag :: Bool, seeds :: Vector{Vector{R}} = Vector{R}[] 
+    ) where{ R<: Real}
     n_vars = length(x);
     lb_eff, ub_eff = effective_bounds_vectors(x, Δ, Val(constrained_flag));
 
-    additional_sites = Vector{Vector{Float64}}();
+    additional_sites = Vector{R}[];
     min_pivot = Δ * θ_pivot #* sqrt(n_vars)
     @info("\t Sampling at $(N) new sites in Δ = $Δ, pivot value is $min_pivot.")
     n_seeds = length(seeds)
@@ -558,13 +570,14 @@ function rebuild_rbf_model( config_struct :: AlgoConfig,
 
     # sample along carthesian coordinates
     ## collect sites in an array (new_sites) to profit from batch evaluation afterwards
-    Y = Matrix{Float64}(undef, n_vars, 0);
+    x_type = valtype(x);
+    Y = Matrix{x_type}(undef, n_vars, 0);
     n_evals_left = min(max_evals, cfg.max_evals) - numevals(objf) - 1;
     n_steps = Int64( min( n_vars, n_evals_left ) );
-    new_sites = Vector{Vector{Float64}}();
+    new_sites = Vector{x_type}[];
     for i = 1 : n_steps
-        direction = zeros(Float64, n_vars);
-        direction[i] = 1.0;
+        direction = zeros(x_type, n_vars);
+        direction[i] = 1;
         new_site = sample_new(true, x, Δ_1, direction, min_pivot)
         if !isempty(new_site)
             Y = hcat(Y, new_site .- x);

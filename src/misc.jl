@@ -7,17 +7,17 @@ randquart(n) = - ( 1 .- rand(n) ).^(1/5) .+ 1;
 randquart() = - ( 1 - rand() )^(1/5) + 1
 
 @doc "Return an enlargment factor `θ` that is sensible for [0,1]^n constrained problems."
-function sensible_θ( constrained :: Val{true}, θ :: Float64,
-        x :: Vector{Float64}, Δ :: Float64 )
+function sensible_θ( constrained :: Val{true}, θ :: Real,
+        x :: Vector{R}, Δ :: Real ) where R<:Real
     # Define `maximum_Δ` as
     # the smallest box radius so some step can be taken
     # whilst honoring the global box constraints [0,1]^n
-    maximum_Δ = max( maximum( x ), maximum(1.0 .- x ) )
+    maximum_Δ = max( maximum( x ), maximum(1 .- x ) )
     θ = min( θ, maximum_Δ / Δ )
 end
 
 # the above function is not necessary in unconstrained problems...
-sensible_θ(::Val{false}, θ::Float64, x::Vector{Float64}, Δ::Float64 ) = θ
+sensible_θ(::Val{false}, θ::Real, x::Vector{R} where R<:Real, Δ::Real ) = θ
 
 @doc "Return indices of sites in `sites_array` so that `x .- Δ <= site <= x .+ Δ`
 and exclude index of `x` if contained in `sites_array`."
@@ -57,7 +57,7 @@ end
 
 @doc "Evaluate the objective functions (referenced in `config_struct.problem`) at sites `additional_sites`
 and push the results to `config_struct.iter_data` arrays. Return indices of results in `sites_db`."
-function eval_new_sites( config_struct :: AlgoConfig, additional_sites :: Vector{Vector{Float64}})
+function eval_new_sites( config_struct :: AlgoConfig, additional_sites :: Vector{Vector{R}} where R<:Real)
    @unpack iter_data, problem = config_struct;
 
    @info("\t\tEvaluating at $(length(additional_sites)) new sites.")
