@@ -121,7 +121,7 @@ function compute_descent_direction( type::Val{:cg},
     max_iter = n_vars;
 
     # initialization
-    d = dir = zeros(valtype(c), n_vars);
+    d = dir = zeros(n_vars);
     x₊ = copy(x);
     m_x₊ = f_x;
     ω = 1;

@@ -12,6 +12,8 @@ import Base: isempty, Broadcast, broadcasted
 
 export optimize!
 
+include("shorthands.jl")
+
 include("Interfaces.jl");
 # import MOP structures and utilities; make key features available outside this module
 include("Surrogates.jl")
@@ -138,8 +140,8 @@ function prepare_iter_data!( config_struct :: AlgoConfig,
 end
 
 function optimize!(
-    config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector{ R }, f_x₀ :: Vector{ T } = Float16[]
-    ) where{R<:AbstractFloat, T<:AbstractFloat}
+        config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector{ R }, f_x₀ :: Vector{ T } = Float16[]
+    ) where{R<:Real, T<:Real}
 
     # unpack parameters from settings object `config_struct`
     ## internal algorithm parameters:

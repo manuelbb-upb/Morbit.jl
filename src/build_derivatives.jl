@@ -88,7 +88,7 @@ function get_jacobian( cfg :: Union{ExactConfig, TaylorConfig},
     if !isnothing(cfg.jacobian)
         return cfg.jacobian(x)
     else
-        return transpose( hcat( (g(x) for g ∈ cfg.gradients )... ) )
+        return transpose( hcat( (vec(g(x)) for g ∈ cfg.gradients )... ) )
     end
 end
 

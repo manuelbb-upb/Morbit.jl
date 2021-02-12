@@ -154,6 +154,7 @@ function find_poised_set(ε_accept :: R where R<:Real, start_basis :: Vector{Any
         Y = point_database[ box_indices ];
         lyᵢ, jᵢ = isempty(Y) ? (0,0) : findmax( abs.( eval_poly.(lagrange_basis[i],Y ) ) )
         if lyᵢ > ε_accept
+            @info "\t 1) It. $i: Recycling a point from the database."
             yᵢ = Y[jᵢ]
             push!(recycled_indices, box_indices[jᵢ])
             deleteat!(box_indices, jᵢ)
@@ -256,7 +257,6 @@ function improve_poised_set!( lagrange_basis :: Vector{Any},
             (abs_lᵢ, yᵢ, _) = optimize(opt, y₀)
 
             update_Λₖ₋₁ = abs_lᵢ > Λₖ₋₁;
-
             if abs_lᵢ > Λ   
                 # the algo works with any point satisfying `abs_lᵢ > Λ`
                 # we increase `iₖ` if it was pointing to a recycled site 

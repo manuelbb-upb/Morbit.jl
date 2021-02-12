@@ -35,9 +35,9 @@ end
     reverse_sorting :: Vector{Int64} = [];
     non_exact_indices ::Vector{Int64} = [];     # indices of vector returned by `eval_all_objectives` corresponding to non-exact objectives
 
-    x_0 :: Vector{R} where R<:AbstractFloat = Float64[]; # TODO remove?
-    lb :: Union{Nothing,Vector{R} where R<:AbstractFloat} = nothing;
-    ub :: Union{Nothing,Vector{R} where R<:AbstractFloat} = nothing;
+    x_0 :: RVec = Float64[]; # TODO remove?
+    lb :: Union{Nothing,RVec} = nothing;
+    ub :: Union{Nothing,RVec} = nothing;
     is_constrained = begin
         !( isnothing(lb) || isnothing(ub) ) && 
         !( isempty(lb) || isempty(ub) )

@@ -3,6 +3,8 @@ using Test
 
 const m = Morbit;
 
+# TODO test for different configurations (RbfConfig, LagrangeConfig etc.)
+
 @testset "Adding Objectives" begin
     global mop, lb, ub;
     global f1, f2, f3, F56, F78
