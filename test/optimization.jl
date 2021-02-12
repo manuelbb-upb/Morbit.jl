@@ -6,6 +6,7 @@ using Test
 
 #using Logging
 #global_logger(SimpleLogger(stdout, Logging.Debug))
+#%%
 @testset "1In1OutProblem_SteepestDescent" begin
 
     x0 = [5.0];
@@ -24,7 +25,7 @@ using Test
 
     ## 2) treat objective as expensive
     opt_settings = AlgoConfig(
-        max_iter = 20
+        max_iter = 30
     );
     mop = MixedMOP();
     add_objective!( mop, f1, :expensive )
@@ -46,7 +47,7 @@ using Test
 
     ## 2) treat objective as expensive
     opt_settings = AlgoConfig(
-        max_iter = 20
+        max_iter = 30
     );
     mop = MixedMOP( lb = [-8.0], ub = [8.0] );
     add_objective!( mop, f1, :expensive);
@@ -55,7 +56,7 @@ using Test
     @test x ≈ [ 0.0 ] atol=.1
 end
 
-
+#%%
 @testset "2In2OutProblem_Steepest_Descent" begin
     x0 = [ π , π^2 ]
     ub = 10 .* ones(2);
@@ -146,17 +147,17 @@ end
         @test x[1] ≈ x[2] atol = .1
     end
 end
-
+#%%
 
 @testset "direct_search" begin
     # 1D1D
     x0 = [5.0];
     f1(x) = x[1]^2;
 
-    for lb_ub ∈ [ ([],[]), ([-5.0], [5.0]), ([-10.0], [10.0])]
+    for lb_ub ∈ [ (Float32[],Float32[]), ([-5.0], [5.0]), ([-10.0], [10.0])]
         lb, ub = lb_ub
         for type ∈ [:cheap, :expensive ]
-            for ideal_point ∈ [[], [0.0]]
+            for ideal_point ∈ [Float32[], [0.0]]
                 opt_settings = AlgoConfig(
                     max_iter = 20,
                     descent_method = :direct_search,
