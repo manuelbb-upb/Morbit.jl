@@ -3,43 +3,46 @@ using LinearAlgebra: norm
 
 export monte_carlo_th, MonteCarloThDesign
 
+const RVec = Vector{R} where R<:Real;
+const RVecArr = Vector{Vector{R}} where R<:Real;
+
 @doc """
 Return the minium projected distance between two point vectors `p1` and `p2`,
 i.e. the minimum absolute value of the differences of the coordinates of `p1` and `p2`.
 """
-function projected_distance( p1 :: Vector{R}, p2 :: Vector{F} ) where {R<:Real,F<:Real}
+function projected_distance( p1 :: RVec, p2 :: RVec )
     minimum( abs.( p1 .- p2) )
 end
 
 @doc "Return array of projected distances for point `p1` against every point in `P`."
-function projected_distance( p1 :: Vector{R}, P :: Vector{Vector{F}} ) where {R<:Real,F<:Real}
+function projected_distance( p1 :: RVec, P :: RVecArr )
     [ projected_distance(p1, p2) for p2 ∈ P ]
 end
 
 @doc "Return array of projected distances for point `p1` against every point in `P`, but every value below `threshold` is set to `0.0`."
-function projected_distance_thresholded( p1 :: Vector{R}, P :: Vector{Vector{F}}, threshold :: Real = 0.1 ) where {R<:Real,F<:Real}
+function projected_distance_thresholded( p1 :: RVec, P :: RVecArr, threshold :: Real = 0.1 )
     pdist_array = projected_distance( p1, P );
     pdist_array[ pdist_array .< threshold ] .= 0
     return pdist_array
 end
 
 @doc "Return Euclidean distance from `p1` to every point in `P`."
-function distance( p1 :: Vector{R}, P :: Vector{Vector{F}} ) where {R<:Real,F<:Real}
+function distance( p1 :: RVec, P :: RVecArr )
     [ norm(p1 .- p2, 2) for p2 ∈ P ]
 end
 
 @doc "Objective function that is meant to be maximized by the sampling prodecure. Returns weighted sum of intersite and projected (thresholded) distance."
-function combined_objective( p1 :: Vector{R}, P :: Vector{Vector{F}}; 
+function combined_objective( p1 :: RVec, P :: RVecArr; 
         intersite_factor :: Real = 1.0, pdist_factor :: Real = 1.0,  pdist_threshold :: Real = .1 
-    ) where {R<:Real,F<:Real}
+    )
     idist = minimum( distance( p1, P ) );
     pdist = minimum( projected_distance_thresholded(p1, P, pdist_threshold) )
 
     intersite_factor * idist + pdist_factor * pdist
 end
 
-function combined_objective( candidates :: Vector{Vector{R}}, P :: Vector{Vector{F}},
-        pdist_threshold_tolerance :: Real = .5 ) where {R<:Real,F<:Real}
+function combined_objective( candidates :: RVecArr, P :: RVecArr,
+        pdist_threshold_tolerance :: Real = .5 )
     N = length(P);
     d = length(P[1]);
 
@@ -50,66 +53,69 @@ function combined_objective( candidates :: Vector{Vector{R}}, P :: Vector{Vector
     [ combined_objective(p1, P; intersite_factor = intersite_factor, pdist_factor = pdist_factor, pdist_threshold = pdist_threshold ) for p1 ∈ candidates ]
 end
 
-function bad_indices( set :: Vector{Vector{R}}, lb :: Vector{T}, ub = Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function bad_indices( set :: RVecArr, lb :: RVec, ub = RVec )
     [ any( s .< lb ) || any( s .> ub ) for s ∈ set]
 end
 
-function good_indices( set :: Vector{Vector{R}}, lb :: Vector{T}, ub = Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function good_indices( set :: RVecArr, lb :: RVec, ub = RVec )
     [ all( s .>= lb ) && any( s .<= ub ) for s ∈ set]
 end
 
-function discard_bad_seeds!( seeds :: Vector{Vector{R}}, lb :: Vector{T}, ub = Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function discard_bad_seeds!( seeds :: RVecArr, lb :: RVec, ub = RVec )
     bad_seeds = bad_indices( seeds, lb, ub )
     deleteat!(seeds, bad_seeds)
 end
 
-function scale_to_unit_square( p :: Vector{R}, lb :: Vector{T}, ub :: Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function scale_to_unit_square( p :: RVec, lb :: RVec, ub :: RVec )
     ( p .- lb ) ./ ( ub .- lb )
 end
 
-function scale_to_unit_square!( p :: Vector{R}, lb :: Vector{T}, ub :: Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function scale_to_unit_square!( p :: RVec, lb :: RVec, ub :: RVec )
      p .-= lb
      p ./= ( ub .- lb )
      return p
 end
 
-function scale_to_unit_square( P :: Vector{Vector{R}}, lb :: Vector{T}, ub :: Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function scale_to_unit_square( P :: RVecArr, lb :: RVec, ub :: RVec )
     [ scale_to_unit_square( p, lb, ub ) for p ∈ P ]
 end
 
-function scale_to_unit_square!( P :: Vector{Vector{R}}, lb :: Vector{T}, ub :: Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function scale_to_unit_square!( P :: RVecArr, lb :: RVec, ub :: RVec )
     [ scale_to_unit_square!( p, lb, ub ) for p ∈ P ]
 end
 
-function unscale_from_unit_square( p :: Vector{R}, lb :: Vector{T}, ub :: Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function unscale_from_unit_square( p :: RVec, lb :: RVec, ub :: RVec )
     lb .+ (ub .- lb) .* p
 end
 
-function unscale_from_unit_square!( p :: Vector{R}, lb :: Vector{T}, ub :: Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function unscale_from_unit_square!( p :: RVec, lb :: RVec, ub :: RVec )
     p .*= (ub .- lb)
     p .+= lb
 end
 
-function unscale_from_unit_square( P :: Vector{Vector{R}}, lb :: Vector{T}, ub :: Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function unscale_from_unit_square( P :: RVecArr, lb :: RVec, ub :: RVec )
     [ unscale_from_unit_square(p, lb, ub) for p ∈ P ]
 end
 
-function unscale_from_unit_square!( P :: Vector{Vector{R}}, lb :: Vector{T}, ub :: Vector{F} ) where {R<:Real,F<:Real,T<:Real}
+function unscale_from_unit_square!( P :: RVecArr, lb :: RVec, ub :: RVec )
     [ unscale_from_unit_square!(p, lb, ub) for p ∈ P ]
 end
 
 @doc """
-    monte_carlo_th( n_points :: Int64 = 10, n_dims :: Int64 = 2; seeds :: Vector{Vector{Real}} = [], spawn_factor :: Int64 = 50, pdist_threshold_tolerance :: Float64 = 0.5 )
+    monte_carlo_th( n_points = 10, n_dims = 2; seeds = [], spawn_factor = 50, pdist_threshold_tolerance = 0.5 )
 
-    Return an array of length `n_points` containing Real arrays representing points in space with `n_dims` dimensions.
-    The points are iteratively chosen from random point sets to maximize a space-filling criterion as described in
+    Return an array of length `n_points` containing real vectors 
+    representing points in space with `n_dims` dimensions.
+    The points are iteratively chosen from random point 
+    sets to maximize a space-filling criterion as described in
 
     "Surrogate Modelling of Computer Experiments with Sequential Experimental Design.", Crombecq, 2011
 
-    The returned point set is constructed starting with the points in `seeds`. If `seeds` is empty (default), then the singleton set containing the zero vector is used.
+    The returned point set is constructed starting with the points in `seeds`. 
+    If `seeds` is empty (default), then the singleton set containing the zero vector is used.
 """
 function monte_carlo_th( n_points :: Int64, n_dims :: Int64 ; 
-        seeds :: Vector{Vector{R}} where R<:Real = Vector{Vector{Float64}}(), 
+        seeds :: RVecArr = Vector{Vector{Float64}}(), 
         spawn_factor :: Int64 = 100, pdist_threshold_tolerance :: Real = 0.5 
     )
 
@@ -138,10 +144,10 @@ function monte_carlo_th( n_points :: Int64, n_dims :: Int64 ;
 end
 
 @doc "Scale the design returned by the unconstrained version of this function to the box defined by `lb` and `ub`."
-function monte_carlo_th( n_points :: Int64, lb = Vector{R}, ub = Vector{F}; 
-        seeds :: Vector{Vector{T}} = Vector{Vector{Float64}}(), 
+function monte_carlo_th( n_points :: Int64, lb = RVec, ub = RVec; 
+        seeds :: RVecArr = Vector{Vector{Float64}}(), 
         spawn_factor :: Int64 = 50, pdist_threshold_tolerance :: Real = 0.5, clean_seeds ::Bool = true 
-    ) where {R<:Real,F<:Real,T<:Real}
+    )
 
     if isempty( lb ) || isempty(ub)
         error( "Both lower and upper variable boundaries must be provided.")
@@ -162,7 +168,7 @@ function monte_carlo_th( n_points :: Int64, lb = Vector{R}, ub = Vector{F};
 end
 
 
-function score_arrays( P :: Vector{Vector{R}} ) where R<:Real
+function score_arrays( P :: RVecArr )
     np = length( P )
     idist_scores = zeros(np)
     pdist_scores = zeors(np)
@@ -177,9 +183,9 @@ end
 struct MonteCarloThDesign
     n_points :: Int64
     dims :: Int64
-    lb :: Vector{R} where R<:Real
-    ub :: Vector{R} where R<:Real
-    seeds :: Vector{Vector{R}} where R<:Real
+    lb :: RVec
+    ub :: RVec 
+    seeds :: RVecArr
 end
 
 function is_valid( des :: MonteCarloThDesign )
@@ -192,8 +198,8 @@ function MonteCarloThDesign( n_points :: Int64, dims :: Int64 )
     end
 end
 
-function MonteCarloThDesign( n_points :: Int64, lb :: T, ub :: T, 
-        seeds :: Vector{Vector{T}} where T<:Real = Vector{Float64}[]; clean_seeds = true 
+function MonteCarloThDesign( n_points :: Int64, lb :: RVec, ub :: RVec, 
+        seeds :: RVecArr = Vector{Float64}[]; clean_seeds = true 
     )
     
     if n_points >= 0
@@ -221,8 +227,8 @@ function Base.iterate( des :: MonteCarloThDesign )
     end
 end
 
-function Base.iterate( des :: MonteCarloThDesign, point_array :: Vector{Vector{R}} where R<:Real  
-    ) :: Union{ Nothing, Tuple{ Vector{R} where R<:Real, Vector{Vector{R}} where R<:Real } }
+function Base.iterate( des :: MonteCarloThDesign, point_array :: RVecArr  
+    ) :: Union{ Nothing, Tuple{ RVec, RVecArr } }
     
     n_points_so_far = length(point_array)
     if is_valid( des ) && n_points_so_far < des.n_points
