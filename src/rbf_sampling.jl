@@ -52,7 +52,7 @@ function RBFModel( cfg :: RbfConfig, objf :: VectorObjectiveFunction, meta :: RB
    return model
 end
 
-function Z_from_Y( Y :: Array{R,2} where R<:Real )
+function Z_from_Y( Y :: RMat )
     Q,_ = qr(Y);
     Z = Q[:, size(Y,2) + 1 : end];
     if size(Z,2) > 0
