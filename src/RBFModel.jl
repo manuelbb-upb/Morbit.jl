@@ -20,7 +20,7 @@ struct RbfModel <: SurrogateModel
 end
 Broadcast.broadcastable( M :: RbfModel ) = Ref(M);
 
-@with_kw mutable struct RbfConfig <: ModelConfig
+@with_kw mutable struct RbfConfig <: SurrogateConfig
     kernel :: Symbol = :cubic;
     shape_parameter :: Union{F where {F<:Function}, R where R<:Real} = 1;
     polynomial_degree :: Int64 = 1;
@@ -55,8 +55,8 @@ end
     round3_indices :: Vector{Int64} = [];
     round4_indices :: Vector{Int64} = [];
     fully_linear :: Bool = false;
-    Y :: Array{R,2} where R<:Real = Matrix{Float64}(undef, 0, 0);
-    Z :: Array{R,2} where R<:Real = Matrix{Float64}(undef, 0, 0);
+    Y :: RMat = Matrix{Real}(undef, 0, 0);
+    Z :: RMat = Matrix{Real}(undef, 0, 0);
 end
 
 fully_linear(m :: RBFModel) = m.fully_linear
@@ -72,10 +72,10 @@ end
 
 # use functions from base module for evaluation
 # (assumes that models are trained on the unit hypercube)
-eval_models( m :: RBFModel, x :: Vector{R} where R<:Real) = RBF.output(m, x)
-eval_models( m :: RBFModel, x :: Vector{R} where R<:Real, ℓ :: Int64) = RBF.output(m, ℓ, x)
-get_gradient( m :: RBFModel, x :: Vector{R} where R<:Real, ℓ :: Int64) = RBF.grad( m, ℓ, x )
-get_jacobian( m :: RBFModel, x :: Vector{R} where R<:Real ) = RBF.jac( m, x )
+eval_models( m :: RBFModel, x :: RVec) = RBF.output(m, x)
+eval_models( m :: RBFModel, x :: RVec, ℓ :: Int64) = RBF.output(m, ℓ, x)
+get_gradient( m :: RBFModel, x :: RVec, ℓ :: Int64) = RBF.grad( m, ℓ, x )
+get_jacobian( m :: RBFModel, x :: RVec ) = RBF.jac( m, x )
 
 include("rbf_sampling.jl")
 

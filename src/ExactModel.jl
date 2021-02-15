@@ -8,9 +8,8 @@
     objf_obj :: Union{Nothing, VectorObjectiveFunction} = nothing;
     unscale_function :: Union{Nothing, F where F<:Function} = nothing;
 end
-Broadcast.broadcastable( em :: ExactModel ) = Ref(em);
 
-@with_kw mutable struct ExactConfig <: ModelConfig
+@with_kw mutable struct ExactConfig <: SurrogateConfig
     gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :autodiff
 
     # alternative keyword, usage discouraged...

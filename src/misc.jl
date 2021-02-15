@@ -7,8 +7,7 @@ randquart(n) = - ( 1 .- rand(n) ).^(1/5) .+ 1;
 randquart() = - ( 1 - rand() )^(1/5) + 1
 
 @doc "Return an enlargment factor `θ` that is sensible for [0,1]^n constrained problems."
-function sensible_θ( constrained :: Val{true}, θ :: Real,
-        x :: Vector{R}, Δ :: Real ) where R<:Real
+function sensible_θ( constrained :: Val{true}, θ :: Real, x :: RVec, Δ :: Real )
     # Define `maximum_Δ` as
     # the smallest box radius so some step can be taken
     # whilst honoring the global box constraints [0,1]^n

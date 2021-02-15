@@ -15,7 +15,7 @@ using FileIO, JLD2;
 end
 Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
 
-@with_kw mutable struct LagrangeConfig <: ModelConfig
+@with_kw mutable struct LagrangeConfig <: SurrogateConfig
     degree :: Int64 = 1;
     θ_enlarge :: Real = 2;
 
@@ -29,7 +29,7 @@ Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
     # the basis is set by `prepare!`
     canonical_basis :: Union{ Nothing, Vector{Any} } = nothing
     # fields to enable unoptimized (stencil) sampling
-    stencil_sites :: Vector{Vector{R}} where R<:Real = Vector{Float64}[];
+    stencil_sites :: RVecArr = RVec[];
 
     # if optimized_sampling = false, shall we use saved sites?
     use_saved_sites :: Bool = true;
@@ -62,12 +62,12 @@ end
 
 # helper function to easily evaluate polynomial
 function eval_poly(p ::T where T<:Union{Monomial, Polynomial, Term, PolyVar},
-        x :: Vector{R} where R<:Real)
+        x :: RVec)
     return p( variables(p) => x ) 
 end
 # helper function to easily evaluate polynomial array for gradient
 function eval_poly(p::Vector{T} where T<:Union{Monomial, Polynomial, Term, PolyVar},
-    x :: Vector{R} where R<:Real)
+    x :: RVec)
     [g( variables(p) => x ) for g in p]
 end
 
@@ -126,9 +126,9 @@ end
     on those sites combined.
 """
 function find_poised_set(ε_accept :: R where R<:Real, start_basis :: Vector{Any}, 
-        point_database :: Vector{Vector{R}} where R<:Real,
-        x :: Vector{R} where R<:Real, Δ :: Real, x_index :: Int, box_lb :: Vector{R} where R<:Real,
-        box_ub :: Vector{R} where R<:Real; max_solver_evals = nothing :: Union{Nothing, Int})
+        point_database :: RVecArr,
+        x :: RVec, Δ :: Real, x_index :: Int, box_lb :: RVec,
+        box_ub :: RVec; max_solver_evals = nothing :: Union{Nothing, Int})
     # Algorithm 6.2 (p. 95, Conn)
     # # select or generate a poised set suited for interpolation
     # # also computes the lagrange basis functions
@@ -147,7 +147,7 @@ function find_poised_set(ε_accept :: R where R<:Real, start_basis :: Vector{Any
     p = length( lagrange_basis );
     p_init = length(box_indices);
 
-    new_sites = Vector{Vector{Float64}}();
+    new_sites = RVec[];
     recycled_indices = Int64[];
 
     for i = 1 : p
@@ -186,7 +186,7 @@ end
 
 # little helper for improvement of non-linear models below 
 # orthogonalize "start_basis" using "points"
-function lagrange_basis_from_points( start_basis :: Vector{Any}, points :: Vector{Vector{R}} where R<:Real )
+function lagrange_basis_from_points( start_basis :: Vector{Any}, points :: RVecArr )
     lagrange_basis = copy( start_basis )
     p = length( lagrange_basis );
 
@@ -221,11 +221,9 @@ end
     and `recycled_indices`.
 """
 function improve_poised_set!( lagrange_basis :: Vector{Any}, 
-        new_sites :: Vector{Vector{R}} where R<:Real, recycled_indices :: Vector{Int},
-        Λ :: Real,
-        point_database :: Vector{Vector{R}} where R<:Real, box_lb :: Vector{R} where R<:Real,
-        box_ub :: Vector{R} where R<:Real; max_solver_evals = nothing :: Union{Nothing, Int})
-       
+        new_sites :: RVecArr, recycled_indices :: Vector{Int},
+        Λ :: Real, point_database :: RVecArr, box_lb :: RVec,
+        box_ub :: RVec; max_solver_evals = nothing :: Union{Nothing, Int})
     
     n_vars = isempty(point_database) ? length(new_sites[1]) : length( point_database[1] );
     p = length(lagrange_basis);
@@ -431,11 +429,11 @@ end
 
 @doc "Return vector of evaluations for output `ℓ` of a (vector) Lagrange Model
 `lm` at scaled site `ξ`."
-function eval_models( lm :: LagrangeModel, ξ :: Vector{R} where R<:Real, ℓ :: Int64 )
+function eval_models( lm :: LagrangeModel, ξ :: RVec, ℓ :: Int64 )
    eval_poly( lm.lagrange_models[ℓ], ξ ) 
 end
 
-function get_gradient( lm :: LagrangeModel, ξ :: Vector{R} where R<:Real, ℓ :: Int64 )
+function get_gradient( lm :: LagrangeModel, ξ :: RVec, ℓ :: Int64 )
     grad_poly = differentiate.( lm.lagrange_models[ℓ], variables(lm.lagrange_models[ℓ] ) )
     grad = eval_poly(grad_poly, ξ)
     try 
@@ -449,11 +447,11 @@ function get_gradient( lm :: LagrangeModel, ξ :: Vector{R} where R<:Real, ℓ :
     return grad;
 end
 
-function eval_models( lm :: LagrangeModel, ξ :: Vector{R} where R<:Real)
+function eval_models( lm :: LagrangeModel, ξ :: RVec)
     vcat( [ eval_models(lm, ξ, ℓ) for ℓ = 1 : lm.n_out ]... )
 end
 
-function get_jacobian( lm :: LagrangeModel, ξ :: Vector{R} where R<:Real)
+function get_jacobian( lm :: LagrangeModel, ξ :: RVec)
     transpose( hcat( [ get_gradient(lm, ξ, ℓ) for ℓ = 1 : lm.n_out ]... ) )
 end
 
@@ -474,7 +472,7 @@ function improve!( lm::LagrangeModel, lmeta::LagrangeMeta, ac::AlgoConfig,
     lb_eff, ub_eff = effective_bounds_vectors( x, Δ_1, Val(problem.is_constrained) )   
 
     # reuse the poised set from before
-    new_sites = Vector{Vector{Float64}}();
+    new_sites = RVec[];
     recycled_indices = lmeta.interpolation_indices;
     #lagrange_basis = lmeta.lagrange_basis;
     lagrange_basis = lagrange_basis_from_points( cfg.canonical_basis, sites_db[ recycled_indices ] );

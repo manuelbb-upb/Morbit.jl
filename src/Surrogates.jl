@@ -3,8 +3,8 @@
 import Base.Broadcast: broadcastable, broadcasted
 using Parameters: @with_kw, @pack!, @unpack
 
-max_evals( m :: M where M <: ModelConfig ) = typemax(Int64);
-prepare!(::VectorObjectiveFunction, :: M where M<:ModelConfig , ::AlgoConfig) = nothing
+max_evals( m :: M where M <: SurrogateConfig ) = typemax(Int64);
+prepare!(::VectorObjectiveFunction, :: M where M<:SurrogateConfig , ::AlgoConfig) = nothing
 
 include("RBFModel.jl")
 include("TaylorModel.jl")

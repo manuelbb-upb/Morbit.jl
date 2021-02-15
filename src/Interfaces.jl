@@ -1,41 +1,21 @@
+abstract type AbstractConfig end;
+abstract type AbstractObjective <: Function end;
 
-abstract type ModelConfig end
-abstract type SurrogateModel end
-abstract type SurrogateMeta end
+include("SurrogateModelInterface.jl");
 
+include("objectives.jl")
 ###############  MULTIOBJECTIVE OPTIMIZATION PROBLEM DEFINITION ##############
-
-# Custom function to allow for batch evaluation outside of julia
-# or to exploit parallelized objective functions
-@with_kw struct BatchObjectiveFunction <: Function
-    function_handle :: Union{T, Nothing} where{T<:Function} = nothing
-end
-
-# Main type of function used internally
-@with_kw mutable struct VectorObjectiveFunction <: Function
-    n_out :: Int64 = 0;
-    n_evals :: Int64 = 0;   # true function evaluations (also counts fdm evaluations)
-
-    max_evals :: Int64 = typemax(Int64);
-
-    model_config :: Union{ Nothing, C } where{C <: ModelConfig } = nothing;
-
-    function_handle :: Union{T, Nothing} where{T <: Function}  = nothing
-
-    internal_indices :: Vector{Int64} = [];
-    problem_position :: Int64 = 0;
-end
 
 @with_kw mutable struct MixedMOP
     #vector_of_objectives :: Vector{ Union{ ObjectiveFunction, VectorObjectiveFunction } } = [];
-    vector_of_objectives :: Vector{ VectorObjectiveFunction } = [];
+    vector_of_objectives :: Vector{ AbstractObjective } = [];
     n_objfs :: Int64 = 0;
 
     internal_sorting :: Vector{Int64} = [];
     reverse_sorting :: Vector{Int64} = [];
     non_exact_indices ::Vector{Int64} = [];     # indices of vector returned by `eval_all_objectives` corresponding to non-exact objectives
 
-    x_0 :: RVec = Float64[]; # TODO remove?
+    x_0 :: RVec = Real[];
     lb :: Union{Nothing,RVec} = nothing;
     ub :: Union{Nothing,RVec} = nothing;
     is_constrained = begin
@@ -44,38 +24,36 @@ end
     end
 
     #store functions and n_out for research & debugging 
-    original_functions :: Vector{Tuple{F where F<:Function, Int}} = [];
+    original_functions :: Vector{Tuple{F where F<:Function, Int}} = []; # TODO check if ‘F where …‘ is necessary 
 end
 Broadcast.broadcastable(m::MixedMOP) = Ref(m);
 
 ##################### INNER SETTINGS #########################################
 
 # collectible data during iterations (used for plotting and analysis)
-@with_kw mutable struct IterData{R<:AbstractFloat, T<:AbstractFloat}
+@with_kw mutable struct IterData
     # "global" data (used in each iteration)
-    x :: Vector{R};  # current iteration site
-    f_x :: Vector{T}; # true objective values at current iterate,
+    x :: RVec;  # current iteration site
+    f_x :: RVec; # true objective values at current iterate,
     x_index :: Int64 = 0;
     Δ :: Real = 0;
-    sites_db :: Vector{Vector{R}} = Vector{R}[]; # array of all sites that have been evaluated (RBF or Lagrange)
-    values_db :: Vector{Vector{T}} = Vector{T}[]; # array of all true values computed so far
+    sites_db :: RVecArray = RVec[]; # array of all sites that have been evaluated (RBF or Lagrange)
+    values_db :: RVecArray = RVec[]; # array of all true values computed so far
 
     model_meta :: Array{Any,1} = Any[]; # iteration dependent surrogate data
 
     # Arrays (1 entry per iteration)
     iterate_indices :: Vector{ Int64 } = [];
     trial_point_indices :: Vector{Int64} = [];
-    stepsize_array :: Vector{R} = Float64[];  # a bit redundant, since iterates are given
-    Δ_array :: Vector{Float64} = Vector{Float64}[]  # using Float64 here because it just store information
-    ω_array :: Vector{Float64} = Vector{Float64}[]
-    ρ_array :: Vector{Float64} = Vector{Float64}[]
+    stepsize_array :: Vector{R} = Real[];
+    Δ_array :: RVec = Real[]  
+    ω_array :: RVec = Real[]
+    ρ_array :: RVec = Real[]
     num_crit_loops_array :: Vector{Int64} = [];
 end
 Broadcast.broadcastable(id :: IterData) = Ref(id);
-decision_type( :: IterData{R,T}) where{R,T} = R 
-image_type(:: IterData{R,T} ) where{R,T} = T
 
-@with_kw mutable struct AlgoConfig
+@with_kw mutable struct AlgoConfig <: AbstractConfig
 
     n_vars ::Int64 = 0; # is reset during optimization
     n_objfs :: Int64 = 0; # total number of (scalarized) objectives
@@ -87,8 +65,8 @@ image_type(:: IterData{R,T} ) where{R,T} = T
     max_evals :: Int64 = typemax(Int64);    # maxiumm number of expensive function evaluations
 
     descent_method :: Symbol = :steepest # :steepest, :cg, :ps (Pascoletti-Serafini) or :direct_search 
-    ideal_point :: Vector{T} where T<:Real = Float16[];
-    image_direction ::Vector{T} where T<:Real = Float16[];
+    ideal_point :: RVec = Real[];
+    image_direction :: RVec = Real[];
     θ_ideal_point :: Real = Float16(1.5);
 
     all_objectives_descent :: Bool = false;  # compute ρ as the minimum of descent ratios for ALL objetives

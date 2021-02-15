@@ -7,7 +7,7 @@
 # (un)scale( mop :: MixedMop, x )
 # imported from "Objectives.jl" in "Surrogates.jl"
 
-@with_kw mutable struct TaylorConfig <: ModelConfig
+@with_kw mutable struct TaylorConfig <: SurrogateConfig
     n_out :: Int64 = 1; # used internally when setting hessians
     degree :: Int64 = 1;
 

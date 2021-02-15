@@ -1,34 +1,54 @@
 import Base: broadcasted
 
-numevals( objf :: VectorObjectiveFunction ) = objf.n_evals;
+# Custom function to allow for batch evaluation outside of julia
+# or to exploit parallelized objective functions
+@with_kw struct BatchObjectiveFunction <: Function
+    function_handle :: Union{Function, Nothing} = nothing
+end
+
+# Main type of function used internally
+@with_kw mutable struct VectorObjectiveFunction <: AbstractObjective
+    n_out :: Int64 = 0;
+    n_evals :: Int64 = 0;   # true function evaluations (also counts fdm evaluations)
+
+    max_evals :: Int64 = typemax(Int64);
+
+    model_config :: Union{ Nothing, SurrogateConfig } = nothing;
+
+    function_handle :: Union{T, Nothing} where{T <: Function}  = nothing
+
+    internal_indices :: Vector{Int64} = [];
+    problem_position :: Int64 = 0;
+end
+
+num_evals( objf :: VectorObjectiveFunction ) = objf.n_evals;
+function inc_evals!( objf :: VectorObjectiveFunction, N :: Int = 1 ) 
+    objf.n_evals += 1;
+end
+function num_evals!( objf :: VectorObjectiveFunction, N :: Int )
+    objf.n_evals = 0;
+end
+
 max_evals( objf:: VectorObjectiveFunction ) = objf.max_evals;
 # HELPER FUNCTIONS TO STAY IN FEASIBLE SET
 const ε_bounds = 1e-17; # tolerancy for projection into feasible set
 
 @doc "Put `x` back into box defined by `lb` and `ub`."
-function intobounds( x :: Vector{R}, lb::Vector{L}, ub :: Vector{U}, constrained :: Val{true} ) where{
-        R<:Real,L<:Real,U<:Real
-    }
+function intobounds( x :: RVec, lb :: RVec, ub :: RVec, constrained :: Val{true} ) 
     global ε_bounds
     return min.( max.(lb .+ ε_bounds, x), ub .- ε_bounds  )
 end
-intobounds( x :: Vector{R} where{R<:Real}, lb::Nothing, ub :: Nothing, :: Val{false} ) = x;
-intobounds( x :: Vector{R} where{R<:Real}, 
-    lb::Vector{L} where L<:Real, ub :: Vector{U} where U<:Real, :: Val{false} ) = x;
+intobounds( x :: RVec, lb :: Nothing, ub :: Nothing, :: Val{false} ) = x;
+intobounds( x :: RVec, lb :: RVec, ub :: RVec, :: Val{false} ) = x;
 
-function broadcasted( f::typeof(intobounds), X :: Vector{Vector{R}},
-        lb::Vector{L}, ub :: Vector{U}, constrained :: Union{Val{true}, Val{false}} ) where{
-            R<:Real,L<:Real,U<:Real
-            }
+function broadcasted( f::typeof(intobounds), X :: RVecArr, 
+        lb:: RVec, ub :: RVec, constrained :: Union{Val{true}, Val{false}}) 
     f.(X, Ref(lb), Ref(ub), constrained)
 end
 
 # this is required for BatchObjectiveFunction's
-function intobounds( X :: Vector{Vector{R}}, lb::Union{Nothing,Vector{L}}, 
-    ub :: Union{Nothing,Vector{U}},
-    constrained :: Union{Val{true}, Val{false}} )  where{
-            R<:Real,L<:Real,U<:Real
-        }
+function intobounds( X :: RVecArr, lb::Union{Nothing,RVec}, ub :: Union{Nothing,RVec},
+    constrained :: Union{Val{true}, Val{false}} ) 
     intobounds.(X,lb,ub,constrained)
 end
 
@@ -45,20 +65,20 @@ end
 
 # for 'usual' function evaluation calls (args = single vector)
 # simply delegate to function_handle
-function (objf:: VectorObjectiveFunction )(x :: Vector{R} where{R<:Real})
-    objf.n_evals += 1
+function (objf:: VectorObjectiveFunction )(x :: RVec)
+    inc_evals!(objf);
     objf.function_handle(x)
 end
 
-function broadcasted( objf::VectorObjectiveFunction, X :: Vector{Vector{R}} where R<:Real )
-    objf.n_evals += length(X);
+function broadcasted( objf::VectorObjectiveFunction, X :: RVecArr )
+    inc_evals!( objf, length(X) );
     objf.function_handle.(X)
 end
 
 function new_batch( func1 :: F, func2 :: T ) where{ F <:Function ,T <: Function }
     return BatchObjectiveFunction(
-        function( x :: Union{Vector{Vector{R}} , Vector{R}} ) where{R <: Real}
-            if isa( x, Vector{R})
+        function( x :: Union{ RVecArr, RVec } )
+            if isa( x, Rvec )
                 [ func1(x); func2(x) ]
             else
                 f1 = func1.(x)
@@ -83,10 +103,10 @@ function combine( objf1 :: VectorObjectiveFunction, objf2 :: VectorObjectiveFunc
     # Create a new function handle
     new_objf = VectorObjectiveFunction(
         n_out = objf1.n_out + objf2.n_out,
-        n_evals = max( objf1.n_evals, objf2.n_evals ),
-        max_evals = min( objf1.max_evals, objf2.max_evals),
+        n_evals = max( num_evals(objf1), num_evals(objf2) ),
+        max_evals = min( max_evals(objf1), max_evals(objf2),
         model_config = objf1.model_config,
-        function_handle = new_func( objf1.function_handle, objf2.function_handle ),
+        function_handle = new_func( base_function(objf1), base_function(objf2) ),
         internal_indices = [ objf1.internal_indices; objf2.internal_indices ],
     )
     return new_objf
@@ -100,7 +120,7 @@ function wrap_func( mop :: MixedMOP,  func :: T where{T <: Function}, batch_eval
 end
 
 function init_objective( mop :: MixedMOP, func :: T where{T <: Function},
-        model_config :: M where{M <: ModelConfig}, batch_eval :: Bool , n_out :: Int64 )
+        model_config :: M where{M <: SurrogateConfig}, batch_eval :: Bool , n_out :: Int64 )
     wrapped_func = wrap_func(mop, func, batch_eval)
 
     objf = VectorObjectiveFunction(;
@@ -142,7 +162,7 @@ end
 # # user methods
 @doc "Add a scalar objective to `mop::MixedMOP` modelled according to `model_config`."
 function add_objective!(mop :: MixedMOP, func :: T where{T <: Function},
-        model_config :: M where M <: ModelConfig; batch_eval = false )
+        model_config :: M where M <: SurrogateConfig; batch_eval = false )
     objf = init_objective( mop, func, model_config, batch_eval, 1 )
     
     push!( mop.original_functions, (func, 1) )
@@ -155,7 +175,7 @@ end
 # FUNCTIONS TO ADD VECTOR OBJECTIVES TO A MixedMOP
 @doc "Add a vector objective to `mop::MixedMOP` modelled according to `model_config`."
 function add_vector_objective!(mop :: MixedMOP, func :: T where{T <: Function},
-        model_config :: M where M <: ModelConfig; n_out :: Int64, batch_eval = false )
+        model_config :: M where M <: SurrogateConfig; n_out :: Int64, batch_eval = false )
     if n_out < 1
         error( "You must specify the number (positive integer) of outputs of
              `func` with the mandatory keyword argument) `n_out`.")
@@ -171,59 +191,57 @@ end
 
 
 # Helper functions …
-@doc "Set `n_evals` to 0 for each VectorObjectiveFunction in `m.vector_of_objectives`."
+@doc "Set evaluation counter to 0 for each VectorObjectiveFunction in `m.vector_of_objectives`."
 function reset_evals!(m :: MixedMOP)
     for objf ∈ m.vector_of_objectives
-        objf.n_evals = 0
+        num_evals!( objf, 0)
     end
 end
 
 function max_evals!( m :: MixedMOP, M :: Int64 )
     for objf ∈ m.vector_of_objectives
-        objf.max_evals = min( objf.max_evals, M )
+        max_evals!( objf, min( max_evals(objf), M ) )
     end
 end
 
 # to internally scale sites to the unit hypercube [0,1]^n
 # or unscale them based on variable boundaries given in a `MixedMOP`
-scale( mop :: MixedMOP, x :: Vector{R} where R<:Real , :: Val{true} ) = ( x .- mop.lb ) ./ ( mop.ub .- mop.lb );
-scale( mop :: MixedMOP, x :: Vector{R} where R<:Real, :: Val{false} ) = x
-scale( mop :: MixedMOP, x :: Vector{R} where R<:Real ) = scale( mop, x, Val( mop.is_constrained ) )
-function scale!( mop :: MixedMOP, x :: Vector{R} where R<:Real )
+scale( mop :: MixedMOP, x :: RVec, :: Val{true} ) = ( x .- mop.lb ) ./ ( mop.ub .- mop.lb );
+scale( mop :: MixedMOP, x :: RVec, :: Val{false} ) = x
+scale( mop :: MixedMOP, x :: RVec) = scale( mop, x, Val( mop.is_constrained ) )
+function scale!( mop :: MixedMOP, x :: RVec)
     x[:] = scale( mop, x, Val( mop.is_constrained ))
 end
 
-unscale( mop :: MixedMOP, x :: Vector{R} where R<:Real, :: Val{true} ) = mop.lb .+ ( x .* ( mop.ub .- mop.lb ) );
-unscale( mop :: MixedMOP, x :: Vector{R} where R<:Real, :: Val{false}) = x
-unscale( mop :: MixedMOP, x :: Vector{R} where R<:Real ) = unscale( mop, x, Val( mop.is_constrained ))
-function unscale!( mop :: MixedMOP, x :: Vector{R} where R<:Real )
+unscale( mop :: MixedMOP, x :: RVec, :: Val{true} ) = mop.lb .+ ( x .* ( mop.ub .- mop.lb ) );
+unscale( mop :: MixedMOP, x :: RVec, :: Val{false}) = x
+unscale( mop :: MixedMOP, x :: RVec) = unscale( mop, x, Val( mop.is_constrained ))
+function unscale!( mop :: MixedMOP, x :: RVec)
     x[:] = unscale( mop, x, Val( mop.is_constrained ))
 end
 
 # … to internally evaluate all objectives …
 # … at one single site `ξ` from the original domain
-function eval_all_objectives( mop :: MixedMOP, ξ :: Vector{R} where R<:Real, unscale :: Val{false} )
+function eval_all_objectives( mop :: MixedMOP, ξ :: RVec, unscale :: Val{false} )
     vcat( [ func(ξ) for func ∈ mop.vector_of_objectives ]... )
 end
 
 # … at one single (scaled) site `x`
-function eval_all_objectives( mop :: MixedMOP, x :: Vector{R} where R<:Real )
+function eval_all_objectives( mop :: MixedMOP, x :: RVec)
     ξ = unscale( mop, x )
     return eval_all_objectives( mop, ξ, Val(false))
 end
 
 # # custom broadcasts
 function broadcasted( f :: Union{ typeof(eval_all_objectives)}, mop :: MixedMOP, 
-        Ξ :: Vector{Vector{R}} where R<:Real, unscale :: Val{false} )
+        Ξ :: RVecArr, unscale :: Val{false} )
     [ vcat(z...) for z ∈ zip( [ func.(Ξ) for func ∈ mop.vector_of_objectives ]... ) ]
 end
 
-function broadcasted( f :: Union{ typeof(eval_all_objectives)}, mop :: MixedMOP, 
-        X :: Vector{Vector{R}} where R<:Real)
+function broadcasted( f :: Union{ typeof(eval_all_objectives)}, mop :: MixedMOP, X :: RVecArr )
     Ξ = unscale.(mop, X)
     f.(mop, Ξ, Val(false))
 end
-
 
 # Functions to sort image vectors from ℝ^n_objfs
 function set_sorting!(mop :: MixedMOP)
@@ -255,20 +273,20 @@ function check_sorting!(mop::MixedMOP)
 end
 
 @doc "Sort image vector `y` to correspond to internal objective sorting."
-function apply_internal_sorting(mop :: MixedMOP, y :: Vector{R} where R<:Real)
+function apply_internal_sorting(mop :: MixedMOP, y :: RVec)
     check_sorting!(mop)
     return y[mop.internal_sorting]
 end
 
 @doc "In place sort image vector `y` to correspond to internal objective sorting."
-function apply_interal_sorting!( mop :: MixedMOP, y :: Vector{R} where R<:Real )
+function apply_interal_sorting!( mop :: MixedMOP, y :: RVec)
     check_sorting!(mop)
     y[:] = y[mop.internal_sorting]
 end
 
 @doc "Sort image vector `y` to correspond to internal objective sorting and
 DON'T check indices."
-function apply_internal_sorting(mop :: MixedMOP, y :: Vector{R} where R<:Real, check :: Val{false} )
+function apply_internal_sorting(mop :: MixedMOP, y :: RVec, check :: Val{false} )
     y[mop.internal_sorting]
 end
 
@@ -276,12 +294,12 @@ end
 In-place sort image vector `y` to correspond to internal objective sorting
 and DON'T check indices.
 """
-function apply_internal_sorting!(mop :: MixedMOP, y :: Vector{R} where R<:Real, check :: Val{false} )
+function apply_internal_sorting!(mop :: MixedMOP, y :: RVec, check :: Val{false} )
     y[:] = y[mop.internal_sorting]
 end
 
 @doc "Reverse sorting of vector `y` to correspond to original objective sorting."
-function reverse_internal_sorting(mop :: MixedMOP, y :: Vector{R} where R<:Real)
+function reverse_internal_sorting(mop :: MixedMOP, y :: RVec)
     check_sorting!(mop)
     y[ mop.reverse_sorting ]
 end
@@ -290,21 +308,21 @@ end
 @doc """
 In-place reverse sorting of vector `y` to correspond to original objective sorting.
 """
-function reverse_internal_sorting!(mop :: MixedMOP, y :: Vector{R} where R<:Real)
+function reverse_internal_sorting!(mop :: MixedMOP, y :: RVec)
     check_sorting!(mop)
     y[ mop.reverse_sorting ]
 end
 
 @doc "Reverse sorting of vector `y` to correspond to original objective sorting and DON'T check indices."
-reverse_internal_sorting(mop :: MixedMOP, y :: Vector{R} where R<:Real, check :: Val{false} ) = y[mop.reverse_sorting]
-function reverse_internal_sorting!(mop :: MixedMOP, y :: Vector{R} where R<:Real, check :: Val{false} )
+reverse_internal_sorting(mop :: MixedMOP, y :: RVec, check :: Val{false} ) = y[mop.reverse_sorting]
+function reverse_internal_sorting!(mop :: MixedMOP, y :: RVec, check :: Val{false} )
     y[:] = y[mop.reverse_sorting]
 end
 
 # custom broadcast behavior for `apply_internal_sorting` and
 # `reverse_internal_sorting` to only check once for sorting
 function broadcasted( f :: Union{ typeof( apply_internal_sorting ), typeof(reverse_internal_sorting) },
-        mop :: MixedMOP, Y :: Vector{Vector{R}} where R<:Real )
+        mop :: MixedMOP, Y :: RVecArr )
     check_sorting!(mop)
     f.( mop, Y, Val(false))
 end
@@ -317,13 +335,13 @@ function check_non_exact_indices!(mop::MixedMOP)
 end
 
 @doc "Return components of `y` at `mop.non_exact_indices`."
-function expensive_components( y :: Vector{T} where{T<:Real}, mop :: MixedMOP)
+function expensive_components( y :: RVec, mop :: MixedMOP)
     check_non_exact_indices!( mop )
     y[ mop.non_exact_indices ]
 end
 
 @doc "Return components of `y` at `mop.non_exact_indices` and DON'T perform check if indices are set."
-function expensive_components( y :: Vector{T} where{T<:Real}, mop :: MixedMOP, check :: Val{ false } )
+function expensive_components( y :: RVec, mop :: MixedMOP, check :: Val{ false } )
     y[ mop.non_exact_indices ]
 end
 
@@ -333,7 +351,7 @@ end
     add_objective!( mop :: MixedMOP, func :: T where{T <: Function}, type :: Symbol = :expensive, n_out :: Int64 = 1, can_batch :: Bool = false )
 
 Add scalar-valued objective function `func` to `mop` structure.
-`func` must take an `Vector{R} where R<:Real` as its (first) argument, i.e. represent a function ``f: ℝ^n → ℝ``.
+`func` must take an `RVec` as its (first) argument, i.e. represent a function ``f: ℝ^n → ℝ``.
 `type` must either be `:expensive` or `:cheap` to determine whether the function is replaced by a surrogate model or not.
 
 If `type` is `:cheap` and `func` takes 1 argument only then its gradient is calculated by ForwardDiff.

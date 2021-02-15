@@ -115,8 +115,8 @@ end
     If `seeds` is empty (default), then the singleton set containing the zero vector is used.
 """
 function monte_carlo_th( n_points :: Int64, n_dims :: Int64 ; 
-        seeds :: RVecArr = Vector{Vector{Float64}}(), 
-        spawn_factor :: Int64 = 100, pdist_threshold_tolerance :: Real = 0.5 
+        seeds :: RVecArr = RVec[],  spawn_factor :: Int64 = 100, 
+        pdist_threshold_tolerance :: Real = 0.5 
     )
 
     n_seeds = length(seeds);
@@ -145,8 +145,8 @@ end
 
 @doc "Scale the design returned by the unconstrained version of this function to the box defined by `lb` and `ub`."
 function monte_carlo_th( n_points :: Int64, lb = RVec, ub = RVec; 
-        seeds :: RVecArr = Vector{Vector{Float64}}(), 
-        spawn_factor :: Int64 = 50, pdist_threshold_tolerance :: Real = 0.5, clean_seeds ::Bool = true 
+        seeds :: RVecArr = RVec[], spawn_factor :: Int64 = 50, 
+        pdist_threshold_tolerance :: Real = 0.5, clean_seeds ::Bool = true 
     )
 
     if isempty( lb ) || isempty(ub)
@@ -194,12 +194,12 @@ end
 
 function MonteCarloThDesign( n_points :: Int64, dims :: Int64 )
     if dims > 0 && n_points >= 0
-        MonteCarloThDesign( n_points, dims, zeros(dims), ones(dims), Vector{Vector{Float64}}() )
+        MonteCarloThDesign( n_points, dims, zeros(dims), ones(dims), RVec[] )
     end
 end
 
 function MonteCarloThDesign( n_points :: Int64, lb :: RVec, ub :: RVec, 
-        seeds :: RVecArr = Vector{Float64}[]; clean_seeds = true 
+        seeds :: RVecArr = RVec[]; clean_seeds = true 
     )
     
     if n_points >= 0

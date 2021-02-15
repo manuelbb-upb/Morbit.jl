@@ -19,7 +19,7 @@ include("Interfaces.jl");
 include("Surrogates.jl")
 
 export MixedMOP, add_objective!, add_vector_objective!,
-    ModelConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig
+    SurrogateConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig
 
 export AlgoConfig, IterData
 
@@ -30,10 +30,11 @@ include("saving.jl")
 
 #include("true_omega_calc.jl")
 
+isbadbound( :: Nothing ) = true;
+isbadbound( arr :: RVec ) = isempty(arr);
+
 function prepare_mop!( problem :: MixedMOP, cfg :: AlgoConfig )
      # make sure that the constraint flag is set correctly
-     isbadbound( :: Nothing ) = true;
-     isbadbound( arr :: Vector{R} where R<:Real ) = isempty(arr);
      if (isbadbound(problem.lb) && !isbadbound(problem.ub)) ||
          (!isbadbound(problem.lb) && isbadbound(problem.ub))
          error("Problem must be fully box constrained or unconstrained.")
@@ -90,12 +91,11 @@ function reset_database!( id :: IterData )
     nothing
 end
 
-function prepare_iter_data!( config_struct :: AlgoConfig, 
-    x :: Vector{R}, f_x :: Vector{T}, Δ :: Real) where {R<:AbstractFloat,T<:AbstractFloat}
+function prepare_iter_data!( config_struct :: AlgoConfig, x :: RVec, f_x :: RVec, Δ :: Real)
     # Initialize `IterData` object to store iteration dependent data and
     # provide `sites_db` and `values_db` as databases for evaluations
     if isnothing( config_struct.iter_data )
-        iter_data = IterData{R,T}(
+        iter_data = IterData(
             x = x,
             f_x = f_x,
             Δ = Δ,
@@ -108,7 +108,7 @@ function prepare_iter_data!( config_struct :: AlgoConfig,
         
     else
         # re-use old database entries to warm-start the optimization
-        iter_data = IterData{R,T}(
+        iter_data = IterData(
             x = x,
             f_x = f_x,
             Δ = Δ,
@@ -139,9 +139,7 @@ function prepare_iter_data!( config_struct :: AlgoConfig,
     nothing
 end
 
-function optimize!(
-        config_struct :: AlgoConfig, problem::MixedMOP, x₀::Vector{ R }, f_x₀ :: Vector{ T } = Float16[]
-    ) where{R<:Real, T<:Real}
+function optimize!(config_struct :: AlgoConfig, problem::MixedMOP, x₀ :: RVec, f_x₀ :: RVec = Float16[])
 
     # unpack parameters from settings object `config_struct`
     ## internal algorithm parameters:
