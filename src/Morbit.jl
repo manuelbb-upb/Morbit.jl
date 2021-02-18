@@ -8,22 +8,35 @@ using NLopt
 using LinearAlgebra: norm, pinv
 
 using Parameters: @with_kw, @unpack, @pack!, reconstruct   # use Parameters package for structs with default values and keyword initializers
-import Base: isempty, Broadcast, broadcasted
+#import Base: isempty, Broadcast, broadcasted
 
-export optimize!
+using MathOptInterface;
+const MOI = MathOptInterface;  # for AbstractMOP and its implementation MixedMOP 
 
-include("shorthands.jl")
+import UUIDs;   # for MixedMOP 
+using Memoize: @memoize     # optimizations in MixedMOP;
+
+
+include("shorthands.jl");
 
 include("Interfaces.jl");
-# import MOP structures and utilities; make key features available outside this module
-include("Surrogates.jl")
+
+# agorithm configuration types (not interfaced - yet(?))
+include("ConfigurationStructs.jl");
+
+# interface implementations
+include("Surrogates.jl");   # includes concrete model implementations as well 
+include("VectorObjectiveFunction.jl");
+include("MixedMOP.jl");
+
+export optimize!
 
 export MixedMOP, add_objective!, add_vector_objective!,
     SurrogateConfig, ExactConfig, RbfConfig, TaylorConfig, LagrangeConfig
 
 export AlgoConfig, IterData
 
-include("constraints.jl")
+#include("constraints.jl")
 include("descent.jl")
 include("plotting.jl")
 include("saving.jl")

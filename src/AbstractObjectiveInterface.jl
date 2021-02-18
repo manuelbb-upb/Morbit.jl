@@ -1,16 +1,80 @@
-abstract type AbstractObjective end;
+# depends on abstract type SurrogateConfig & combinable( :: SurrogateConfig )
 
+Broadcast.broadcastable( objf::AbstractObjective ) = Ref( objf );
+
+include("BatchObjectiveFunction.jl");
+
+# MANDATORY METHODS
+"A general constructor."
+function _wrap_func( :: Type{<:AbstractObjective}, fn :: Function, 
+    model_cfg :: SurrogateConfig, n_vars :: Int, n_out :: Int ) :: AbstractObjective
+    nothing
+end
+
+_eval_handle(::AbstractObjective) = nothing :: Function;
+
+num_vars( :: AbstractObjective ) = nothing :: Int;
+
+"Number of calls to the original objective function."
 num_evals( :: AbstractObjective ) = 0 :: Int;
-max_evals( :: AbstractObjective) = typemax(Int) :: Int;
-
-# set evaluation counter to `N`
+"Set evaluation counter to `N`."
 num_evals!( :: AbstractObjective, N :: Int) = nothing :: Nothing;
-# increase evaluation count
-inc_evals!( :: AbstractObjective ) = nothing :: Nothing;
-# increase evaluation count by N
-inc_evals!( :: AbstractObjective, N :: Int ) = nothing :: Nothing;
 
-# set upper bound of № evaluations to `N`
-max_evals!( :: AbstractObjective, N :: Int ) = nothing :: Nothing;
+"Return surrogate configuration used to model the objective internally."
+model_cfg( :: AbstractObjective ) = nothing <:SurrogateConfig;
 
-base_function( :: AbstractObjective ) = nothing :: Function;
+"Combine two objectives. Only needed if `combinable` can return true."
+combine( ::AbstractObjective, :: AbstractObjective ) = nothing <:AbstractObjective;
+
+num_outputs( objf :: AbstractObjective ) = nothing :: Int;
+
+# DERIVED methods and defaults
+# can_batch( ::AbstractObjective ) = false :: Bool;
+
+"Evaluate the objective at provided site(s)."
+function eval_objf(objf :: AbstractObjective, x :: RVec )
+    _eval_handle(objf)(x)
+end
+
+# using Memoization here so that always the same function is returned
+# this should vastly speed up automatic differentiation 
+@memoize function _eval_handle( objf :: AbstractObjective, ℓ :: Int)
+    return (x :: RVec) -> _eval_handle( objf )(x)[ℓ]
+end
+    
+"(Soft) upper bound on the number of function calls. "
+max_evals( objf :: AbstractObjective) = max_evals( model_cfg(objf) );
+"Set upper bound of № evaluations to `N`"
+max_evals!( :: AbstractObjective, N :: Int ) = max_evals!( model_cfg(objf), N );
+
+"Increase evaluation count by `N`"
+function inc_evals!( objf :: AbstractObjective, N :: Int = 1 )
+    num_evals!( objf, num_evals(objf) + N )
+end
+
+"Evaluate the objective at provided site(s)."
+function (objf :: AbstractObjective )(x :: RVec )
+    inc_evals!( objf );
+    return eval_objf( objf, x );
+end
+
+combinable( objf :: AbstractObjective ) = combinable( model_cfg(objf) );
+function combinable( objf1 :: AbstractObjective, objf2 :: AbstractObjective )
+    return combinable( model_cfg( AbstractObjective) ) && 
+        model_cfg( objf1 ) == model_cfg( objf2 )
+end
+
+# generic combine function for abstract objectives
+function combine( objf1 :: T, objf2 :: T ) where{T<:AbstractObjective}
+    new_fn = combine( _eval_handle(objf1), _eval_handle( objf2 ) );
+    n_out = num_outputs( objf1 ) + num_outputs( objf2 );
+    new_config = combine( model_cfg(objf1), model_cfg(objf2) )
+    return _wrap_func( T, new_fn, new_config, num_vars(objf1), n_out );
+end
+
+#= TODO is needed?
+function Broadcast.broadcasted( objf :: AbstractObjective, X :: RVecArr )
+    inc_evals!( objf, length(X) );
+    return eval_objf.( objf, X )
+end
+=#

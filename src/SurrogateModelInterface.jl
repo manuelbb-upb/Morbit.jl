@@ -1,33 +1,39 @@
-# each surrogate model type is configured via a data structure 
-# that inherits from SurrogateConfig.
-# such a configuration struct should be exported my the module 
-abstract type SurrogateConfig end
-
 # make a configuration broadcastable
+Broadcast.broadcastable( sm::SurrogateModel ) = Ref(sm);
 Broadcast.broadcastable( sc::SurrogateConfig ) = Ref(sc);
 
 # Methods to be implemented by each type inheriting from SurrogateConfig
 max_evals( :: SurrogateConfig ) = typemax(Int) :: Int;
-
-# Abstract super type for meta data that is collected 
-# during build process
-abstract type SurrogateMeta end
+max_evals!( :: SurrogateConfig, :: Int ) = 0 :: Nothing;
 
 # return data that is stored in iter data in each iteration
-saveable(::SurrogateMeta) = nothing :: Union{Nothing, SurrogateMeta};
-
-# Abstract super type for the actual surrogate models
-abstract type SurrogateModel end
+# saveable(::SurrogateMeta) = nothing :: Union{Nothing, <:SurrogateMeta};
 
 fully_linear( :: SurrogateModel ) = false :: Bool;
 
-prepare!( :: AbstractObjective, :: SurrogateConfig, ::AbstractConfig ) = nothing :: Nothing;
+# prepare!( :: SurrogateConfig, :: AbstractObjective ) = nothing :: Nothing;
 
-# build the model using information from algorithm configuration,
-# the objective function and the configuration; 
-# `crit_flag` if we are in the criticality loop 
-function build_model( cfg :: AbstractConfig, objf :: AbstractObjective, 
-    ::SurrogateConfig, crit_flag :: Bool ) :: Tuple{SurrogateModel,SurrogateMeta}
-    nothing
+# can objective functions with same configuration types be combined 
+# to a new vector objective
+combinable( :: SurrogateConfig ) = false :: Bool     
+
+init_model( :: AbstractObjective, :: AbstractMOP, ac :: Any ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+update_model( :: AbstractObjective, :: AbstractMOP, ac :: Any, ::Bool ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+
+eval_models( :: SurrogateModel, ::RVec ) = nothing :: RVec
+get_gradient( :: SurrogateModel, ::RVec, :: Int ) = nothing :: RVec
+get_jacobian( :: SurrogateModel, :: RVec ) = nothing :: RMat
+
+# DEFAULTS
+
+# check if surrogate configurations are equal (only really needed if combinable)
+function Base.:(==)( cfg1 :: T, cfg2 :: T ) where T <: SurrogateConfig
+    all( getfield(cfg1, fname) == getfield(cfg2, fname) for fname in fieldnames(C) )
 end
 
+function Base.:(==)( cfg1 :: T, cfg2 :: F ) where {T <: SurrogateConfig, F<:SurrogateConfig}
+    false 
+end
+
+# only needed if combinable
+combine( :: SurrogateConfig, :: SurrogateConfig  ) = nothing :: SurrogateConfig;

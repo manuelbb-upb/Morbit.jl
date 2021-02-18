@@ -36,6 +36,8 @@ struct TaylorMeta <: SurrogateMeta end   # no construction meta data needed
 
 fully_linear( tm :: TaylorModel ) = true;
 
+num_outputs( tm :: TaylorModel ) = tm.n_out;
+
 max_evals( cfg :: TaylorConfig ) = cfg.max_evals;
 
 function prepare!(objf :: VectorObjectiveFunction, cfg :: TaylorConfig, ::AlgoConfig )
@@ -54,7 +56,7 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     @unpack problem = ac;
     @info "BUILDING TAYLOR MODEL"
     tm = TaylorModel(
-        n_out = objf.n_out,
+        n_out = num_outputs( objf ),
         degree = cfg.degree,
         unscale_function = x -> unscale(problem, x),
         x = unscale(problem, ac.iter_data.x),
@@ -62,7 +64,7 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     )
 
     do_hessians = tm.degree == 2;
-    for ℓ = 1 : tm.n_out
+    for ℓ = 1 : num_outputs( tm )
         push!( tm.g, objf.model_config.gradients[ℓ](tm.x) )
         if do_hessians
             push!( tm.H, objf.model_config.hessians[ℓ](tm.x) )
@@ -80,10 +82,10 @@ function eval_models( tm :: TaylorModel, ξ :: Vector{Float64} )
     return eval_models( tm :: TaylorModel, h, Val( tm.degree ) )
 end
 function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ::Val{1})
-    return vcat( [ tm.f_x[ℓ] + h'tm.g[ℓ] for ℓ=1:tm.n_out ]... )
+    return vcat( [ tm.f_x[ℓ] + h'tm.g[ℓ] for ℓ=1:num_outputs( tm ) ]... )
 end
 function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ::Val{2})
-    return vcat( [ tm.f_x[ℓ] + h'tm.g[ℓ] + .5 * h'tm.H[ℓ]*h for ℓ=1:tm.n_out ]...)
+    return vcat( [ tm.f_x[ℓ] + h'tm.g[ℓ] + .5 * h'tm.H[ℓ]*h for ℓ=1:num_outputs( tm ) ]...)
 end
 
 @doc "Return vector of evaluations for output `ℓ` of a (vector) Taylor model
@@ -111,7 +113,7 @@ end
 
 @doc "Return Jacobian matrix of (vector-valued) Taylor Model `tm` at scaled site `ξ`."
 function get_jacobian( tm :: TaylorModel, ξ :: Vector{Float64})
-    grad_list = [get_gradient(tm, ξ, ℓ) for ℓ=1:tm.n_out ]
+    grad_list = [get_gradient(tm, ξ, ℓ) for ℓ=1:num_outputs( tm ) ]
     return transpose( hcat( grad_list... ) )
 end
 

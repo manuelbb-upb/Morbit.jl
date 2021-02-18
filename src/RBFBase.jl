@@ -59,6 +59,8 @@ function min_num_sites( m :: RBFModel )
     end
 end
 
+n_out( m::RBFModel ) = length( m.training_values[end] );
+
 @doc "Return `true` if RBFModel `m` conforms to the requirements by [WILD]."
 is_valid( m :: RBFModel ) = m.polynomial_degree >= cpd_order( Val(m.kernel) ) - 1 &&
                             length(m.training_sites) >= min_num_sites(m);
@@ -163,8 +165,8 @@ end
 
 @doc "Compute the Jacobian matrix of the RBF part of the model"
 function rbf_jacobian( m::RBFModel, x :: RVec )
-    n_vars = length(m.training_sites[1]);
-    n_out = length(m.training_values[1]);
+    n_vars = n_in( m );
+    n_out = n_out( m );
 
     difference_vectors = x_minus_sites(m,x); # array with len n_sites and entries n_vars
     distances = norm.(difference_vectors)       # n_sites x 1
@@ -363,7 +365,7 @@ end
 function set_coefficients!( m :: RBFModel, coefficients :: AbstractArray{R} where R<:Real)
     pd = m.polynomial_degree
     n_vars = n_in(m);
-    n_out = length(m.training_values[1]);
+    n_out = n_out(m);
     n_sites = length( m.training_sites );
     if pd == -1
         m.rbf_coefficients = reshape(coefficients, (n_sites, n_out));

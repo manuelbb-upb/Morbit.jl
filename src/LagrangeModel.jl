@@ -74,6 +74,7 @@ end
 # Overwrite Type methods
 fully_linear( lm :: LagrangeModel ) = lm.fully_linear;
 max_evals( cfg :: LagrangeConfig ) = cfg.max_evals;
+num_outputs( lm :: LagrangeModel ) = lm.n_out;
 
 # helpers for the modifying functions (improve!, make_linear!)
 @doc "Modify first meta data object to equal second."
@@ -448,11 +449,11 @@ function get_gradient( lm :: LagrangeModel, ξ :: RVec, ℓ :: Int64 )
 end
 
 function eval_models( lm :: LagrangeModel, ξ :: RVec)
-    vcat( [ eval_models(lm, ξ, ℓ) for ℓ = 1 : lm.n_out ]... )
+    vcat( [ eval_models(lm, ξ, ℓ) for ℓ = 1 : num_outputs(lm) ]... )
 end
 
 function get_jacobian( lm :: LagrangeModel, ξ :: RVec)
-    transpose( hcat( [ get_gradient(lm, ξ, ℓ) for ℓ = 1 : lm.n_out ]... ) )
+    transpose( hcat( [ get_gradient(lm, ξ, ℓ) for ℓ = 1 : num_outputs(lm) ]... ) )
 end
 
 function make_linear!( lm::LagrangeModel, lmeta::LagrangeMeta, ac::AlgoConfig, 
@@ -513,7 +514,7 @@ function get_final_model( lagrange_basis :: Vector{T} where T,
     lagrange_models = sum( lagrange_basis[i] .* t_vals[i] for i = eachindex(lagrange_basis) );
 
     lmodel = LagrangeModel(
-        n_out = objf.n_out,
+        n_out = num_outputs( objf ),
         degree = degree,
         lagrange_models = lagrange_models,
         fully_linear = fully_linear

@@ -1,0 +1,294 @@
+# needs `AbstractObjective` (which in turn needs the Surrogate Interface)
+Broadcast.broadcastable( mop :: AbstractMOP ) = Ref( mop );
+
+# MANDATORY methods
+full_lower_bounds( :: AbstractMOP ) = nothing :: RVec;
+full_upper_bounds( :: AbstractMOP ) = nothing :: RVec;
+
+"Scale `x` to internal domain, e.g., the unit hypercube [0,1]^n."
+scale( :: AbstractMOP, x :: RVec ) = nothing :: RVec;
+
+"Unscale `x` from internal domain to original domain."
+unscale( :: AbstractMOP, x̂ :: RVec ) = nothing :: RVec;
+
+list_of_objectives( :: AbstractMOP ) = nothing :: Vector{<:AbstractObjective};
+
+"Remove an objective function from MOP."
+_del!(::AbstractMOP, ::AbstractObjective) = nothing :: Nothing;
+
+"Add an objective function to MOP with specified output indices."
+_add!(::AbstractMOP, ::AbstractObjective, ::Union{Nothing,Vector{Int}}) = nothing :: Nothing;
+
+# MOI METHODS 
+MOI.add_variable( :: AbstractMOP ) = nothing :: MOI.VariableIndex
+MOI.add_variables( :: AbstractMOP ) = nothing :: Vector{MOI.VariableIndex}
+
+MOI.get( :: AbstractMOP, :: MOI.NumberOfVariables ) = -1;
+MOI.get( :: AbstractMOP, :: MOI.ListOfVariableIndices) = -1;
+#MOI.get( :: AbstractMOP, :: MOI.ListOfConstraints ) = nothing :: Vector{Tuple{F,S}} where {F,S};
+
+MOI.supports_constraint( ::AbstractMOP, ::Type{MOI.SingleVariable}, ::Type{MOI.Interval}) = nothing ::Bool;
+MOI.add_constraint(::AbstractMOP, func::F, set::S) where {F,S} = nothing :: MOI.ConstraintIndex{F,S} 
+
+# DERIVED methods 
+num_vars( mop :: AbstractMOP ) = MOI.get( mop, MOI.NumberOfVariables() );
+
+"Number of scalar-valued objectives of the problem."
+function num_objectives( mop :: AbstractMOP )
+    let objf_list = list_of_objectives(mop);
+        isempty(objf_list) ? 0 : sum( num_outputs(objf) for objf ∈ objf_list )
+    end
+end
+
+function _scale!( x :: RVec, lb :: RVec, ub :: RVec )
+    for (i,var_bounds) ∈ enumerate(zip( lb, ub ))
+        if !(isinf(var_bounds[1]) || isinf(var_bounds[2]))
+            x[i] -= var_bounds[1]
+            x[i] /= ( var_bounds[2] - var_bounds[1] )
+        end
+    end
+    nothing
+end
+
+function _unscale!( x̂ :: RVec, lb :: RVec, ub :: RVec )
+    for (i,var_bounds) ∈ enumerate(zip( lb, ub ))
+        if !(isinf(var_bounds[1]) || isinf(var_bounds[2]))
+            # TODO: Make the component scaling memoized?
+            x̂[i] *= (var_bounds[2] - var_bounds[1]) 
+            x̂[i] += var_bounds[1];
+        end
+    end
+    nothing
+end
+
+"Scale variables fully constrained to a closed interval to [0,1] internally."
+function scale( mop :: AbstractMOP, x :: RVec )
+    x̂ = copy(x);
+    lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
+    _scale!(x̂, lb, u);
+    return x̂
+end
+
+"Reverse scaling for fully constrained variables from [0,1] to their former domain."
+function unscale( mop :: AbstractMOP, x̂ :: RVec )
+    x = copy(x̂);
+    lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
+    _unscale!(x, lb, ub);
+    return x
+end
+
+function scale!( mop :: AbstractMOP, x :: RVec )
+    lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
+    _scale!(x, lb, ub);    
+end
+
+function unscale!( mop :: AbstractMOP, x̂ :: RVec )
+    lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
+    _unscale!( x̂, lb, ub);
+end
+
+"Position of `objf` in `list_of_objectives(mop)`."
+function _objf_index( objf :: AbstractObjective, mop :: AbstractMOP)
+    return findfirst( list_of_objectives(mop) .== objf ); 
+end
+
+function output_indices( mop :: AbstractMOP )
+    all_outputs = Int[];
+    for objf ∈ list_of_objectives( mop )
+        push!( all_outputs, output_indices( objf, mop )...);
+    end
+    return all_outputs;
+end
+
+# this is overwritten by implementation MixedMOP because
+# we allow to delete and combine objectives 
+function output_indices( objf ::AbstractObjective, mop :: AbstractMOP ) 
+    return let first_index = _objf_index(objf,mop);
+    collect( first_index : first_index + num_outputs(objf) );
+    end
+end
+
+"Remove `objf` from `list_of_objectives(mop)` and return its output indices."
+function pop_objf!( mop :: AbstractObjective, objf :: AbstractObjective )
+    output_indices = output_indices( objf, mop );
+    _del!(mop, objf)
+    return output_indices
+end
+
+"Return lower variable bounds for scaled variables."
+function full_lower_bounds_internal( mop :: AbstractMOP )
+    [ isinf(l) ? l : 0.0 for l ∈ full_lower_bounds(mop) ];
+end
+
+"Return upper variable bounds for scaled variables."
+function full_upper_bounds_internal( mop :: AbstractMOP )
+    [ isinf(u) ? u : 0.0 for u ∈ full_upper_bounds(mop) ];
+end
+
+function full_bounds( mop :: AbstractMOP )
+    (full_lower_bounds(mop), full_upper_bounds(mop))
+end
+
+function full_bounds_internal( mop :: AbstractMOP )
+    (full_lower_bounds_internal(mop), full_upper_bounds_internal(mop))
+end
+
+"Return lower and upper bound vectors combining global and trust region constraints."
+function _local_bounds( x :: RVec, Δ :: Union{Real, RVec}, lb :: RVec, ub :: RVec )
+    lb_eff = max.( lb, x .- Δ );
+    ub_eff = min.( ub, x .+ Δ );
+    return lb_eff, ub_eff 
+end
+
+"Local bounds vectors `lb_eff` and `ub_eff` using scaled variable constraints from `mop`."
+function local_bounds( mop :: AbstractMOP, x :: RVec, Δ :: Union{Real, RVec} )
+    lb, ub = full_lower_bounds_internal( mop ), full_upper_bounds_internal( mop );
+    return _local_bounds( x, Δ, lb, ub );
+end
+
+"Return smallest positive and biggest negative and `σ₊` and `σ₋` so that `x .+ σ± .* d` stays within bounds."
+function _intersect_bounds( x :: RVec, d :: RVec, lb :: RVec, ub :: RVec )
+    non_zero_dir = ( d .!= 0);
+    if any( non_zero_dir )
+       # how much can we go in positive direction 
+        σ_lb = (lb[non_zero_dir] .- x[non_zero_dir]) ./ d[non_zero_dir];
+        σ_ub = (ub[non_zero_dir] .- x[non_zero_dir]) ./ d[non_zero_dir];
+       
+        # sort so that first column contains the smallest factor 
+        # we are allowed to move along each coordinate, second the largest factor
+        smallest_largest = sort( [σ_lb σ_ub], dims = 2 );    
+
+        σ_pos = minimum( smallest_largest[:, 2] );
+        σ_neg = maximum( smallest_largest[:, 1] );
+        return σ_pos, σ_neg
+    else
+        return typemin(valtype(x)), typemax(valtype(x))
+    end
+end
+
+function intersect_bounds( mop :: AbstractMOP, x :: RVec, Δ :: Union{Real, RVec}, d :: RVec )
+    lb_eff, ub_eff = local_bounds( mop, x, Δ );
+    return _intersect_bounds( x, d, lb_eff, ub_eff )
+end
+
+function _add_objective!( mop :: AbstractMOP, T :: Type{<:AbstractObjective},
+    func :: Function, model_cfg :: SurrogateConfig, n_out :: Int = 0, 
+    can_batch :: Bool = false )
+    
+    # making sure, that everything is a vector 
+    fvec = x -> vec( func(x) );
+
+    fx = can_batch ? BatchObjectiveFunction(fvec) : fvec;
+
+    objf = _wrap_func( T, fx, model_cfg, num_vars(mop), n_out );
+    
+    out_indices = let oi = output_indices(mop);
+        max_out = isempty( oi ) ? 1 : maximum( oi ) + 1;
+        collect(max_out : max_out + n_out - 1)
+    end;
+    for other_objf ∈ list_of_objectives(mop)
+        if combinable( objf, other_objf )
+            other_output_indices = pop_objf!( mop, other_objf );
+            out_indices = [other_output_indices; out_indices];
+            objf = combine(objf, other_objf);
+            break;
+        end
+    end
+    _add!(mop, objf, out_indices);
+    return num_objectives( mop ); 
+end
+
+"Return index vector so that an internal objective vector is sorted according to the order the objectives where added."
+function reverse_internal_sorting_indices(mop :: AbstractMOP) 
+    internal_indices = output_indices(mop);
+    return sortperm( internal_indices );
+end
+
+"Sort an interal objective vector so that the objectives are in the order in which they were added."
+function reverse_internal_sorting( ŷ :: RVec, mop :: AbstractMOP )
+    reverse_indices = reverse_internal_sorting_indices(mop)
+    return ŷ[ reverse_indices ];
+end
+
+# custom broadcast to only retrieve sorting indices once
+function Broadcast.broadcasted( :: typeof( reverse_internal_sorting ), mop :: AbstractMOP, Ŷ :: RVecArr )
+    reverse_indices = reverse_internal_sorting_indices(mop);
+    return [ ŷ[reverse_indices] for ŷ ∈ Ŷ];
+end
+
+# wrapper to unscale x̂ from internal domain and safeguard against boundary violations
+struct TransformerFn <: Function 
+    mop :: AbstractMOP
+end
+
+function _transform( x̂ :: RVec, lb :: RVec, ub :: RVec )
+    x = copy(x̂);
+    _unscale!(x, lb, ub);
+    return min.( max.( lb , x), ub )
+end
+
+function (sgf:: TransformerFn)( x :: RVec )
+    lb, ub = full_bounds( sgf.mop );
+    return _transform( x, lb, ub);
+end
+
+# special broadcast to only retrieve bounds once
+function Broadcast.broadcasted( sgf ::TransformerFn,  X :: RVecArr )
+    lb, ub = full_bounds(sgf.mop);
+    return [ _transform( x, lb, ub ) for x ∈ X ]
+end
+
+function _get_transformer_fn( mop :: AbstractMOP)
+    TransformerFn(mop)
+end
+
+"(Internally) Evaluate all objectives at site `x̂::RVec`. Objective order might differ from order in which they were added."
+function eval_all_objectives( mop :: AbstractMOP,  x̂ :: RVec )
+    x = _get_transformer_fn(mop)(x̂);
+    vcat( [ eval_objf( objf, x ) for objf ∈ list_of_objectives(mop) ]... )
+end
+
+"Evaluate all objectives at site `x̂::RVec` and sort the result according to the order in which objectives were added."
+function eval_and_sort_objectives(mop :: AbstractMOP, x̂ :: RVec)
+    ŷ = eval_all_objectives(mop, x̂);
+    return reverse_internal_sorting( ŷ, mop );
+end
+
+# Helper functions …
+@doc "Set evaluation counter to 0 for each VectorObjectiveFunction in `m.vector_of_objectives`."
+function reset_evals!(mop :: AbstractMOP)
+    for objf ∈ list_of_objectives( mop )
+        num_evals!( objf, 0)
+    end
+end
+
+function max_evals!( mop :: AbstractMOP, M :: Int64 )
+    for objf ∈ list_of_objectives(mop)
+        max_evals!( objf, min( max_evals(objf), M ) )
+    end
+end
+
+@memoize function internal_output_indices_of_type( mop :: AbstractMOP, T::Type{<:SurrogateConfig} )
+    indices = Int[];
+    offset = 1;
+    for ( objf_index, objf ) ∈ enumerate( mop.vector_of_objectives )
+        if isa( model_cfg(objf), T ) 
+            push!( indices, ( offset : (offset - 1 + num_outputs( objf ) ) )... )
+        end
+        index_counter += num_outputs(objf)
+    end
+    return indices
+end
+#=
+@doc "Set field `non_exact_indices` of argument `mop::MixedMOP`."
+function set_non_exact_indices!( mop :: MixedMOP )
+    mop.non_exact_indices = [];
+    index_counter = 1;
+    for ( objf_index, objf ) ∈ enumerate( mop.vector_of_objectives )
+        if !isa( objf.model_config, ExactConfig )
+            push!(mop.non_exact_indices, ( index_counter : ( index_counter + length(objf.internal_indices) - 1))...)
+        end
+        index_counter += length(objf.internal_indices);
+    end
+end
+=#

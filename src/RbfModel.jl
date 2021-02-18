@@ -9,7 +9,7 @@
 using Lazy: @forward
 
 include("RBFBase.jl")
-import .RBF: RBFModel, train!, is_valid, get_Π, get_Φ, φ, Π_col, as_second!, min_num_sites
+import .RBF: n_out, RBFModel, train!, is_valid, get_Π, get_Φ, φ, Π_col, as_second!, min_num_sites
 
 # wrapper to make RBFModel a subtype of SurrogateModel interface
 # # NOTE the distinction:
@@ -22,7 +22,7 @@ Broadcast.broadcastable( M :: RbfModel ) = Ref(M);
 
 @with_kw mutable struct RbfConfig <: SurrogateConfig
     kernel :: Symbol = :cubic;
-    shape_parameter :: Union{F where {F<:Function}, R where R<:Real} = 1;
+    shape_parameter :: Union{AbstractString, R where R<:Real} = 1;
     polynomial_degree :: Int64 = 1;
 
     θ_enlarge_1 :: Real = 2;
@@ -59,9 +59,8 @@ end
     Z :: RMat = Matrix{Real}(undef, 0, 0);
 end
 
-fully_linear(m :: RBFModel) = m.fully_linear
-
 max_evals( cfg :: RbfConfig ) = cfg.max_evals;
+num_outputs( m :: RbfModel ) = n_out(m.model);
 
 @doc "Modify first meta data object to equal second."
 function as_second!(destination :: RBFMeta, source :: RBFMeta )
@@ -88,3 +87,14 @@ function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
     model, meta = build_rbf_model( ac, objf, cfg, criticality_round)
     return RbfModel(model), meta
 end
+
+#= concerning shape parameter
+function parse_eval(arg, expr_str)
+    ex = Meta.parse(expr_str)
+    return @eval begin
+        let Z=$arg
+            $ex
+        end
+    end 
+end
+=#

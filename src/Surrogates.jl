@@ -11,11 +11,6 @@ include("TaylorModel.jl")
 include("ExactModel.jl")
 include("LagrangeModel.jl")
 
-include("objectives.jl");
-
-include("misc.jl")
-include("build_derivatives.jl")
-
 @doc """
 A container for all (possibly vector-valued) surrogate models used during
 optimization.
@@ -34,14 +29,6 @@ optimization.
     #lb :: Union{Nothing, Vector{Float64}} = nothing;
     #width :: Union{Nothing, Vector{Float64}} = nothing; # ub - lb
     output_to_objf_index :: Union{Nothing, Vector{Tuple{Int64,Int64}}} = nothing;
-end
-
-function unscale( x :: Vector{Float64}, sc :: SurrogateContainer )
-    if isnothing(sc.lb)
-        return x
-    else
-        return sc .+ ( x .* ( sc.width ) )
-    end
 end
 
 @doc "Return a SurrogateContainer initialized from the information provided in `mop`."

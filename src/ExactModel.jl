@@ -1,62 +1,100 @@
-# This file defines the required data structures and methods for vector-valued
-# Taylor models.
-#
-# This file is included from within "Surrogates.jl".
-# We therefore can refer to other data structures used there.
+# This file defines the required data structures and methods for Exact Models.
 
-@with_kw struct ExactModel <: SurrogateModel
-    objf_obj :: Union{Nothing, VectorObjectiveFunction} = nothing;
-    unscale_function :: Union{Nothing, F where F<:Function} = nothing;
+@with_kw mutable struct ExactModel <: SurrogateModel
+    # reference to mop to have unscaling availabe;
+    mop :: AbstractMOP
+
+    # reference to objective(s) to evaluate 
+    objf :: AbstractObjective
+
+    diff_fn :: Union{DiffFn,Nothing} = nothing
 end
 
 @with_kw mutable struct ExactConfig <: SurrogateConfig
-    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :autodiff
+    gradients :: Union{Symbol, Nothing, Vector{<:Function}, Function } = :autodiff
 
     # alternative keyword, usage discouraged...
     jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
 
     max_evals :: Int64 = typemax(Int64)
+
+    @assert !( isnothing(gradients) && isnothing(jacobian) )
+    @assert !( ( isa(gradients, Vector) && isempty( gradients ) ) && isnothing(jacobian) )
 end
 
 struct ExactMeta <: SurrogateMeta end   # no construction meta data needed
 
-fully_linear( em :: ExactModel ) = true;
 max_evals( emc :: ExactConfig ) = emc.max_evals
-
-function prepare!(objf :: VectorObjectiveFunction, cfg :: ExactConfig, ::AlgoConfig )
-    @info("Preparing Exact Models")
-    set_gradients!( cfg, objf )
+function max_evals!( emc :: ExactConfig, N :: Int )
+    emc.max_evals = N 
+    nothing 
 end
 
-@doc "Return an ExactModel build from a VectorObjectiveFunction `objf` and corresponding
-`cfg::ExactConfig` (ideally with `objf.model_config == cfg`).
+# saveable( em :: ExactMeta ) = ExactMeta();
+
+fully_linear( em :: ExactModel ) = true;
+
+combinable( :: ExactConfig ) = false;
+
+function set_gradients!( mod :: ExactModel, objf :: AbstractObjective )
+    cfg = model_cfg(objf);
+    if isa( cfg.gradients, Symbol )
+        if cfg.gradients == :autodiff
+            mod.diff_fn = AutoDiffWrapper( objf )
+        elseif cfg.gradients == :fdm 
+            mod.diff_fn = FiniteDiffWrapper( obj );
+        end
+    else 
+        mod.diff_fn = GradWrapper( cfg.gradients, cfg.jacobian )
+    end
+    nothing
+end
+
+
+@doc "Return an ExactModel build from a VectorObjectiveFunction `objf`. 
 Model is the same inside and outside of criticality round."
-function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
-        cfg :: ExactConfig, crit_flag :: Bool = true )
-    @unpack problem = ac;
-    em = ExactModel(
-        objf_obj = objf,
-        unscale_function = x -> unscale(problem, x)
-    )
-    return em, ExactMeta()
+function init_model( objf :: AbstractObjective, mop :: AbstractMOP, ac :: Any )
+    em = ExactModel(; mop = mop, objf = objf );
+    set_gradients!( em, objf );
+    return em, ExactMeta();
 end
 
-@doc "Evaluate the ExactModel `em` at scaled site `ξ`."
-function eval_models( em :: ExactModel, ξ :: Vector{Float64} )
-    em.objf_obj( em.unscale_function(ξ) )
+function update_model( em :: ExactModel, ::AbstractMOP, ac :: Any, crit_flag :: Bool = true)
+    return em, ExactMeta();
 end
 
-@doc "Evaluate output `ℓ` of the ExactModel `em` at scaled site `ξ`."
-function eval_models( em :: ExactModel, ξ :: Vector{Float64}, ℓ :: Int64)
-    return em.objf_obj( em.unscale_function(ξ) )[ℓ]
+@doc "Evaluate the ExactModel `em` at scaled site `x̂`."
+function eval_models( em :: ExactModel, x̂ :: RVec )
+    return eval_objf( em.objf, unscale( em.mop, x̂ ) )
 end
 
-@doc "Gradient vector of output `ℓ` of `em` at scaled site `ξ`."
-function get_gradient( em :: ExactModel, ξ :: Vector{Float64}, ℓ :: Int64)
-    return em.objf_obj.model_config.gradients[ℓ]( em.unscale_function(ξ) )
+@doc "Evaluate output `ℓ` of the ExactModel `em` at scaled site `x̂`."
+function eval_models( em :: ExactModel, x̂ :: RVec, ℓ :: Int64)
+    return eval_models(em,x̂)[ℓ]
 end
 
-@doc "Jacobian Matrix of ExactModel `em` at scaled site `ξ`"
-function get_jacobian( em :: ExactModel, ξ :: Vector{Float64} )
-    get_jacobian( em.objf_obj.model_config, em.unscale_function(ξ) )   # simply delegate work to method of VectorObjectiveFunction
+@doc "Gradient vector of output `ℓ` of `em` at scaled site `x̂`."
+function get_gradient( em :: ExactModel, x̂ :: RVec, ℓ :: Int64)
+    return get_gradient( em.diff_fn, unscale(em.mop, x̂), ℓ)
 end
+
+@doc "Jacobian Matrix of ExactModel `em` at scaled site `x̂`."
+function get_jacobian( em :: ExactModel, x̂ :: RVec )
+    return get_jacobian( em.diff_fn, unscale(em.mop, x̂) )
+end
+
+#=
+function set_hessians!( mod :: TaylorModel, objf :: AbstractObjective )
+    cfg = model_cfg(objf);
+    if isa( cfg.hessians, Symbol )
+        if cfg.hessians == :autodiff
+            mod.hess_fn = AutoDiffWrapper( objf )
+        elseif cfg.hessians == :fdm 
+            mod.hess_fn = FiniteDiffWrapper( objf );
+        end
+    else 
+        mod.hess_fn = HessWrapper( cfg.hessians );
+    end
+    nothing
+end
+=#
