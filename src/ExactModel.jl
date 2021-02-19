@@ -50,10 +50,10 @@ function set_gradients!( mod :: ExactModel, objf :: AbstractObjective )
     nothing
 end
 
-
 @doc "Return an ExactModel build from a VectorObjectiveFunction `objf`. 
 Model is the same inside and outside of criticality round."
-function init_model( objf :: AbstractObjective, mop :: AbstractMOP, ac :: Any )
+function _init_model( ::ExactConfig, objf :: AbstractObjective, 
+    mop :: AbstractMOP )
     em = ExactModel(; mop = mop, objf = objf );
     set_gradients!( em, objf );
     return em, ExactMeta();
@@ -65,7 +65,7 @@ end
 
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."
 function eval_models( em :: ExactModel, x̂ :: RVec )
-    return eval_objf( em.objf, unscale( em.mop, x̂ ) )
+    return eval_objf( em.objf, unscale( x̂, em.mop ) )
 end
 
 @doc "Evaluate output `ℓ` of the ExactModel `em` at scaled site `x̂`."
@@ -75,12 +75,12 @@ end
 
 @doc "Gradient vector of output `ℓ` of `em` at scaled site `x̂`."
 function get_gradient( em :: ExactModel, x̂ :: RVec, ℓ :: Int64)
-    return get_gradient( em.diff_fn, unscale(em.mop, x̂), ℓ)
+    return get_gradient( em.diff_fn, unscale(x̂, em.mop), ℓ)
 end
 
 @doc "Jacobian Matrix of ExactModel `em` at scaled site `x̂`."
 function get_jacobian( em :: ExactModel, x̂ :: RVec )
-    return get_jacobian( em.diff_fn, unscale(em.mop, x̂) )
+    return get_jacobian( em.diff_fn, unscale(x̂, em.mop) )
 end
 
 #=

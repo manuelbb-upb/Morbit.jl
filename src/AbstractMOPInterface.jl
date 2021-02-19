@@ -5,12 +5,6 @@ Broadcast.broadcastable( mop :: AbstractMOP ) = Ref( mop );
 full_lower_bounds( :: AbstractMOP ) = nothing :: RVec;
 full_upper_bounds( :: AbstractMOP ) = nothing :: RVec;
 
-"Scale `x` to internal domain, e.g., the unit hypercube [0,1]^n."
-scale( :: AbstractMOP, x :: RVec ) = nothing :: RVec;
-
-"Unscale `x` from internal domain to original domain."
-unscale( :: AbstractMOP, x̂ :: RVec ) = nothing :: RVec;
-
 list_of_objectives( :: AbstractMOP ) = nothing :: Vector{<:AbstractObjective};
 
 "Remove an objective function from MOP."
@@ -62,27 +56,27 @@ function _unscale!( x̂ :: RVec, lb :: RVec, ub :: RVec )
 end
 
 "Scale variables fully constrained to a closed interval to [0,1] internally."
-function scale( mop :: AbstractMOP, x :: RVec )
+function scale( x :: RVec, mop :: AbstractMOP )
     x̂ = copy(x);
     lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
-    _scale!(x̂, lb, u);
+    _scale!(x̂, lb, ub);
     return x̂
 end
 
 "Reverse scaling for fully constrained variables from [0,1] to their former domain."
-function unscale( mop :: AbstractMOP, x̂ :: RVec )
+function unscale( x̂ :: RVec, mop :: AbstractMOP )
     x = copy(x̂);
     lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
     _unscale!(x, lb, ub);
     return x
 end
 
-function scale!( mop :: AbstractMOP, x :: RVec )
+function scale!( x :: RVec, mop :: AbstractMOP )
     lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
     _scale!(x, lb, ub);    
 end
 
-function unscale!( mop :: AbstractMOP, x̂ :: RVec )
+function unscale!( x̂ :: RVec, mop :: AbstractMOP )
     lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
     _unscale!( x̂, lb, ub);
 end
@@ -207,7 +201,12 @@ end
 "Sort an interal objective vector so that the objectives are in the order in which they were added."
 function reverse_internal_sorting( ŷ :: RVec, mop :: AbstractMOP )
     reverse_indices = reverse_internal_sorting_indices(mop)
+    @show ŷ
     return ŷ[ reverse_indices ];
+end
+
+function apply_internal_sorting( y :: RVec, mop :: AbstractMOP )
+    return y[ output_indices(mop) ]
 end
 
 # custom broadcast to only retrieve sorting indices once
@@ -255,6 +254,7 @@ function eval_and_sort_objectives(mop :: AbstractMOP, x̂ :: RVec)
 end
 
 # Helper functions …
+
 @doc "Set evaluation counter to 0 for each VectorObjectiveFunction in `m.vector_of_objectives`."
 function reset_evals!(mop :: AbstractMOP)
     for objf ∈ list_of_objectives( mop )

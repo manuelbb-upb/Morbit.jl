@@ -42,13 +42,14 @@ f1 = x -> x[2];
 
 T.add_objective!( p, f1, :cheap );
 o1 = p.vector_of_objectives[1];
-m1, _ = T.init_model( o1 , p, [] );
+m1, _ = T.init_model( T.ExactModel, o1 , p, [] );
 @show T.get_gradient(m1, rand(2),1);
 @show T.get_jacobian(m1, rand(2));
 
-x̂ = rand(2);
+x̂ = rand(Float32,2);
 x = T.unscale( p, x̂ )
 
 @test f1( x ) ≈ T.eval_models(m1, x̂ )[1]
 @test T.eval_all_objectives( p, x̂ )[1] ≈ f1(x)
 @test T.eval_and_sort_objectives( p, x̂ )[1] ≈ f1(x)
+

@@ -1,60 +1,60 @@
-#module Surrogate
 
-import Base.Broadcast: broadcastable, broadcasted
-using Parameters: @with_kw, @pack!, @unpack
-
-max_evals( m :: M where M <: SurrogateConfig ) = typemax(Int64);
-prepare!(::VectorObjectiveFunction, :: M where M<:SurrogateConfig , ::AlgoConfig) = nothing
-
-include("RBFModel.jl")
-include("TaylorModel.jl")
+#include("RBFModel.jl")
+#include("TaylorModel.jl")
 include("ExactModel.jl")
-include("LagrangeModel.jl")
+#include("LagrangeModel.jl")
 
-@doc """
-A container for all (possibly vector-valued) surrogate models used during
-optimization.
+struct SurrogateWrapper
+    objf :: AbstractObjective;
+    model :: SurrogateModel;
+    meta :: SurrogateMeta;
+end
 
-# Fields
-* `objf_list`: A list of `VectorObjectiveFunction`s to be used during surrogate
-  training.
-* `model_list`: The list of surragte models, all subtypes of `SurrogateModel`.
-* `model_meta`: Meta data collected during training for debugging and plotting.
-"""
 @with_kw mutable struct SurrogateContainer
-    objf_list :: Union{Nothing, Vector{VectorObjectiveFunction}} = nothing;
-    model_list :: Vector{Any} = [] ;
-    model_meta :: Vector{Any} = [] ;
-    n_objfs :: Int64 = 0;   # number of scalar(ized) objectives
-    #lb :: Union{Nothing, Vector{Float64}} = nothing;
-    #width :: Union{Nothing, Vector{Float64}} = nothing; # ub - lb
-    output_to_objf_index :: Union{Nothing, Vector{Tuple{Int64,Int64}}} = nothing;
+    surrogates :: Vector{SurrogateWrapper} = SurrogateWrapper[];
+    state :: UUIDs.UUID = UUIDs.uuid4();
+end
+
+num_outputs( sw :: SurrogateWrapper ) :: Int = num_outputs(sw.objf);
+@memoize function _num_outputs( sc :: SurrogateContainer, hash :: UUIDs.UUID) :: Int
+    return sum( num_outputs(sw) for sw ∈ sc.surrogates )
+end
+num_outputs( sc :: SurrogateContainer ) :: Int = _num_outputs( sc, sc.state );
+
+@memoize function _get_surrogate_from_output_index( sc :: SurrogateContainer, ℓ :: Int, 
+    mop :: AbstractMOP, hash :: UUIDs.UUID ) :: Union{Nothing,Tuple{SurrogateWrapper,Int}}
+    for sw ∈ sc.surrogates
+        objf_out_indices = output_indices( objf, mop );
+        l = findfirst( x -> x == ℓ, output_indices(objf,mop) );
+        if !isnothing(l)
+            return sw,l 
+        end
+    end
+    return nothing
+end
+
+function get_surrogate_from_output_index( sc :: SurrogateContainer, ℓ :: Int, 
+    mop :: AbstractMOP) :: Union{Nothing,Tuple{SurrogateWrapper,Int}}
+    return _get_surrogate_from_output_index(sc, ℓ, mop, sc.state)
+end
+
+function add_surrogate!(sc :: SurrogateContainer, sw :: SurrogateWrapper) :: Nothing
+    push!(sc.surrogates, sw);
+    sc.state = UUIDs.uuid4();
+    nothing 
 end
 
 @doc "Return a SurrogateContainer initialized from the information provided in `mop`."
-function init_surrogates( ac :: AlgoConfig )
-    mop = ac.problem;
-    sc = SurrogateContainer(
-        objf_list = mop.vector_of_objectives, # NOTE deepcopy here?
-        n_objfs = mop.n_objfs,
-    )
-
-    set_output_objf_list!(sc)
-    for objf in sc.objf_list
-        prepare!(objf, objf.model_config, ac)
+function init_surrogates( mop :: AbstractMOP )
+    sc = SurrogateContainer();
+    for objf ∈ list_of_objectives(mop)
+        model, meta = init_model( objf, mop )
+        add_surrogate!( sc, SurrogateWrapper(objf,model,meta))
     end
     return sc
 end
 
-function set_output_objf_list!(sc)
-    sc.output_to_objf_index = Vector{NTuple{2,Int64}}();
-    for (objf_index, objf) ∈ enumerate( sc.objf_list )
-        for int_index ∈ eachindex(objf.internal_indices)
-            push!(sc.output_to_objf_index, (objf_index, int_index))
-        end
-    end
-end
-
+#=
 function build_models!(sc :: SurrogateContainer, ac :: AlgoConfig, crit_flag :: Bool = false )
     sc.model_list = Any[];
     sc.model_meta = Any[];
@@ -158,3 +158,5 @@ function eval_models( sc :: SurrogateContainer, x :: Vector{Float64}, ℓ :: Int
     return eval_models( sc.model_list[i], x, l )
 end
 #end#module
+
+=#

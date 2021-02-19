@@ -60,7 +60,7 @@ end
 
 combinable( objf :: AbstractObjective ) = combinable( model_cfg(objf) );
 function combinable( objf1 :: AbstractObjective, objf2 :: AbstractObjective )
-    return combinable( model_cfg( AbstractObjective) ) && 
+    return combinable( objf1 ) && combinable( objf2 ) && 
         model_cfg( objf1 ) == model_cfg( objf2 )
 end
 

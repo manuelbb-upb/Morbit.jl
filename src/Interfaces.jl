@@ -14,6 +14,10 @@ abstract type AbstractObjective <: MOI.AbstractVectorFunction end;
 
 abstract type AbstractMOP <: MOI.ModelLike end;
 
+abstract type AbstractDB end;
+abstract type AbstractIterData end;
+abstract type AbstractConfig end;
+
 abstract type DiffFn end;
 
 get_gradient( :: DiffFn, :: RVec, :: Int ) = nothing :: RVec;

@@ -13,6 +13,7 @@
 
     # change whenever vars or constraints are added
     var_state :: UUIDs.UUID = UUIDs.uuid4();      # TODO maybe use automatic hashing? pro: no need to implement everything, cons: slower?
+    objf_state :: UUIDs.UUID = UUIDs.uuid4();
 end
 
 # legacy constructors
@@ -44,8 +45,13 @@ end
 
 list_of_objectives( mop :: MixedMOP ) = mop.vector_of_objectives;
 
-function output_indices( objf :: AbstractObjective, mop :: MixedMOP )
+@memoize function _output_indices( 
+    objf :: AbstractObjective, mop :: MixedMOP, hash :: UUIDs.UUID )
     return mop.objf_output_mapping[ objf ];
+end
+
+function output_indices( objf :: AbstractObjective, mop :: MixedMOP )
+    return _output_indices(objf, mop, mop.objf_state );
 end
 
 function _del!( mop :: MixedMOP, objf :: AbstractObjective )
@@ -60,8 +66,6 @@ function _add!( mop :: MixedMOP, objf :: AbstractObjective, output_indices :: Un
             collect( num_objectives + 1 : num_objectives + 1 + num_outputs(objf) )
         end;
     end
-    @show num_outputs(objf) 
-    @show output_indices
     if length(output_indices) != num_outputs(objf)
         error("Number of objective outputs does not match length of output indices!");
     end
@@ -71,6 +75,7 @@ function _add!( mop :: MixedMOP, objf :: AbstractObjective, output_indices :: Un
     else
         mop.objf_output_mapping[objf] = output_indices;
     end
+    mop.objf_state = UUIDs.uuid4();
     nothing
 end
 
@@ -147,12 +152,26 @@ full_upper_bounds_internal( mop :: MixedMOP ) = _full_ub_internal( mop , mop.var
 # Evaluating and sorting objectives
 
 # overwrite to exploit memoization
+@memoize function _output_indices( mop :: MixedMOP, hash :: UUIDs.UUID )
+    all_outputs = Int[];
+    for objf ∈ list_of_objectives( mop )
+        push!( all_outputs, output_indices( objf, mop )...);
+    end
+    return all_outputs;
+end
+
+function output_indices( mop :: MixedMOP )
+    return _output_indices(mop, mop.objf_state )
+end
+
 @memoize function _reverse_internal_sorting_indices( mop :: MixedMOP, hash :: UUIDs.UUID )
     internal_indices = output_indices(mop);
     return sortperm( internal_indices );
 end
 
-reverse_internal_sorting_indices(mop :: MixedMOP) = _reverse_internal_sorting_indices(mop, mop.var_state);
+function reverse_internal_sorting_indices(mop :: MixedMOP) 
+    return _reverse_internal_sorting_indices(mop, mop.objf_state);
+end
 
 @memoize function _get_transformer_fn( mop :: MixedMOP, hash :: UUIDs.UUID )
     TransformerFn(mop)

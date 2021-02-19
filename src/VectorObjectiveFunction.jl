@@ -26,7 +26,7 @@ function _wrap_func( ::Type{VectorObjectiveFunction},
     );
 end
 
-num_vars( objf :: VectorObjectiveFunction ) = obj.n_in;
+num_vars( objf :: VectorObjectiveFunction ) = objf.n_in;
 
 num_evals( objf :: VectorObjectiveFunction ) = objf.n_evals;
 function num_evals!( objf :: VectorObjectiveFunction, N :: Int )

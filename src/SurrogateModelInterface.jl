@@ -17,14 +17,18 @@ fully_linear( :: SurrogateModel ) = false :: Bool;
 # to a new vector objective
 combinable( :: SurrogateConfig ) = false :: Bool     
 
-init_model( :: AbstractObjective, :: AbstractMOP, ac :: Any ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
-update_model( :: AbstractObjective, :: AbstractMOP, ac :: Any, ::Bool ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+_init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+update_model( :: AbstractObjective, :: AbstractMOP, ac :: Any, ::Bool) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
 
 eval_models( :: SurrogateModel, ::RVec ) = nothing :: RVec
 get_gradient( :: SurrogateModel, ::RVec, :: Int ) = nothing :: RVec
 get_jacobian( :: SurrogateModel, :: RVec ) = nothing :: RMat
 
 # DEFAULTS
+
+function init_model( objf:: AbstractObjective, args...)
+    _init_model( model_cfg(objf), objf, args...)
+end
 
 # check if surrogate configurations are equal (only really needed if combinable)
 function Base.:(==)( cfg1 :: T, cfg2 :: T ) where T <: SurrogateConfig
