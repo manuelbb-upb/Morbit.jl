@@ -116,7 +116,7 @@ end
 
 "Return upper variable bounds for scaled variables."
 function full_upper_bounds_internal( mop :: AbstractMOP )
-    [ isinf(u) ? u : 0.0 for u ∈ full_upper_bounds(mop) ];
+    [ isinf(u) ? u : 1.0 for u ∈ full_upper_bounds(mop) ];
 end
 
 function full_bounds( mop :: AbstractMOP )
@@ -141,7 +141,7 @@ function local_bounds( mop :: AbstractMOP, x :: RVec, Δ :: Union{Real, RVec} )
 end
 
 "Return smallest positive and biggest negative and `σ₊` and `σ₋` so that `x .+ σ± .* d` stays within bounds."
-function _intersect_bounds( x :: RVec, d :: RVec, lb :: RVec, ub :: RVec )
+function _intersect_bounds( x :: RVec, d :: RVec, lb :: RVec, ub :: RVec ) :: Tuple{Real,Real}
     non_zero_dir = ( d .!= 0);
     if any( non_zero_dir )
        # how much can we go in positive direction 
@@ -156,13 +156,28 @@ function _intersect_bounds( x :: RVec, d :: RVec, lb :: RVec, ub :: RVec )
         σ_neg = maximum( smallest_largest[:, 1] );
         return σ_pos, σ_neg
     else
-        return typemin(valtype(x)), typemax(valtype(x))
+        return typemax(valtype(x)), typemin(valtype(x))
     end
 end
 
-function intersect_bounds( mop :: AbstractMOP, x :: RVec, Δ :: Union{Real, RVec}, d :: RVec )
+function intersect_bounds( mop :: AbstractMOP, x :: RVec, Δ :: Union{Real, RVec}, 
+    d :: RVec; return_vals :: Symbol = :both ) :: Union{Real, Tuple{Real,Real}}
     lb_eff, ub_eff = local_bounds( mop, x, Δ );
-    return _intersect_bounds( x, d, lb_eff, ub_eff )
+    σ_pos, σ_neg = _intersect_bounds( x, d, lb_eff, ub_eff );
+
+    if return_vals == :both 
+        return σ_pos, σ_neg
+    elseif return_vals == :pos
+        return σ_pos 
+    elseif return_vals == :neg 
+        return σ_neg 
+    elseif return_vals == :absmax
+        if abs(σ_pos) >= abs(σ_neg)
+            return σ_pos
+        else
+            return σ_neg 
+        end 
+    end
 end
 
 function _add_objective!( mop :: AbstractMOP, T :: Type{<:AbstractObjective},
@@ -201,7 +216,6 @@ end
 "Sort an interal objective vector so that the objectives are in the order in which they were added."
 function reverse_internal_sorting( ŷ :: RVec, mop :: AbstractMOP )
     reverse_indices = reverse_internal_sorting_indices(mop)
-    @show ŷ
     return ŷ[ reverse_indices ];
 end
 

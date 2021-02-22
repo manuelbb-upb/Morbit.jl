@@ -36,6 +36,7 @@ fully_linear( em :: ExactModel ) = true;
 
 combinable( :: ExactConfig ) = false;
 
+"Modify/initialize thec exact model `mod` so that we can differentiate it later."
 function set_gradients!( mod :: ExactModel, objf :: AbstractObjective )
     cfg = model_cfg(objf);
     if isa( cfg.gradients, Symbol )
@@ -59,8 +60,10 @@ function _init_model( ::ExactConfig, objf :: AbstractObjective,
     return em, ExactMeta();
 end
 
-function update_model( em :: ExactModel, ::AbstractMOP, ac :: Any, crit_flag :: Bool = true)
-    return em, ExactMeta();
+function update_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
+    ::AbstractMOP, id :: AbstractIterData; 
+    ensure_fully_linear :: Bool = false ) :: Tuple{ ExactModel, ExactMeta }
+    return em, meta
 end
 
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."

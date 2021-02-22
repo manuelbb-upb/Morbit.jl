@@ -143,7 +143,7 @@ end
 end 
 
 @memoize function _full_ub_internal(mop :: MixedMOP, hash :: UUIDs.UUID )
-    [ isinf(u) ? u : 0.0 for u ∈ full_upper_bounds(mop) ];
+    [ isinf(u) ? u : 1.0 for u ∈ full_upper_bounds(mop) ];
 end
 
 full_lower_bounds_internal( mop :: MixedMOP ) = _full_lb_internal( mop , mop.var_state );

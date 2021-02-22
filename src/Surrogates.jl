@@ -20,6 +20,9 @@ num_outputs( sw :: SurrogateWrapper ) :: Int = num_outputs(sw.objf);
     return sum( num_outputs(sw) for sw ∈ sc.surrogates )
 end
 num_outputs( sc :: SurrogateContainer ) :: Int = _num_outputs( sc, sc.state );
+function fully_linear( sc :: SurrogateContainer )
+    return all( fully_linear(sw.model) for sw ∈ sc.surrogates )
+end
 
 @memoize function _get_surrogate_from_output_index( sc :: SurrogateContainer, ℓ :: Int, 
     mop :: AbstractMOP, hash :: UUIDs.UUID ) :: Union{Nothing,Tuple{SurrogateWrapper,Int}}
@@ -38,14 +41,33 @@ function get_surrogate_from_output_index( sc :: SurrogateContainer, ℓ :: Int,
     return _get_surrogate_from_output_index(sc, ℓ, mop, sc.state)
 end
 
+"Delete surrogate wrapper at position `si` from list `sc.surrogates`."
+function delete_surrogate!( sc :: SurrogateContainer, si :: Int ) :: Nothing
+    deleteat!( sc.surrogates, si )
+    sc.state = UUIDs.uuid4();
+    nothing 
+end
+
 function add_surrogate!(sc :: SurrogateContainer, sw :: SurrogateWrapper) :: Nothing
     push!(sc.surrogates, sw);
     sc.state = UUIDs.uuid4();
     nothing 
 end
 
+function replace_surrogate!(sc :: SurrogateContainer, si :: Int, 
+    sw :: SurrogateWrapper) :: Nothing
+    
+    # A B C D ⇒ deleteat! 3 ⇒ A B D
+    deleteat!(sc.surrogates, si);
+    # A B D ⇒ insert! 3 ℂ ⇒ A B ℂ D
+    insert!(sc.surrogates, si, sw);
+    sc.state = UUIDs.uuid4();
+    nothing 
+end
+
+
 @doc "Return a SurrogateContainer initialized from the information provided in `mop`."
-function init_surrogates( mop :: AbstractMOP )
+function init_surrogates( mop :: AbstractMOP ) :: SurrogateContainer
     sc = SurrogateContainer();
     for objf ∈ list_of_objectives(mop)
         model, meta = init_model( objf, mop )
@@ -54,17 +76,30 @@ function init_surrogates( mop :: AbstractMOP )
     return sc
 end
 
-#=
-function build_models!(sc :: SurrogateContainer, ac :: AlgoConfig, crit_flag :: Bool = false )
-    sc.model_list = Any[];
-    sc.model_meta = Any[];
-    
-    for (ℓ,objf) ∈ enumerate(sc.objf_list)
-        new_model, new_meta = build_model( ac, objf, objf.model_config, crit_flag )
-        push!(sc.model_list, new_model)
-        push!(sc.model_meta, new_meta)
+function update_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP, 
+    id :: AbstractIterData; ensure_fully_linear :: Bool = false ) :: Nothing 
+    for (si,sw) ∈ enumerate(sc.surrogates)
+        new_model, new_meta = update_model( sw.model, sw.objf, sw.meta, mop, id; ensure_fully_linear )
+        new_sw = SurrogateWrapper( 
+            sw.objf,
+            new_model, 
+            new_meta
+        );
+        replace_surrogate!(sc, si, new_sw )
     end
+    nothing
 end
+
+function eval_models( sc :: SurrogateContainer, x̂ :: RVec ) :: RVec
+    vcat( (eval_models(sw.model , x̂) for sw ∈ sc.surrogates )...)
+end
+
+function get_jacobian( sc :: SurrogateContainer, x̂ :: RVec) :: RMat
+    model_jacobians = [ get_jacobian(sw.model, x̂) for sw ∈ sc.surrogates ]
+    vcat( model_jacobians... )
+end
+
+#=
 
 function improve!(sc :: SurrogateContainer, non_linear_indices :: Vector{Int64},
         ac :: AlgoConfig )
