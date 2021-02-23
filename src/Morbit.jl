@@ -35,7 +35,6 @@ include("objectives.jl");
 
 Broadcast.broadcastable( db :: AbstractDB ) = Ref( db );
 Broadcast.broadcastable( id :: AbstractIterData ) = Ref( id );
-Broadcast.broadcastable( ac :: AbstractConfig ) = Ref( ac );
 
 ############################################
 # AbstractDB
@@ -208,37 +207,6 @@ function keep_current_iterate!( id :: AbstractIterData, x̂ :: RVec, ŷ :: RVec
 end
 
 ############################################
-# AbstractConfig
-max_evals( :: AbstractConfig ) :: Int = 100;
-max_iter( :: AbstractConfig ) :: Int = 10;
-
-use_db( :: AbstractConfig )::Union{ Type{<:AbstractDB}, Nothing } = nothing;
-
-# initial radius
-Δ⁰(::AbstractConfig)::Union{RVec, Real} = 0.1;
-
-# radius upper bound(s)
-Δᵘ(::AbstractConfig)::Union{RVec, Real} = 0.5;
-
-descent_method( :: AbstractConfig )::Symbol = :steepest_descent
-
-"Require a descent in all model objective components. 
-Applies only to backtracking descent steps, i.e., :steepest_descent."
-strict_backtracking( :: AbstractConfig )::Bool = true;
-
-strict_acceptance_test( :: AbstractConfig )::Bool = true;
-ν_success( :: AbstractConfig )::Real = 0.4;
-ν_accept(::AbstractConfig)::Real = 0.0;
-
-μ(::AbstractConfig) = 2e3;
-β(::AbstractConfig) = 1e3;
-
-radius_update_method(::AbstractConfig)::Symbol = :standard;
-γ_grow(::AbstractConfig)::Real = 2;
-γ_shrink(::AbstractConfig)::Real = Float16(.75);
-γ_shrink_much(::AbstractConfig)::Real=Float16(.501);
-
-############################################
 # Implementations
 
 ####### MockDB
@@ -325,59 +293,22 @@ function init_iter_data( ::Type{IterData}, x :: RVec, fx :: RVec, Δ :: Union{Re
     IterData(; x = x, fx = fx, Δ = Δ, db = db);
 end
 
-struct EmptyConfig <: AbstractConfig end;
-global const empty_config = EmptyConfig();
-use_db( ::EmptyConfig ) = ArrayDB;
-
-@with_kw struct AlgoConfig <: AbstractConfig
-    max_evals :: Int = max_evals( empty_config )
-    max_iter :: Int = max_iter( empty_config );
-    
-    Δ_0 :: Union{Real, RVec} = Δ⁰(empty_config);
-    Δ_max :: Union{Real, RVec } = Δᵘ(empty_config);
-    
-    descent_method :: Symbol = descent_method(empty_config);
-    strict_backtracking :: Bool = strict_backtracking(empty_config);
-
-    strict_acceptance_test :: Bool = strict_acceptance_test(empty_config);
-    ν_success :: Real = ν_success( empty_config );
-    ν_accept :: Real = ν_accept( empty_config );
-    db :: Union{Nothing,Type{<:AbstractDB}} = ArrayDB;
-
-    μ :: Real = μ( empty_config );
-    β :: Real = β( empty_config );
-
-    radius_update_method :: Symbol = radius_update_method(empty_config)
-    γ_grow :: Real = γ_grow(empty_config);
-    γ_shrink :: Real = γ_shrink(empty_config);
-    γ_shrink_much::Real = γ_shrink_much(empty_config);
-end
-
-max_evals( ac :: AlgoConfig ) = ac.max_evals;
-max_iter( ac :: AlgoConfig ) = ac.max_iter;
-Δ⁰( ac :: AlgoConfig ) = ac.Δ_0;
-Δᵘ( ac :: AlgoConfig ) = ac.Δ_max;
-use_db( ac :: AlgoConfig ) = ac.db;
-descent_method( ac :: AlgoConfig ) = ac.descent_method;
-strict_backtracking( ac :: AlgoConfig ) = ac.strict_backtracking;
-strict_acceptance_test( ac :: AlgoConfig ) = ac.strict_acceptance_test;
-
-ν_success( ac :: AlgoConfig ) = ac.ν_success;
-ν_accept( ac :: AlgoConfig ) = ac.ν_accept;
-
-μ( ac :: AlgoConfig ) = ac.μ;
-β( ac :: AlgoConfig ) = ac.β;
-
-radius_update_method( ac :: AlgoConfig )::Symbol = ac.radius_update_method;
-γ_grow(ac :: AlgoConfig)::Real = ac.γ_grow;
-γ_shrink(ac :: AlgoConfig)::Real = ac.γ_shrink;
-γ_shrink_much(ac :: AlgoConfig)::Real = ac.γ_shrink_much;
-
-function max_evals( objf :: AbstractObjective, ac :: AbstractConfig )
-    min( max_evals(objf), max_evals(ac) )
-end
-
+include("ConfigImplementations.jl")
 include("descent.jl")
+
+function _budget_okay( mop :: AbstractMOP, ac :: AbstractConfig ) :: Bool
+    for objf ∈ list_of_objectives(mop)
+        if num_evals(objf) >= min( max_evals(objf), max_evals(ac) ) - 1
+            return false;
+        end
+    end
+    return true
+end
+
+"True if stepsize or radius too small."
+function _rel_tol_test_decision_space( Δ :: Union{Real,RVec}, steplength :: Real, ac :: AbstractConfig) :: Bool 
+    return all(Δ .<= Δₗ(ac)) || all( Δ .<= Δ_crit(ac) ) && all( steplength .<= stepsize_crit(ac) );
+end
 
 function shrink_radius( ac :: AbstractConfig, Δ :: Real, steplength :: Real) :: Real
     if radius_update_method(ac) == :standard
@@ -401,6 +332,19 @@ function grow_radius( ac :: AbstractConfig, Δ :: Real, steplength :: Real) :: R
     end
 end
 
+using Printf: @sprintf
+function _prettify( vec :: RVec, len :: Int = 5) :: AbstractString
+    return string(
+        "[",
+        join( 
+            [@sprintf("%.5f",vec[i]) for i = 1 : min(len, length(vec))], 
+            ", "
+        ),
+        length(vec) > len ? ", …" : "",
+        "]"
+    )
+end
+
 ############################################
 function optimize( mop :: AbstractMOP, x⁰ :: RVec, 
     fx⁰ :: RVec = Real[]; algo_config :: AbstractConfig = EmptyConfig(), 
@@ -411,6 +355,8 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     ν_acc = ν_accept( algo_config );
     mu = μ( algo_config );
     beta = β( algo_config );
+    eps_crit = ε_crit( algo_config );
+    gamma_crit = γ_crit( algo_config );
 
     # TODO warn here 
     reset_evals!( mop );
@@ -447,72 +393,199 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     sc.surrogates
 
     IMPROVEMENT_STEP_FLAG = false;
-    for i = 1 : max_iter( algo_config )
-        @info "Iteration $(i)."
-        @show Δᵗ(iter_data);
+    n_iterations = 0
+    MAX_ITER = max_iter(algo_config)
+    steplength = Inf;   # set here for initial stopping test
+    while n_iterations < MAX_ITER
         # read iter data to handy variables
         x = xᵗ(iter_data);
         fx = fxᵗ(iter_data);
-
-        if i > 1
-            update_surrogates!( sc, mop, iter_data; ensure_fully_linear = false );
+        Δ = Δᵗ(iter_data);
+ 
+        # check other stopping conditions (could also be done in head of while-loop,
+        # but looks a bit more tidy here
+        if !_budget_okay(mop, algo_config)
+            @info "Stopping. Computational budget is exhausted."
+            break;
+        end
+        
+        # relative stopping (decision space)
+        if _rel_tol_test_decision_space( Δ, steplength, algo_config)
+            @info("""\n
+                Stopping. Radius or stepsize too small.
+                Δ = $(Δ), stepsize = $(steplength).
+                Δ_min = $(Δₗ(algo_config)), Δ_crit = $(Δ_crit(algo_config)).
+                stepsize_crit = $(stepsize_crit).
+            """
+            );
+            break;
         end
 
+        # set iteration counter
+        if !IMPROVEMENT_STEP_FLAG || count_nonlinear_iterations(algo_config) 
+            n_iterations += 1
+        end
+
+        @info("""\n
+            |--------------------------------------------
+            |Iteration $(n_iterations).
+            |--------------------------------------------
+            |  Current trust region radius is $(Δ).
+            |  Current number of function evals is $(num_evals(mop)).
+            |  Iterate is $(_prettify(x))
+            |  Values are $(_prettify(fx))
+            |--------------------------------------------
+        """);
+
+        # update surrogate models
+        if n_iterations > 1
+            if IMPROVEMENT_STEP_FLAG 
+                improve_surrogates!( sc, mop, iter_data; ensure_fully_linear = false );
+            else
+                update_surrogates!( sc, mop, iter_data; ensure_fully_linear = false );
+            end
+        end
+
+        # calculate descent step and criticality value
         ω, x₊, mx₊, steplength = compute_descent_step( algo_config, mop, iter_data, sc )
+        @info "Criticality is ω = $(ω)."
+
+        # Criticallity test
+        _fully_linear = fully_linear(sc)
+        if ω <= eps_crit && (!_fully_linear || all(Δ .> mu * ω))
+            @info "Entered Criticallity Test."
+            if !_fully_linear
+                @info "Ensuring all models to be fully linear."
+                update_surrogates!( sc, mop, iter_data; ensure_fully_linear = true );
+                
+                ω, x₊, mx₊, steplength = compute_descent_step(algo_config,mop,iter_data,sc);
+                if !fully_linear(sc)
+                    @info "Could not make all models fully linear. Trying one last descent step."
+                    @goto MAIN;
+                end
+            end
+            num_critical_loops = 0;
+            
+            while all(Δᵗ(iter_data) .> mu * ω)
+                @info "Criticality loop $(num_critical_loops + 1)." 
+                if num_critical_loops >= max_critical_loops(algo_config)
+                    @info "Maximum number ($(max_critical_loops(algo_config))) of critical loops reached. Exiting..."
+                    @goto EXIT_MAIN
+                end
+                if !_budget_okay(mop, algo_config)
+                    @info "Computational budget exhausted. Exiting…"
+                    @goto EXIT_MAIN
+                end
+                
+                # shrink radius
+                Δᵗ!( iter_data, Δᵗ(iter_data) .* gamma_crit );
+                # make model linear 
+                update_surrogates!( sc, mop, iter_data; ensure_fully_linear = true );
+                # (re)calculate criticality
+                # TODO make backtracking optional and don't do here
+                ω, x₊, mx₊, steplength = compute_descent_step(algo_config,mop,iter_data,sc);
+
+                if _rel_tol_test_decision_space( Δᵗ(iter_data), steplength, algo_config)
+                    @info "Radius or stepsize too small. Exiting…"
+                    @goto EXIT_MAIN 
+                end
+
+                if !fully_linear(sc)
+                    @info "Could not make all models fully linear. Trying one last descent step."
+                    @goto MAIN;
+                end
+
+                num_critical_loops += 1;
+            end
+            "Exiting after $(num_critical_loops) loops with ω = $(ω) and Δ = $(Δᵗ(iter_data))."
+            @goto MAIN
+            @label EXIT_MAIN 
+            break;
+        end# Crit test if 
+
+        @label MAIN # re-entry point after criticality test 
 
         mx = eval_models(sc, x);
         fx₊ = eval_all_objectives(mop, x₊);
-
+        
         if strict_acceptance_test( algo_config )
             ρ = minimum( (fx .- fx₊) ./ (mx .- mx₊) )
         else
             ρ = (maximum(fx) - maximum( fx₊ ))/(maximum(mx)-maximum(mx₊))
         end
-        @show fx 
-        @show mx 
-        @show fx₊
-        @show mx₊
-        @show ρ
+        
+        @info """\n
+        Attempting descent of length $steplength.
+        | f(x)  | $(_prettify(fx))
+        | f(x₊) | $(_prettify(fx₊))
+        | m(x)  | $(_prettify(mx))
+        | m(x₊) | $(_prettify(mx₊))
+        The error betwenn f(x) and m(x) is $(sum(abs.(fx .- mx))).
+        $(strict_acceptance_test(algo_config) ? "All" : "One") of the components must decrease.
+        Thus, ρ is $ρ.
+        """
+        @assert all( mx .>= mx₊ )
 
         ACCEPT_TRIAL_POINT = false
         ρ = isnan(ρ) ? -Inf : ρ;
-        old_Δ = Δᵗ(iter_data);
+        Δ = Δᵗ(iter_data);  # if it was changed in criticality test
         if ρ >= ν_succ
-            if old_Δ < beta * ω
-                Δ = grow_radius(algo_config, old_Δ, steplength);
+            if Δ < beta * ω
+                new_Δ = grow_radius(algo_config, Δ, steplength);
+            else
+                new_Δ = Δ;
             end
             ACCEPT_TRIAL_POINT = true;
         else
             if fully_linear(sc)
                 if ρ < ν_acc
-                    Δ = shrink_radius_much(algo_config, old_Δ, steplength);
+                    new_Δ = shrink_radius_much(algo_config, Δ, steplength);
                 else
-                    Δ = shrink_radius(algo_config, old_Δ, steplength);
+                    new_Δ = shrink_radius(algo_config, Δ, steplength);
                     ACCEPT_TRIAL_POINT = true;
                 end
             else
                 IMPROVEMENT_STEP_FLAG = true;
+                new_Δ = Δ
             end
         end
 
         if ACCEPT_TRIAL_POINT
-            set_next_iterate!(iter_data, x₊, fx₊, Δ);
+            set_next_iterate!(iter_data, x₊, fx₊, new_Δ);
         else
-            keep_current_iterate!(iter_data, x₊, fx₊, Δ);
+            keep_current_iterate!(iter_data, x₊, fx₊, new_Δ);
         end
+        @info """\n
+            The step is $(ACCEPT_TRIAL_POINT ? (ρ >= ν_succ ? "very sucessfull!" : "acceptable.") : "unsucessfull…")
+            Moreover, the radius was updated as below:
+            old radius : $Δ
+            new radius : $new_Δ ($(round(new_Δ/Δ * 100;digits=1)) %)
+        """
 
         stamp!(data_base)
         @assert all(isapprox.(x₊,xᵗ(iter_data)))
     end
 
-    # FINISHED :)
+    ret_x = unscale(xᵗ(iter_data),mop);
+    ret_fx = reverse_internal_sorting(fxᵗ(iter_data),mop);
+    @info("""\n
+        |--------------------------------------------
+        | FINISHED
+        |--------------------------------------------
+        | No. iterations:  $(n_iterations) 
+        | No. evaluations: $(num_evals(mop))
+        | final unscaled vectors:
+        | iterate: $(_prettify(ret_x, 10))
+        | value:   $(_prettify(ret_fx, 10))
+    """);
+
     # unscale sites and re-sort values to return to user
     if !isnothing( db(iter_data) )
         unscale!( db(iter_data) , mop);
         reverse_internal_sorting!( db(iter_data), mop);
     end
 
-    return xᵗ(iter_data), fxᵗ(iter_data), iter_data
+    return ret_x, ret_fx, iter_data
 
 end# function optimize
 

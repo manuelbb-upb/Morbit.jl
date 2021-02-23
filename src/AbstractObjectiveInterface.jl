@@ -11,7 +11,11 @@ function _wrap_func( :: Type{<:AbstractObjective}, fn :: Function,
     nothing
 end
 
-_eval_handle(::AbstractObjective) = nothing :: Function;
+#_eval_handle(::AbstractObjective) = nothing :: Function;
+"Evaluate objective at unscaled site."
+function eval_objf_at_site(objf::AbstractObjective,x :: Union{RVec,RVecArr})::Union{RVec,RVecArr}
+    return nothing
+end
 
 num_vars( :: AbstractObjective ) = nothing :: Int;
 
@@ -31,15 +35,20 @@ num_outputs( objf :: AbstractObjective ) = nothing :: Int;
 # DERIVED methods and defaults
 # can_batch( ::AbstractObjective ) = false :: Bool;
 
-"Evaluate the objective at provided site(s)."
+"Evaluate the objective at unscaled site(s). and increase counter."
 function eval_objf(objf :: AbstractObjective, x :: RVec )
-    _eval_handle(objf)(x)
+    inc_evals!(objf);
+    eval_objf_at_site(objf,x)
 end
 
 # using Memoization here so that always the same function is returned
 # this should vastly speed up automatic differentiation 
+@memoize function _eval_handle(objf :: AbstractObjective)
+    x -> eval_objf(objf, x)
+end
+
 @memoize function _eval_handle( objf :: AbstractObjective, ℓ :: Int)
-    return (x :: RVec) -> _eval_handle( objf )(x)[ℓ]
+    return x -> eval_objf( objf, x)[ℓ]
 end
     
 "(Soft) upper bound on the number of function calls. "
@@ -52,11 +61,13 @@ function inc_evals!( objf :: AbstractObjective, N :: Int = 1 )
     num_evals!( objf, num_evals(objf) + N )
 end
 
+#=
 "Evaluate the objective at provided site(s)."
 function (objf :: AbstractObjective )(x :: RVec )
     inc_evals!( objf );
     return eval_objf( objf, x );
 end
+=#
 
 combinable( objf :: AbstractObjective ) = combinable( model_cfg(objf) );
 function combinable( objf1 :: AbstractObjective, objf2 :: AbstractObjective )

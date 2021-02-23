@@ -1,3 +1,8 @@
+# Types to help with differentiation of Abstract Objectives 
+# Note: Differatiates the objective handle for unscaled input 
+# Composite functions (unscale x̂ and eval) need to multiply 
+# with unscaling jacobian
+
 struct HessWrapper <: DiffFn
     list_of_hess_fns :: Vector{<:Function}
 end

@@ -90,6 +90,20 @@ function update_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP,
     nothing
 end
 
+function improve_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP, 
+    id :: AbstractIterData; ensure_fully_linear :: Bool = false ) :: Nothing 
+    for (si,sw) ∈ enumerate(sc.surrogates)
+        new_model, new_meta = improve_model( sw.model, sw.objf, sw.meta, mop, id; ensure_fully_linear )
+        new_sw = SurrogateWrapper( 
+            sw.objf,
+            new_model, 
+            new_meta
+        );
+        replace_surrogate!(sc, si, new_sw )
+    end
+    nothing
+end
+
 function eval_models( sc :: SurrogateContainer, x̂ :: RVec ) :: RVec
     vcat( (eval_models(sw.model , x̂) for sw ∈ sc.surrogates )...)
 end

@@ -20,6 +20,7 @@ abstract type AbstractConfig end;
 
 abstract type DiffFn end;
 
+
 get_gradient( :: DiffFn, :: RVec, :: Int ) = nothing :: RVec;
 get_jacobian( :: DiffFn, :: RVec ) = nothing :: RMat;
 get_hessian( :: DiffFn, :: RVec, :: Int ) = nothing :: RMat;

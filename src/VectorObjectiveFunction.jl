@@ -40,4 +40,6 @@ num_outputs( objf :: VectorObjectiveFunction ) = objf.n_out;
 
 model_cfg( objf :: VectorObjectiveFunction ) = objf.model_config;
 
-_eval_handle( objf :: VectorObjectiveFunction) = objf.function_handle;
+function eval_objf_at_site( objf :: VectorObjectiveFunction, x :: Union{RVec, RVecArr}) :: Union{RVec,RVecArr}
+    objf.function_handle(x);
+end

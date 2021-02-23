@@ -43,7 +43,7 @@ function set_gradients!( mod :: ExactModel, objf :: AbstractObjective )
         if cfg.gradients == :autodiff
             mod.diff_fn = AutoDiffWrapper( objf )
         elseif cfg.gradients == :fdm 
-            mod.diff_fn = FiniteDiffWrapper( obj );
+            mod.diff_fn = FiniteDiffWrapper( objf );
         end
     else 
         mod.diff_fn = GradWrapper( cfg.gradients, cfg.jacobian )
@@ -66,6 +66,12 @@ function update_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
     return em, meta
 end
 
+function improve_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
+    ::AbstractMOP, id :: AbstractIterData; 
+    ensure_fully_linear :: Bool = false ) :: Tuple{ ExactModel, ExactMeta }
+    return em, meta
+end
+
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."
 function eval_models( em :: ExactModel, x̂ :: RVec )
     return eval_objf( em.objf, unscale( x̂, em.mop ) )
@@ -78,12 +84,16 @@ end
 
 @doc "Gradient vector of output `ℓ` of `em` at scaled site `x̂`."
 function get_gradient( em :: ExactModel, x̂ :: RVec, ℓ :: Int64)
-    return get_gradient( em.diff_fn, unscale(x̂, em.mop), ℓ)
+    tfn = _get_transformer_fn(em.mop);
+    tfn_jacobian = transpose(_jacobian_unscaling(tfn, x̂));
+    return tfn_jacobian * get_gradient( em.diff_fn, unscale(x̂, em.mop), ℓ)
 end
 
 @doc "Jacobian Matrix of ExactModel `em` at scaled site `x̂`."
 function get_jacobian( em :: ExactModel, x̂ :: RVec )
-    return get_jacobian( em.diff_fn, unscale(x̂, em.mop) )
+    tfn = _get_transformer_fn(em.mop);
+    tfn_jacobian = _jacobian_unscaling(tfn, x̂);
+    return get_jacobian( em.diff_fn, unscale(x̂, em.mop) ) * tfn_jacobian
 end
 
 #=

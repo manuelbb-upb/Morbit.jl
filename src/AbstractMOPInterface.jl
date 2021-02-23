@@ -27,6 +27,12 @@ MOI.add_constraint(::AbstractMOP, func::F, set::S) where {F,S} = nothing :: MOI.
 # DERIVED methods 
 num_vars( mop :: AbstractMOP ) = MOI.get( mop, MOI.NumberOfVariables() );
 
+@memoize function _width( lb :: RVec, ub :: RVec ) :: RVec
+    w = ub .- lb
+    w[ isinf.(w) ] .= 1
+    return w
+end
+
 "Number of scalar-valued objectives of the problem."
 function num_objectives( mop :: AbstractMOP )
     let objf_list = list_of_objectives(mop);
@@ -162,7 +168,9 @@ end
 
 function intersect_bounds( mop :: AbstractMOP, x :: RVec, Δ :: Union{Real, RVec}, 
     d :: RVec; return_vals :: Symbol = :both ) :: Union{Real, Tuple{Real,Real}}
+    x
     lb_eff, ub_eff = local_bounds( mop, x, Δ );
+
     σ_pos, σ_neg = _intersect_bounds( x, d, lb_eff, ub_eff );
 
     if return_vals == :both 
@@ -234,15 +242,24 @@ struct TransformerFn <: Function
     mop :: AbstractMOP
 end
 
-function _transform( x̂ :: RVec, lb :: RVec, ub :: RVec )
+function _transform_unscale( x̂ :: RVec, lb :: RVec, ub :: RVec )
     x = copy(x̂);
     _unscale!(x, lb, ub);
     return min.( max.( lb , x), ub )
 end
 
-function (sgf:: TransformerFn)( x :: RVec )
+using LinearAlgebra: diagm 
+function _jacobian_unscaling( tfn :: TransformerFn, x̂ :: RVec)
+    # for our simple bounds scaling the jacobian is diagonal.
+    lb, ub = full_bounds(tfn.mop)
+    w = _width(lb,ub)
+    J = diagm(w)
+end
+
+"Unscale the point `x̂` from internal to original domain."
+function (sgf:: TransformerFn)( x̂ :: RVec )
     lb, ub = full_bounds( sgf.mop );
-    return _transform( x, lb, ub);
+    return _transform_unscale( x̂, lb, ub);
 end
 
 # special broadcast to only retrieve bounds once
@@ -251,6 +268,7 @@ function Broadcast.broadcasted( sgf ::TransformerFn,  X :: RVecArr )
     return [ _transform( x, lb, ub ) for x ∈ X ]
 end
 
+#implementations can optimize this (eg using Memoization)
 function _get_transformer_fn( mop :: AbstractMOP)
     TransformerFn(mop)
 end
@@ -268,6 +286,9 @@ function eval_and_sort_objectives(mop :: AbstractMOP, x̂ :: RVec)
 end
 
 # Helper functions …
+function num_evals( mop :: AbstractMOP ) :: Vector{Int}
+    [ num_evals(objf) for objf ∈ list_of_objectives(mop) ]
+end
 
 @doc "Set evaluation counter to 0 for each VectorObjectiveFunction in `m.vector_of_objectives`."
 function reset_evals!(mop :: AbstractMOP)

@@ -35,7 +35,7 @@ function _steepest_descent( x :: RVec, ∇F :: RMat, lb :: RVec, ub :: RVec )
 end
 
 function _armijo_condition( strict :: Val{true}, Fx, Fx₊, step_size, ω  )
-    return all(Fx - Fx₊ .>= step_size * 1e-6 * ω)
+    return minimum(Fx .- Fx₊) >= step_size * 1e-6 * ω
 end
 
 function _armijo_condition( strict :: Val{false}, Fx, Fx₊, step_size, ω  )
@@ -50,7 +50,7 @@ and the final step `s = x₊ .- x`.
 function _backtrack( x :: RVec, dir :: RVec, step_size :: Real, ω :: Real, 
     sc :: SurrogateContainer, strict_descent :: Bool)
 
-    MAX_BACKTRACK = 15;
+    MIN_STEPSIZE = eps(Float64);
     BACKTRACK_FACTOR = Float16(0.8);
     # values at iterate
     mx = eval_models(sc, x)
@@ -60,7 +60,11 @@ function _backtrack( x :: RVec, dir :: RVec, step_size :: Real, ω :: Real,
     mx₊ = eval_models( sc, x₊ )
 
     N = 0;
-    while !_armijo_condition( Val(strict_descent), mx₊, mx, step_size, ω ) && N < MAX_BACKTRACK
+    while !_armijo_condition( Val(strict_descent), mx, mx₊, step_size, ω )
+        if step_size <= MIN_STEPSIZE 
+            @warn "Couldn find a descent by backtracking."
+            break;
+        end 
         step_size *= BACKTRACK_FACTOR;
         x₊[:] = x .+ step_size .* dir;
         mx₊[:] = eval_models( sc, x₊);
@@ -70,7 +74,6 @@ function _backtrack( x :: RVec, dir :: RVec, step_size :: Real, ω :: Real,
     step = step_size .* dir;
     return x₊, mx₊, step
 end
-
 
 function compute_descent_step(::Val{:steepest_descent}, algo_config :: AbstractConfig,
     mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
@@ -89,7 +92,6 @@ function compute_descent_step(::Val{:steepest_descent}, algo_config :: AbstractC
         @assert σ >= 0
 
         x₊, mx₊, step = _backtrack( x, d_normed, σ, ω, sc, strict_backtracking(algo_config) );
-
         return ω, x₊, mx₊, norm(step, Inf)
     else
         return 0, copy(x), eval_models( sc, x ), 0
