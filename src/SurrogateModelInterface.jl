@@ -4,21 +4,19 @@ Broadcast.broadcastable( sc::SurrogateConfig ) = Ref(sc);
 
 # Methods to be implemented by each type inheriting from SurrogateConfig
 max_evals( :: SurrogateConfig ) = typemax(Int) :: Int;
-max_evals!( :: SurrogateConfig, :: Int ) = 0 :: Nothing;
+max_evals!( :: SurrogateConfig, :: Int ) = 0 :: Nothing; # TODO do we still use this anywhere?
 
 # return data that is stored in iter data in each iteration
 # saveable(::SurrogateMeta) = nothing :: Union{Nothing, <:SurrogateMeta};
 
 fully_linear( :: SurrogateModel ) = false :: Bool;
 
-# prepare!( :: SurrogateConfig, :: AbstractObjective ) = nothing :: Nothing;
-
 # can objective functions with same configuration types be combined 
-# to a new vector objective
+# to a new vector objective?
 combinable( :: SurrogateConfig ) = false :: Bool     
 
 _init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP, :: AbstractIterData ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
-update_model( :: SurrogateModel,:: AbstractObjective, :: SurrogateMeta, AbstractMOP, :: AbstractIterData) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+update_model( :: SurrogateModel,:: AbstractObjective, :: SurrogateMeta, :: AbstractMOP, :: AbstractIterData) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
 
 eval_models( :: SurrogateModel, ::RVec ) = nothing :: RVec
 get_gradient( :: SurrogateModel, ::RVec, :: Int ) = nothing :: RVec
@@ -30,9 +28,12 @@ function init_model( objf:: AbstractObjective, args...)
     _init_model( model_cfg(objf), objf, args...)
 end
 
+# overwrite, this is inefficient
+eval_models( sm :: SurrogateModel, x̂ :: RVec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
+
 # check if surrogate configurations are equal (only really needed if combinable)
 function Base.:(==)( cfg1 :: T, cfg2 :: T ) where T <: SurrogateConfig
-    all( getfield(cfg1, fname) == getfield(cfg2, fname) for fname in fieldnames(C) )
+    all( getfield(cfg1, fname) == getfield(cfg2, fname) for fname ∈ fieldnames(T) )
 end
 
 function Base.:(==)( cfg1 :: T, cfg2 :: F ) where {T <: SurrogateConfig, F<:SurrogateConfig}

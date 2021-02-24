@@ -114,22 +114,23 @@ function update_model( tm :: TaylorModel, objf :: AbstractObjective, tmeta :: Ta
     mop :: AbstractMOP, id :: AbstractIterData; ensure_fully_linear :: Bool = false ) :: Tuple{TaylorModel,TaylorMeta}
     @info "Building Taylor model(s)."
     tm.x0 = xᵗ(id);
-    #tm.fx0 = fxᵗ(id);
-    tm.fx0 = eval_objf_at_site( objf, tm.x0);
+    tm.fx0 = fxᵗ(id)[output_indices(objf,mop)];
     
     # set gradients
+    empty!(tm.g)
     for ℓ = 1 : num_outputs(objf)
         push!(tm.g, get_gradient(tm.diff_fn, tm.x0, ℓ))
     end
     
     # and hessians if needed
     if !isnothing(tm.hess_fn)
+        empty!(tm.H)
         for ℓ = 1 : num_outputs(objf)
-            @show hess_mat = Matrix(get_hessian(tm.hess_fn, tm.x0, ℓ));
+            hess_mat = Matrix(get_hessian(tm.hess_fn, tm.x0, ℓ));
             push!(tm.H, hess_mat);
         end
     end
-
+    @info "Done building Taylor model(s)."
     return tm, tmeta
 end
 
@@ -140,7 +141,7 @@ function improve_model(tm::TaylorModel, ::AbstractObjective, tmeta :: TaylorMeta
 end
 
 function _eval_models( tm :: TaylorModel, h :: RVec, ℓ :: Int ) :: Real
-    ret_val = tm.fx0[ℓ] + h'tm.g[ℓ]
+    ret_val = tm.fx0[ℓ] + tm.g[ℓ]'h
     if !isempty(tm.H)
         ret_val += .5 * h'tm.H[ℓ]*h 
     end
@@ -171,8 +172,3 @@ function get_jacobian( tm :: TaylorModel, x̂ :: RVec )
     return transpose( hcat( grad_list... ) )
 end
 
-# The following functions are a bit redundant becase `tm` is always fully linear.
-#=
-make_linear!( ::TaylorModel, ::TaylorMeta, ::AlgoConfig, ::VectorObjectiveFunction, ::TaylorConfig, ::Bool ) = false;
-improve!( ::TaylorModel, ::TaylorMeta, ::AlgoConfig, ::VectorObjectiveFunction, ::TaylorConfig )  = false;
-=#

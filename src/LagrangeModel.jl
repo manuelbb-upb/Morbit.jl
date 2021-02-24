@@ -1,59 +1,58 @@
-# This file defines the required methods for vector-valued Lagrange models.
-#
-# It is included from within "Surrogates.jl".
-# We therefore can refer to other data structures used there.
 using DynamicPolynomials
-#using TypedPolynomials
+
 using FileIO, JLD2;
 
-@with_kw mutable struct LagrangeModel <: SurrogateModel
-    n_out :: Int64 = -1;
-    degree :: Int64 = 1;
+mutable struct LagrangePoly 
+    p :: AbstractPolynomialLike 
+    site :: RVec 
+end
+Broadcast.broadcasted(lp :: LagrangePoly ) = Ref(lp);
 
-    lagrange_models :: Vector{Any} = [];
+
+@with_kw mutable struct LagrangeModel <: SurrogateModel
+    n_vars :: Int;  # stored for convenience
+    degree :: Int;  # stored for convenience
+    basis :: Vector{LagrangePoly} = LagrangePoly[];
+    vals :: RVecArr = RVec[];
     fully_linear :: Bool = false;
 end
-Broadcast.broadcastable( lm :: LagrangeModel ) = Ref(lm);
 
 @with_kw mutable struct LagrangeConfig <: SurrogateConfig
     degree :: Int64 = 1;
     θ_enlarge :: Real = 2;
 
+    "Acceptance Parameter in first Poisedness-Algorithm."
     ε_accept :: Real = 1e-6;
+    "Quality Parameter in Λ-Poisedness Algorithm."
     Λ :: Real = 1.5;
 
     allow_not_linear :: Bool = false;
 
     optimized_sampling :: Bool = true;
 
-    # the basis is set by `prepare!`
-    canonical_basis :: Union{ Nothing, Vector{Any} } = nothing
-    # fields to enable unoptimized (stencil) sampling
-    stencil_sites :: RVecArr = RVec[];
-
-    # if optimized_sampling = false, shall we use saved sites?
+    # if optimized_sampling = false, shall we try to use saved sites?
     use_saved_sites :: Bool = true;
     io_lock :: Union{Nothing, ReentrantLock, Threads.SpinLock} = nothing;
+
+    algo1_max_evals :: Union{Nothing,Int} = nothing;    # nothing = automatic
 
     max_evals :: Int64 = typemax(Int64);
 end
 
-function Base.deepcopy( cfg :: LagrangeConfig)
-    new_cfg = LagrangeConfig();
-    for fname in fieldnames(LagrangeConfig)
-        if fname != :io_lock
-            setfield!(new_cfg, fname, deepcopy(getfield(cfg, fname)) );
-        else
-            setfield!(new_cfg, fname, getfield(cfg, fname) );
-        end
-    end
-    return new_cfg
-end
-
-#Base.lock( f, ::Nothing ) = try f() catch end;
 function Base.lock(::Nothing) end
 function Base.unlock(::Nothing) end
 
+max_evals( cfg::LagrangeConfig)::Int=cfg.max_evals;
+function max_evals!(cfg::LagrangeConfig, N :: Int)::Nothing
+    cfg.max_evals = N 
+end
+fully_linear( lm::LagrangeModel ) :: Bool = lm.fully_linear;
+
+combinable(::LagrangeConfig) ::Bool = true;
+
+function combine(cfg1 :: LagrangeConfig, cfg2 :: LagrangeConfig) :: LagrangeConfig
+    cfg1
+end
 
 @with_kw mutable struct LagrangeMeta <: SurrogateMeta
     interpolation_indices :: Vector{Int64} = [];
@@ -61,59 +60,97 @@ function Base.unlock(::Nothing) end
 end
 
 # helper function to easily evaluate polynomial
-function eval_poly(p ::T where T<:Union{Monomial, Polynomial, Term, PolyVar},
-        x :: RVec)
+function eval_poly(p :: AbstractPolynomialLike, x :: RVec)
     return p( variables(p) => x ) 
 end
+
+function eval_poly( lp :: LagrangePoly, x :: RVec )
+    eval_poly( lp.p, x )
+end
+
 # helper function to easily evaluate polynomial array for gradient
-function eval_poly(p::Vector{T} where T<:Union{Monomial, Polynomial, Term, PolyVar},
-    x :: RVec)
-    [g( variables(p) => x ) for g in p]
-end
-
-# Overwrite Type methods
-fully_linear( lm :: LagrangeModel ) = lm.fully_linear;
-max_evals( cfg :: LagrangeConfig ) = cfg.max_evals;
-num_outputs( lm :: LagrangeModel ) = lm.n_out;
-
-# helpers for the modifying functions (improve!, make_linear!)
-@doc "Modify first meta data object to equal second."
-function as_second!(destination :: T, source :: T ) where{T<:LagrangeMeta}
-    @unpack_LagrangeMeta source;
-    @pack_LagrangeMeta! destination;
-    return nothing
-end
-function as_second!(destination :: T, source :: T ) where{T<:LagrangeModel}
-    @unpack_LagrangeModel source;
-    @pack_LagrangeModel! destination;
-    return nothing
+function eval_poly(p::Vector{<:AbstractPolynomialLike}, x :: RVec)
+    [g( variables(p) => x ) for g ∈ p]
 end
 
 @doc "Factorial of a multinomial."
-multifactorial( arr :: Vector{Int} ) =  prod( factorial(α) for α in arr )
+_multifactorial( arr :: Vector{Int} ) =  prod( factorial(α) for α in arr )
 
-@doc "Set field `:canonical_basis` of `cfg::LagrangeConfig` object."
-function prepare!(objf :: VectorObjectiveFunction, cfg :: LagrangeConfig, ac::AlgoConfig )
-    n = ac.n_vars;
-    D = cfg.degree;
-    p = binomial( n + D, n)
-    # Generate the canonical basis for space of polynomial of degree at most D
-    cfg.canonical_basis = Any[];
-    @polyvar χ[1:n];
-    for d = 0 : D
-        for multi_exponent in non_negative_solutions( d, n )
-            poly = 1/multifactorial(multi_exponent) * prod( χ.^multi_exponent );
-            push!(cfg.canonical_basis, poly)
+function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective,
+    mop :: AbstractMOP, id :: AbstractIterData ) :: Tuple{LagrangeModel, LagrangeMeta}
+    lm = LagrangeModel(; 
+        n_vars = num_vars(objf),
+        degree = cfg.degree,
+    );
+    # prepare initial basis of polynomial space 
+    @polyvar χ[1:lm.n_vars]
+    for d = 0 : lm.degree
+        for multi_exponent ∈ non_negative_solutions( d, lm.n_vars )
+            poly = 1 / _multifactorial( multi_exponent ) * prod( χ.^multi_exponent );
+            push!(lm.basis, LagrangePoly(poly, NaN))
+        end
+    end     
+    lmeta = LagrangeMeta();
+    return update_model(lm, objf, lmeta, mop, id; ensure_fully_linear = !cfg.allow_not_linear)
+end
+
+function _point_in_box( x̂ :: RVec, lb :: RVec, ub :: RVec ) :: Bool 
+    return all( lb .<= x̂ .<= ub )
+end
+
+"Indices of sites in database that lie in box with bounds `lb` and `ub`."
+function find_points_in_box( db :: AbstractDB, lb :: RVec, ub :: RVec ) :: Int[]
+    all_sites = sites(db);
+    return [i for i = eachindex(all_sites) if _point_in_box(all_sites[i], lb, ub) ]
+end
+
+function find_points_in_box( id :: IterData, mop :: AbstractMOP; filter_x = true ) :: Int[]
+    lb_eff, ub_eff = local_bounds(mop, xᵗ(id), Δᵗ(id) );
+    DB = db(id);
+    indices = find_points_in_box( DB, lb_eff, ub_eff )
+    if filter_x 
+        setdiff!(indices, xᵗ_index( DB ));
+    end
+    return indices;
+end
+
+
+function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
+    mop :: AbstractMOP, id :: AbstractIterData; ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
+    
+    # normalize first basis polyonmial at iterate
+    p1 = lm.basis[1];
+    p1.poly /= eval_poly( p1, xᵗ(id) );
+    p1.site = xᵗ(id);
+
+    candidate_indices = find_points_in_box( id, mop; filter_x = true ); 
+
+end
+
+function make_basis_poised!( basis :: Vector{LagrangePoly}, candidates :: RVecArr, 
+    box_lb :: RVec, box_ub :: RVec;
+    ε_accept :: Real, max_solver_evals :: Union{Int,Nothing} = nothing )
+
+    N = length(x);
+    if isnothing( max_solver_evals)
+        max_solver_evals = 300*(N+1);   # TODO is sensible?
+    end
+
+    p = length( basis )
+    new_sites = RVec[];
+    accepted_indices = zeros(Bool, length(candidates))
+    
+    for i = 1 : p
+        Y = candidates[ .!(accepted_indices) ]
+        lyᵢ, jᵢ = isempty(Y) ? (0,0) : findmax( abs.( eval_poly.(basis[i], Y) ) );
+        if lyᵢ > ε_accept
+            
         end
     end
-    return nothing
 end
 
-@doc "Return list of training values for current Lagrange Model described by `cfg` and `meta`."
-function get_training_values( objf :: VectorObjectiveFunction, meta :: LagrangeMeta, id :: IterData )
-    [ deepcopy(val[objf.internal_indices]) for val ∈ id.values_db[ meta.interpolation_indices ] ]
-end
 
+#=
 @doc """
     find_poised_set(ε_accept, start_basis, point_database, x, Δ, x_index, box_lb, box_ub)
 
@@ -521,3 +558,5 @@ function get_final_model( lagrange_basis :: Vector{T} where T,
     );
     return lmodel, lmeta 
 end
+
+=#

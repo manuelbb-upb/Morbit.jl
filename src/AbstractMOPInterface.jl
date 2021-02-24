@@ -100,8 +100,7 @@ function output_indices( mop :: AbstractMOP )
     return all_outputs;
 end
 
-# this is overwritten by implementation MixedMOP because
-# we allow to delete and combine objectives 
+# TODO use memoization in MixedMOP here
 function output_indices( objf ::AbstractObjective, mop :: AbstractMOP ) 
     return let first_index = _objf_index(objf,mop);
     collect( first_index : first_index + num_outputs(objf) );
