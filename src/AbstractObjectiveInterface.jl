@@ -12,8 +12,8 @@ function _wrap_func( :: Type{<:AbstractObjective}, fn :: Function,
 end
 
 #_eval_handle(::AbstractObjective) = nothing :: Function;
-"Evaluate objective at unscaled site."
-function eval_objf_at_site(objf::AbstractObjective,x :: Union{RVec,RVecArr})::Union{RVec,RVecArr}
+"Evaluate objective at scaled site."
+function eval_objf_at_site(objf::AbstractObjective, x̂ :: Union{RVec,RVecArr})::Union{RVec,RVecArr}
     return nothing
 end
 

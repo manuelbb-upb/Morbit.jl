@@ -17,8 +17,8 @@ fully_linear( :: SurrogateModel ) = false :: Bool;
 # to a new vector objective
 combinable( :: SurrogateConfig ) = false :: Bool     
 
-_init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
-update_model( :: AbstractObjective, :: AbstractMOP, ac :: Any, ::Bool) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+_init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP, :: AbstractIterData ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+update_model( :: SurrogateModel,:: AbstractObjective, :: SurrogateMeta, AbstractMOP, :: AbstractIterData) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
 
 eval_models( :: SurrogateModel, ::RVec ) = nothing :: RVec
 get_gradient( :: SurrogateModel, ::RVec, :: Int ) = nothing :: RVec

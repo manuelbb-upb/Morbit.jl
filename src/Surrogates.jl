@@ -1,7 +1,7 @@
 
 #include("RBFModel.jl")
-#include("TaylorModel.jl")
 include("ExactModel.jl")
+include("TaylorModel.jl")
 #include("LagrangeModel.jl")
 
 struct SurrogateWrapper
@@ -67,10 +67,10 @@ end
 
 
 @doc "Return a SurrogateContainer initialized from the information provided in `mop`."
-function init_surrogates( mop :: AbstractMOP ) :: SurrogateContainer
+function init_surrogates( mop :: AbstractMOP, id :: AbstractIterData ) :: SurrogateContainer
     sc = SurrogateContainer();
     for objf ∈ list_of_objectives(mop)
-        model, meta = init_model( objf, mop )
+        model, meta = init_model( objf, mop, id );
         add_surrogate!( sc, SurrogateWrapper(objf,model,meta))
     end
     return sc

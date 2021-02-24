@@ -21,6 +21,7 @@ count_nonlinear_iterations( :: AbstractConfig )::Bool=true;
 Δ_crit(::AbstractConfig)::Union{RVec,Real} = 1e-3;
 Δₗ(ac::AbstractConfig)::Union{RVec, Real} = Δ_crit(ac) .* 1e-3;
 stepsize_crit(ac::AbstractConfig)::Union{RVec,Real}= Δ_crit(ac) .* 1e-4;
+stepsize_min(::AbstractConfig)::Union{RVec,Real} = eps(Float64) * 10;
 
 descent_method( :: AbstractConfig )::Symbol = :steepest_descent
 
@@ -62,6 +63,7 @@ use_db( ::EmptyConfig ) = ArrayDB;
     Δ_min :: Union{Real, RVec} = Δₗ( empty_config );
     Δ_critical :: Union{Real, RVec } = Δ_crit( empty_config );
     stepsize_critical :: Union{Real,RVec} = stepsize_crit( empty_config );
+    stepsize_min :: Union{Real,RVec} = stepsize_min(empty_config);
 
     descent_method :: Symbol = descent_method(empty_config);
     strict_backtracking :: Bool = strict_backtracking(empty_config);
@@ -90,6 +92,7 @@ count_nonlinear_iterations(ac :: AlgoConfig) = ac.count_nonlinear_iterations;
 Δₗ( ac :: AlgoConfig ) = ac.Δ_min;
 Δ_crit( ac :: AlgoConfig ) = ac.Δ_critical;
 stepsize_crit( ac :: AlgoConfig ) = ac.stepsize_critical;
+stepsize_min(ac::AlgoConfig) = ac.stepsize_min;
 use_db( ac :: AlgoConfig ) = ac.db;
 descent_method( ac :: AlgoConfig ) = ac.descent_method;
 strict_backtracking( ac :: AlgoConfig ) = ac.strict_backtracking;

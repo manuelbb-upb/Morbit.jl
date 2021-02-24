@@ -188,12 +188,51 @@ function intersect_bounds( mop :: AbstractMOP, x :: RVec, Δ :: Union{Real, RVec
     end
 end
 
+# wrapper to unscale x̂ from internal domain and safeguard against boundary violations
+struct TransformerFn <: Function 
+    mop :: AbstractMOP
+end
+
+function _transform_unscale( x̂ :: RVec, lb :: RVec, ub :: RVec )
+    x = copy(x̂);
+    _unscale!(x, lb, ub);
+    return min.( max.( lb , x), ub )
+end
+
+using LinearAlgebra: diagm 
+function _jacobian_unscaling( tfn :: TransformerFn, x̂ :: RVec)
+    # for our simple bounds scaling the jacobian is diagonal.
+    lb, ub = full_bounds(tfn.mop)
+    w = _width(lb,ub)
+    J = diagm(w)
+end
+
+"Unscale the point `x̂` from internal to original domain."
+function (sgf:: TransformerFn)( x̂ :: RVec )
+    lb, ub = full_bounds( sgf.mop );
+    return _transform_unscale( x̂, lb, ub);
+end
+
+# special broadcast to only retrieve bounds once
+function Broadcast.broadcasted( sgf ::TransformerFn,  X :: RVecArr )
+    lb, ub = full_bounds(sgf.mop);
+    return [ _transform( x, lb, ub ) for x ∈ X ]
+end
+
+@memoize function _get_transformer_fn( mop :: AbstractMOP)
+    TransformerFn(mop)
+end
+
 function _add_objective!( mop :: AbstractMOP, T :: Type{<:AbstractObjective},
     func :: Function, model_cfg :: SurrogateConfig, n_out :: Int = 0, 
     can_batch :: Bool = false )
     
+    # use a transformer to be able to directly evaluate scaled variables 
+    # this makes internal differentiation *so much* easier.
+    tfn = _get_transformer_fn(mop);
+
     # making sure, that everything is a vector 
-    fvec = x -> vec( func(x) );
+    fvec = x -> vec( func( tfn(x) ) );
 
     fx = can_batch ? BatchObjectiveFunction(fvec) : fvec;
 
@@ -237,46 +276,10 @@ function Broadcast.broadcasted( :: typeof( reverse_internal_sorting ), mop :: Ab
     return [ ŷ[reverse_indices] for ŷ ∈ Ŷ];
 end
 
-# wrapper to unscale x̂ from internal domain and safeguard against boundary violations
-struct TransformerFn <: Function 
-    mop :: AbstractMOP
-end
-
-function _transform_unscale( x̂ :: RVec, lb :: RVec, ub :: RVec )
-    x = copy(x̂);
-    _unscale!(x, lb, ub);
-    return min.( max.( lb , x), ub )
-end
-
-using LinearAlgebra: diagm 
-function _jacobian_unscaling( tfn :: TransformerFn, x̂ :: RVec)
-    # for our simple bounds scaling the jacobian is diagonal.
-    lb, ub = full_bounds(tfn.mop)
-    w = _width(lb,ub)
-    J = diagm(w)
-end
-
-"Unscale the point `x̂` from internal to original domain."
-function (sgf:: TransformerFn)( x̂ :: RVec )
-    lb, ub = full_bounds( sgf.mop );
-    return _transform_unscale( x̂, lb, ub);
-end
-
-# special broadcast to only retrieve bounds once
-function Broadcast.broadcasted( sgf ::TransformerFn,  X :: RVecArr )
-    lb, ub = full_bounds(sgf.mop);
-    return [ _transform( x, lb, ub ) for x ∈ X ]
-end
-
-#implementations can optimize this (eg using Memoization)
-function _get_transformer_fn( mop :: AbstractMOP)
-    TransformerFn(mop)
-end
-
 "(Internally) Evaluate all objectives at site `x̂::RVec`. Objective order might differ from order in which they were added."
 function eval_all_objectives( mop :: AbstractMOP,  x̂ :: RVec )
-    x = _get_transformer_fn(mop)(x̂);
-    vcat( [ eval_objf( objf, x ) for objf ∈ list_of_objectives(mop) ]... )
+    #x = _get_transformer_fn(mop)(x̂);
+    vcat( [ eval_objf( objf, x̂ ) for objf ∈ list_of_objectives(mop) ]... )
 end
 
 "Evaluate all objectives at site `x̂::RVec` and sort the result according to the order in which objectives were added."

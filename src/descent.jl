@@ -62,7 +62,7 @@ function _backtrack( x :: RVec, dir :: RVec, step_size :: Real, ω :: Real,
     N = 0;
     while !_armijo_condition( Val(strict_descent), mx, mx₊, step_size, ω )
         if step_size <= MIN_STEPSIZE 
-            @warn "Couldn find a descent by backtracking."
+            @warn "Could not find a descent by backtracking."
             break;
         end 
         step_size *= BACKTRACK_FACTOR;

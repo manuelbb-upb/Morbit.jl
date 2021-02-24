@@ -307,7 +307,18 @@ end
 
 "True if stepsize or radius too small."
 function _rel_tol_test_decision_space( Δ :: Union{Real,RVec}, steplength :: Real, ac :: AbstractConfig) :: Bool 
-    return all(Δ .<= Δₗ(ac)) || all( Δ .<= Δ_crit(ac) ) && all( steplength .<= stepsize_crit(ac) );
+    ret_val =  all(Δ .<= Δₗ(ac)) || all(steplength .< stepsize_min(ac )) || 
+        all( Δ .<= Δ_crit(ac) ) && all( steplength .<= stepsize_crit(ac) );
+    if ret_val
+        @info("""\n
+                Radius or stepsize too small.
+                Δ = $(Δ), stepsize = $(steplength).
+                Δ_min = $(Δₗ(ac)), Δ_crit = $(Δ_crit(ac)).
+                stepsize_min = $(stepsize_min(ac)), stepsize_crit = $(stepsize_crit(ac)).
+            """
+        );
+    end
+    return ret_val
 end
 
 function shrink_radius( ac :: AbstractConfig, Δ :: Real, steplength :: Real) :: Real
@@ -389,7 +400,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     iter_data = init_iter_data(IterData, x, fx, Δ⁰(algo_config), data_base);
 
     # initialize surrogate models
-    sc = init_surrogates( mop );
+    sc = init_surrogates( mop, iter_data );
     sc.surrogates
 
     IMPROVEMENT_STEP_FLAG = false;
@@ -411,13 +422,6 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         
         # relative stopping (decision space)
         if _rel_tol_test_decision_space( Δ, steplength, algo_config)
-            @info("""\n
-                Stopping. Radius or stepsize too small.
-                Δ = $(Δ), stepsize = $(steplength).
-                Δ_min = $(Δₗ(algo_config)), Δ_crit = $(Δ_crit(algo_config)).
-                stepsize_crit = $(stepsize_crit).
-            """
-            );
             break;
         end
 
@@ -486,7 +490,6 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
                 ω, x₊, mx₊, steplength = compute_descent_step(algo_config,mop,iter_data,sc);
 
                 if _rel_tol_test_decision_space( Δᵗ(iter_data), steplength, algo_config)
-                    @info "Radius or stepsize too small. Exiting…"
                     @goto EXIT_MAIN 
                 end
 
@@ -552,6 +555,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
 
         if ACCEPT_TRIAL_POINT
             set_next_iterate!(iter_data, x₊, fx₊, new_Δ);
+            @assert all(isapprox.(x₊,xᵗ(iter_data)))
         else
             keep_current_iterate!(iter_data, x₊, fx₊, new_Δ);
         end
@@ -563,7 +567,6 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         """
 
         stamp!(data_base)
-        @assert all(isapprox.(x₊,xᵗ(iter_data)))
     end
 
     ret_x = unscale(xᵗ(iter_data),mop);

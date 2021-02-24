@@ -1,119 +1,173 @@
 # This file defines the required data structures and methods for vector-valued
 # Taylor models.
-#
-# This file is included from within "Surrogates.jl".
-# We therefore can refer to other data structures used there.
-# NOTE Scaling of training SITES is provided by functions
-# (un)scale( mop :: MixedMop, x )
-# imported from "Objectives.jl" in "Surrogates.jl"
+# For Differentiation the `diff_wrappers.jl` are needed.
+# Also, abstract types SurrogateConfig, SurrogateModel, SurrogateMeta must be defined.
 
 @with_kw mutable struct TaylorConfig <: SurrogateConfig
-    n_out :: Int64 = 1; # used internally when setting hessians
     degree :: Int64 = 1;
 
-    gradients :: Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = :fdm
-    hessians ::  Union{Symbol, Nothing, Vector{T} where T, F where F<:Function } = gradients
+    gradients :: Union{Symbol, Nothing, Vector{<:Function}, Function } = :fdm
+    hessians ::  Union{Symbol, Nothing, Vector{<:Function}, Function } = gradients
 
     # alternative to specifying individual gradients
-    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
+    jacobian :: Union{Symbol, Nothing, Function} = nothing
 
     max_evals :: Int64 = typemax(Int64);
+    @assert !( ( isa(gradients, Vector) && isempty( gradients ) ) && isnothing(jacobian) ) "Provide either `gradients` or `jacobian`."
+    @assert !( isnothing(gradients) && isnothing(jacobian) ) "Provide either `gradients` or `jacobian`."
+    @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
 end
 
 @with_kw mutable struct TaylorModel <: SurrogateModel
-    n_out :: Int64 = -1;
     degree :: Int64 = 2;
-    x :: Vector{R} where{R<:Real} = Float64[];
-    f_x :: Vector{R} where{R<:Real} = Float64[];
-    g :: Vector{Vector{R}} where{R<:Real} = Array{Float64,1}[];
-    H :: Vector{Array{R,2}} where{R<:Real} = Array{Float64,2}[];
-    unscale_function :: Union{Nothing, F where F<:Function} = nothing;
-    @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
+    # reference to mop to have unscaling availabe;
+    mop :: AbstractMOP
+    # reference to objective(s) to evaluate 
+    objf :: AbstractObjective
+    diff_fn :: Union{DiffFn,Nothing} = nothing
+    hess_fn :: Union{HessFromGrads, DiffFn, HessWrapper, Nothing} = nothing
+
+    # expansion point and value 
+    x0 :: RVec = Real[];
+    fx0 :: RVec = Real[];
+    # gradient(s) at x0
+    g :: RVecArr = RVec[];
+    H :: Vector{<:RMat} = RMat[];
 end
-Broadcast.broadcastable( tm :: TaylorModel ) = Ref(tm);
 
 struct TaylorMeta <: SurrogateMeta end   # no construction meta data needed
 
-fully_linear( tm :: TaylorModel ) = true;
-
-num_outputs( tm :: TaylorModel ) = tm.n_out;
-
 max_evals( cfg :: TaylorConfig ) = cfg.max_evals;
+function max_evals!( cfg :: TaylorConfig  ) :: Nothing 
+    cfg.max_evals = 0;
+    nothing 
+end 
 
-function prepare!(objf :: VectorObjectiveFunction, cfg :: TaylorConfig, ::AlgoConfig )
-    @info("Preparing Taylor Models")
-    set_gradients!( cfg, objf )
-    if cfg.degree == 2
-        set_hessians!(cfg, objf)
+fully_linear( tm :: TaylorModel ) = true;
+combinable( :: TaylorConfig ) = false;      # TODO think about this 
+
+# Same method as for ExactModel; duplicated for tidyness...
+"Modify/initialize thec exact model `mod` so that we can differentiate it later."
+function set_gradients!( mod :: TaylorModel, objf :: AbstractObjective, mop :: AbstractMOP ) :: Nothing
+    cfg = model_cfg(objf);
+    if isa( cfg.gradients, Symbol )
+        if cfg.gradients == :autodiff
+            mod.diff_fn = AutoDiffWrapper( objf )
+        elseif cfg.gradients == :fdm 
+            mod.diff_fn = FiniteDiffWrapper( objf );
+        end
+    else
+        if isa(cfg.gradients, Vector)
+            @assert length(cfg.gradients) == num_outputs(objf) "Provide as many gradient functions as the objective has outputs."
+        elseif isa(cfg.gradients, Function)
+            @assert num_outputs(objf) == 1 "Only one gradient provided for $(num_outputs(objf)) outputs."
+        end
+        mod.diff_fn = GradWrapper(mop, cfg.gradients, cfg.jacobian )
     end
+    nothing
 end
 
-@doc "Return a TaylorModel build from a VectorObjectiveFunction `objf` and corresponding
-`cfg::TaylorConfig` (ideally with `objf.model_config == cfg`).
-Model is the same inside and outside of criticality round."
-function build_model( ac :: AlgoConfig, objf :: VectorObjectiveFunction,
-        cfg :: TaylorConfig, crit_flag :: Bool = true)
-    @unpack problem = ac;
-    @info "BUILDING TAYLOR MODEL"
-    tm = TaylorModel(
-        n_out = num_outputs( objf ),
-        degree = cfg.degree,
-        unscale_function = x -> unscale(problem, x),
-        x = unscale(problem, ac.iter_data.x),
-        f_x = ac.iter_data.f_x[ objf.internal_indices ]  # hopefully == objf(unscale(x))
-    )
+function set_hessians!( mod :: TaylorModel, objf :: AbstractObjective, mop :: AbstractMOP) :: Nothing
+    cfg = model_cfg(objf);
+    if isa( cfg.hessians, Symbol )
+        if isa( mod.diff_fn, GradWrapper )
+            mod.hess_fn = HessFromGrads( mod.diff_fn, cfg.hessians );
+        else 
+            if cfg.hessians == :autodiff
+                if isa( mod.diff_fn, AutoDiffWrapper )
+                    mod.hess_fn = mod.diff_fn 
+                else
+                    mod.hess_fn = AutoDiffWrapper(objf);
+                end
+            elseif cfg.hessians == :fdm 
+                if isa( mod.diff_fn, FiniteDiffWrapper)
+                    mod.hess_fn = mod.diff_fn
+                else
+                    mod.hess_fn = FiniteDiffWrapper( objf );
+                end
+            end
+        end
+    else
+        if isa(cfg.hessians, Vector)
+            @assert length(cfg.hessians) == num_outputs(objf) "Provide as many hessian functions as the objective has outputs."
+        elseif isa(cfg.hessians, Function)
+            @assert num_outputs(objf) == 1 "Only one hessian function provided for $(num_outputs(objf)) outputs."
+        end
+        mod.hess_fn = HessWrapper(mop, cfg.hessians )
+    end
+    nothing
+end
 
-    do_hessians = tm.degree == 2;
-    for ℓ = 1 : num_outputs( tm )
-        push!( tm.g, objf.model_config.gradients[ℓ](tm.x) )
-        if do_hessians
-            push!( tm.H, objf.model_config.hessians[ℓ](tm.x) )
+@doc "Return a TaylorModel build from a VectorObjectiveFunction `objf`."
+function _init_model( cfg ::TaylorConfig, objf :: AbstractObjective, 
+    mop :: AbstractMOP, id :: AbstractIterData ) :: Tuple{TaylorModel, TaylorMeta}
+    tm0 = TaylorModel(; mop = mop, objf = objf );
+    set_gradients!( tm0, objf, mop );
+    if cfg.degree >= 2
+        set_hessians!( tm0, objf, mop );
+    end
+    tmeta0 = TaylorMeta()
+    return update_model( tm0, objf, tmeta0, mop, id);    
+end
+
+function update_model( tm :: TaylorModel, objf :: AbstractObjective, tmeta :: TaylorMeta,
+    mop :: AbstractMOP, id :: AbstractIterData; ensure_fully_linear :: Bool = false ) :: Tuple{TaylorModel,TaylorMeta}
+    @info "Building Taylor model(s)."
+    tm.x0 = xᵗ(id);
+    #tm.fx0 = fxᵗ(id);
+    tm.fx0 = eval_objf_at_site( objf, tm.x0);
+    
+    # set gradients
+    for ℓ = 1 : num_outputs(objf)
+        push!(tm.g, get_gradient(tm.diff_fn, tm.x0, ℓ))
+    end
+    
+    # and hessians if needed
+    if !isnothing(tm.hess_fn)
+        for ℓ = 1 : num_outputs(objf)
+            @show hess_mat = Matrix(get_hessian(tm.hess_fn, tm.x0, ℓ));
+            push!(tm.H, hess_mat);
         end
     end
-    # Note: to save the evaluation sites, we could either have `objf` store the evals
-    # or maybe retrieve them from the Gradient Cache of FiniteDiff
-    return tm, TaylorMeta()
+
+    return tm, tmeta
 end
 
-@doc "Return vector of evaluations for all outputs of a (vector) Taylor model
-`tm` at scaled site `ξ`."
-function eval_models( tm :: TaylorModel, ξ :: Vector{Float64} )
-    h = tm.unscale_function(ξ) .- tm.x;
-    return eval_models( tm :: TaylorModel, h, Val( tm.degree ) )
-end
-function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ::Val{1})
-    return vcat( [ tm.f_x[ℓ] + h'tm.g[ℓ] for ℓ=1:num_outputs( tm ) ]... )
-end
-function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ::Val{2})
-    return vcat( [ tm.f_x[ℓ] + h'tm.g[ℓ] + .5 * h'tm.H[ℓ]*h for ℓ=1:num_outputs( tm ) ]...)
+function improve_model(tm::TaylorModel, ::AbstractObjective, tmeta :: TaylorMeta,
+    ::AbstractMOP, id :: AbstractIterData;
+    ensure_fully_linear :: Bool = false ) :: Tuple{TaylorModel, TaylorMeta}
+    tm, tmeta 
 end
 
-@doc "Return vector of evaluations for output `ℓ` of a (vector) Taylor model
-`tm` at scaled site `ξ`."
-function eval_models( tm :: TaylorModel, ξ :: Vector{Float64} , ℓ :: Int64 )
-    h = tm.unscale_function(ξ) .- tm.x;
-    return eval_models( tm, h, ℓ, Val(tm.degree))
-end
-function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ℓ :: Int64, ::Val{1} )
-    tm.f_x[ℓ] + h'tm.g[ℓ]
-end
-function eval_models( tm :: TaylorModel, h :: Vector{Float64}, ℓ :: Int64, ::Val{2} )
-    tm.f_x[ℓ] + h'tm.g[ℓ] + .5 * h'tm.H[ℓ]*h
+function _eval_models( tm :: TaylorModel, h :: RVec, ℓ :: Int ) :: Real
+    ret_val = tm.fx0[ℓ] + h'tm.g[ℓ]
+    if !isempty(tm.H)
+        ret_val += .5 * h'tm.H[ℓ]*h 
+    end
+    return ret_val
 end
 
-@doc "Gradient vector of output `ℓ` of `tm` at scaled site `ξ`."
-function get_gradient( tm :: TaylorModel, ξ :: Vector{Float64}, ℓ :: Int64)
-    if tm.degree == 1
+function eval_models( tm :: TaylorModel, x̂ :: RVec, ℓ :: Int ) :: Real
+    h = x̂ .- tm.x0;
+    return _eval_models( tm, h, ℓ);
+ end
+
+function eval_models( tm :: TaylorModel, x̂ :: RVec ) :: RVec
+    h = x̂ .- tm.x0;
+    return vcat( [_eval_models(tm, h, ℓ) for ℓ=1:num_outputs(tm.objf)]... )
+end
+
+function get_gradient( tm :: TaylorModel, x̂ :: RVec, ℓ :: Int) :: RVec
+    if isempty(tm.H)
         return tm.g[ℓ]
     else
-        h = tm.unscale_function(ξ) .- tm.x;
-        return tm.g[ℓ] + .5 * ( tm.H[ℓ]' + tm.H[ℓ] ) * h
+        h = x̂ .- tm.x0;
+        return tm.g[ℓ] .+ .5 * ( tm.H[ℓ]' + tm.H[ℓ] ) * h
     end
 end
 
-@doc "Return Jacobian matrix of (vector-valued) Taylor Model `tm` at scaled site `ξ`."
-function get_jacobian( tm :: TaylorModel, ξ :: Vector{Float64})
-    grad_list = [get_gradient(tm, ξ, ℓ) for ℓ=1:num_outputs( tm ) ]
+function get_jacobian( tm :: TaylorModel, x̂ :: RVec )
+    grad_list = [get_gradient(tm, x̂, ℓ) for ℓ=1:num_outputs( tm.objf ) ]
     return transpose( hcat( grad_list... ) )
 end
 

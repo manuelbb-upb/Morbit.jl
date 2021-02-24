@@ -14,12 +14,12 @@ end
     gradients :: Union{Symbol, Nothing, Vector{<:Function}, Function } = :autodiff
 
     # alternative keyword, usage discouraged...
-    jacobian :: Union{Symbol, Nothing, F where F<:Function} = nothing
+    jacobian :: Union{Symbol, Nothing, Function} = nothing
 
     max_evals :: Int64 = typemax(Int64)
 
-    @assert !( isnothing(gradients) && isnothing(jacobian) )
-    @assert !( ( isa(gradients, Vector) && isempty( gradients ) ) && isnothing(jacobian) )
+    @assert !( ( isa(gradients, Vector) && isempty( gradients ) ) && isnothing(jacobian) ) "Provide either `gradients` or `jacobian`."
+    @assert !( isnothing(gradients) && isnothing(jacobian) ) "Provide either `gradients` or `jacobian`."
 end
 
 struct ExactMeta <: SurrogateMeta end   # no construction meta data needed
@@ -37,7 +37,7 @@ fully_linear( em :: ExactModel ) = true;
 combinable( :: ExactConfig ) = false;
 
 "Modify/initialize thec exact model `mod` so that we can differentiate it later."
-function set_gradients!( mod :: ExactModel, objf :: AbstractObjective )
+function set_gradients!( mod :: ExactModel, objf :: AbstractObjective, mop :: AbstractMOP )
     cfg = model_cfg(objf);
     if isa( cfg.gradients, Symbol )
         if cfg.gradients == :autodiff
@@ -45,8 +45,13 @@ function set_gradients!( mod :: ExactModel, objf :: AbstractObjective )
         elseif cfg.gradients == :fdm 
             mod.diff_fn = FiniteDiffWrapper( objf );
         end
-    else 
-        mod.diff_fn = GradWrapper( cfg.gradients, cfg.jacobian )
+    else
+        if isa(cfg.gradients, Vector)
+            @assert length(cfg.gradients) == num_outputs(objf) "Provide as many gradient functions as the objective has outputs."
+        elseif isa(cfg.gradients, Function)
+            @assert num_outputs(objf) == 1 "Only one gradient provided for $(num_outputs(objf)) outputs."
+        end
+        mod.diff_fn = GradWrapper( mop, cfg.gradients, cfg.jacobian )
     end
     nothing
 end
@@ -54,9 +59,9 @@ end
 @doc "Return an ExactModel build from a VectorObjectiveFunction `objf`. 
 Model is the same inside and outside of criticality round."
 function _init_model( ::ExactConfig, objf :: AbstractObjective, 
-    mop :: AbstractMOP )
+    mop :: AbstractMOP, ::AbstractIterData )
     em = ExactModel(; mop = mop, objf = objf );
-    set_gradients!( em, objf );
+    set_gradients!( em, objf, mop );
     return em, ExactMeta();
 end
 
@@ -74,7 +79,7 @@ end
 
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."
 function eval_models( em :: ExactModel, x̂ :: RVec )
-    return eval_objf( em.objf, unscale( x̂, em.mop ) )
+    return eval_objf( em.objf, x̂ )
 end
 
 @doc "Evaluate output `ℓ` of the ExactModel `em` at scaled site `x̂`."
@@ -84,16 +89,12 @@ end
 
 @doc "Gradient vector of output `ℓ` of `em` at scaled site `x̂`."
 function get_gradient( em :: ExactModel, x̂ :: RVec, ℓ :: Int64)
-    tfn = _get_transformer_fn(em.mop);
-    tfn_jacobian = transpose(_jacobian_unscaling(tfn, x̂));
-    return tfn_jacobian * get_gradient( em.diff_fn, unscale(x̂, em.mop), ℓ)
+    return get_gradient( em.diff_fn, x̂, ℓ )
 end
 
 @doc "Jacobian Matrix of ExactModel `em` at scaled site `x̂`."
 function get_jacobian( em :: ExactModel, x̂ :: RVec )
-    tfn = _get_transformer_fn(em.mop);
-    tfn_jacobian = _jacobian_unscaling(tfn, x̂);
-    return get_jacobian( em.diff_fn, unscale(x̂, em.mop) ) * tfn_jacobian
+    return get_jacobian( em.diff_fn, x̂ );
 end
 
 #=

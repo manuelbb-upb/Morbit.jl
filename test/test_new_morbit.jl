@@ -12,15 +12,18 @@ f1 = x -> sum( (x.-1).^2 );
 f2 = x -> sum( (x.+1).^2 );
 
 cfg = Morbit.ExactConfig(gradients=:autodiff)
-
+ 
+taylor_cfg = Morbit.TaylorConfig( degree = 2, gradients = :autodiff)
 Morbit.add_objective!( p, f1, cfg );
-Morbit.add_objective!( p, f2, cfg );
+Morbit.add_objective!( p, f2, taylor_cfg );
 
 ac = Morbit.AlgoConfig(  
     db = Morbit.NoDB, 
     strict_backtracking = true,
     strict_acceptance_test = true,
-    max_iter = 40)#, max_evals = 10 );
+    Δ_critical = 1e-10,
+    Δ_min = 1e-13,
+    max_iter = 50)#, max_evals = 10 );
 
 X,_ = Morbit.optimize( p, x0; algo_config = ac );
 X

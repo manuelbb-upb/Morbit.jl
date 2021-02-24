@@ -173,10 +173,3 @@ function reverse_internal_sorting_indices(mop :: MixedMOP)
     return _reverse_internal_sorting_indices(mop, mop.objf_state);
 end
 
-@memoize function _get_transformer_fn( mop :: MixedMOP, hash :: UUIDs.UUID )
-    TransformerFn(mop)
-end
-
-function _get_transformer_fn( mop :: MixedMOP )
-    _get_transformer_fn( mop, mop.var_state )
-end
