@@ -1,24 +1,26 @@
 using DynamicPolynomials
+import NLopt;
 
-using FileIO, JLD2;
+#using FileIO, JLD2;
 
-mutable struct LagrangePoly 
+@with_kw mutable struct LagrangePoly 
     p :: AbstractPolynomialLike 
-    site :: RVec 
+    site :: RVec = Real[]
+    db_id :: Union{Int, Nothing, XInt} = nothing
+    value :: RVec = Real[]
+    grad_poly :: Union{Nothing, Vector{<:AbstractPolynomialLike}} = nothing
 end
-Broadcast.broadcasted(lp :: LagrangePoly ) = Ref(lp);
-
+Broadcast.broadcastable(lp :: LagrangePoly ) = Ref(lp);
 
 @with_kw mutable struct LagrangeModel <: SurrogateModel
     n_vars :: Int;  # stored for convenience
-    degree :: Int;  # stored for convenience
     basis :: Vector{LagrangePoly} = LagrangePoly[];
     vals :: RVecArr = RVec[];
     fully_linear :: Bool = false;
 end
 
 @with_kw mutable struct LagrangeConfig <: SurrogateConfig
-    degree :: Int64 = 1;
+    degree :: Int = 2;
     θ_enlarge :: Real = 2;
 
     "Acceptance Parameter in first Poisedness-Algorithm."
@@ -28,13 +30,14 @@ end
 
     allow_not_linear :: Bool = false;
 
-    optimized_sampling :: Bool = true;
+    # optimized_sampling :: Bool = true;
 
-    # if optimized_sampling = false, shall we try to use saved sites?
-    use_saved_sites :: Bool = true;
-    io_lock :: Union{Nothing, ReentrantLock, Threads.SpinLock} = nothing;
+    # # if optimized_sampling = false, shall we try to use saved sites?
+    # use_saved_sites :: Bool = true;
+    # io_lock :: Union{Nothing, ReentrantLock, Threads.SpinLock} = nothing;
 
     algo1_max_evals :: Union{Nothing,Int} = nothing;    # nothing = automatic
+    algo2_max_evals :: Union{Nothing,Int} = nothing;
 
     max_evals :: Int64 = typemax(Int64);
 end
@@ -55,39 +58,21 @@ function combine(cfg1 :: LagrangeConfig, cfg2 :: LagrangeConfig) :: LagrangeConf
 end
 
 @with_kw mutable struct LagrangeMeta <: SurrogateMeta
-    interpolation_indices :: Vector{Int64} = [];
+    interpolation_indices :: Vector{<:Union{Nothing,Int}} = Union{Nothing,Int}[];
     #lagrange_basis :: Vector{Any} = [];
 end
-
-# helper function to easily evaluate polynomial
-function eval_poly(p :: AbstractPolynomialLike, x :: RVec)
-    return p( variables(p) => x ) 
-end
-
-function eval_poly( lp :: LagrangePoly, x :: RVec )
-    eval_poly( lp.p, x )
-end
-
-# helper function to easily evaluate polynomial array for gradient
-function eval_poly(p::Vector{<:AbstractPolynomialLike}, x :: RVec)
-    [g( variables(p) => x ) for g ∈ p]
-end
-
-@doc "Factorial of a multinomial."
-_multifactorial( arr :: Vector{Int} ) =  prod( factorial(α) for α in arr )
 
 function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective,
     mop :: AbstractMOP, id :: AbstractIterData ) :: Tuple{LagrangeModel, LagrangeMeta}
     lm = LagrangeModel(; 
         n_vars = num_vars(objf),
-        degree = cfg.degree,
     );
     # prepare initial basis of polynomial space 
     @polyvar χ[1:lm.n_vars]
-    for d = 0 : lm.degree
+    for d = 0 : cfg.degree
         for multi_exponent ∈ non_negative_solutions( d, lm.n_vars )
             poly = 1 / _multifactorial( multi_exponent ) * prod( χ.^multi_exponent );
-            push!(lm.basis, LagrangePoly(poly, NaN))
+            push!(lm.basis, LagrangePoly(; p = poly ));
         end
     end     
     lmeta = LagrangeMeta();
@@ -99,37 +84,176 @@ function _point_in_box( x̂ :: RVec, lb :: RVec, ub :: RVec ) :: Bool
 end
 
 "Indices of sites in database that lie in box with bounds `lb` and `ub`."
-function find_points_in_box( db :: AbstractDB, lb :: RVec, ub :: RVec ) :: Int[]
+function find_points_in_box( db :: AbstractDB, lb :: RVec, ub :: RVec ) :: Vector{Int}
     all_sites = sites(db);
     return [i for i = eachindex(all_sites) if _point_in_box(all_sites[i], lb, ub) ]
 end
 
-function find_points_in_box( id :: IterData, mop :: AbstractMOP; filter_x = true ) :: Int[]
-    lb_eff, ub_eff = local_bounds(mop, xᵗ(id), Δᵗ(id) );
-    DB = db(id);
-    indices = find_points_in_box( DB, lb_eff, ub_eff )
-    if filter_x 
-        setdiff!(indices, xᵗ_index( DB ));
+function _eval_new_sites!( lm :: LagrangeModel, lmeta :: LagrangeMeta, objf :: AbstractObjective,
+    mop :: AbstractMOP, id :: AbstractIterData )  :: Nothing
+
+    # evaluate at new sites
+    # we first collect, so that batch evaluation can be exploited
+    new_sites = [ lp.site for lp ∈ lm.basis if isnothing(lp.db_id) ];
+    @info "We have to evaluate at $(length(new_sites)) new sites."
+    new_vals = eval_all_objectives.(mop, new_sites)
+    new_ids = add_result!.( db(id), zip( new_sites, new_vals ) );
+
+    val_indices = output_indices( objf, mop );
+    empty!(lmeta.interpolation_indices);
+    id_index = 1;
+    for lp = lm.basis 
+        if isnothing(lp.db_id)
+            lp.db_id = new_ids[id_index];
+            lp.value = new_vals[ id_index ][val_indices];
+            id_index += 1;
+        else 
+            lp.value = get_value(id, lp.db_id)[val_indices];
+        end
+        push!(lmeta.interpolation_indices, lp.db_id);
     end
-    return indices;
+    nothing 
 end
 
+function _set_gradient!(lp :: LagrangePoly) :: Nothing
+    lp.grad_poly = differentiate.(lp.p, DynamicPolynomials.variables(lp.p));
+    nothing
+end
 
 function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
     mop :: AbstractMOP, id :: AbstractIterData; ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
     
-    # normalize first basis polyonmial at iterate
-    p1 = lm.basis[1];
-    p1.poly /= eval_poly( p1, xᵗ(id) );
-    p1.site = xᵗ(id);
+    @info("Building Lagrange Models...");
+    cfg = model_cfg(objf) :: LagrangeConfig;
+    make_basis_poised!( lm.basis, id, mop ; 
+        Δ_factor = cfg.θ_enlarge, ε_accept = cfg.ε_accept,
+        max_solver_evals = cfg.algo1_max_evals);
+    if ensure_fully_linear || !cfg.allow_not_linear
+        make_basis_lambda_poised!(lm.basis, id, mop;
+        Δ_factor = cfg.θ_enlarge, Λ = cfg.Λ, max_solver_evals = cfg.algo2_max_evals)
+        lm.fully_linear = true;
+    end
 
-    candidate_indices = find_points_in_box( id, mop; filter_x = true ); 
+    _eval_new_sites!( lm, lmeta, objf, mop, id);
+    _set_gradient!.(lm.basis);
 
+    # todo remove this
+    oi = output_indices(objf, mop);
+    for lp in lm.basis 
+        try
+            @assert lp.site == get_site(id, lp.db_id)
+            @assert lp.value == get_value(id, lp.db_id)[oi]
+            @assert all(isapprox.(lp.value, eval_models( lm, lp.site ); atol = 1e-3));
+        catch e
+            @warn "Imprecise Lagrange Models."
+            @info lp.value .- eval_models( lm, lp.site )
+        end
+    end
+
+    return lm, lmeta;
 end
 
-function make_basis_poised!( basis :: Vector{LagrangePoly}, candidates :: RVecArr, 
-    box_lb :: RVec, box_ub :: RVec;
-    ε_accept :: Real, max_solver_evals :: Union{Int,Nothing} = nothing )
+function improve_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
+    mop :: AbstractMOP, id :: AbstractIterData; ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
+
+    cfg = model_cfg( objf );
+    make_basis_lambda_poised!( lm.basis, objf, mop; 
+        Δ_factor = cfg.θ_enlarge, Λ = cfg.Λ, max_solver_evals = cfg.algo2_max_evals );
+    lm.fully_linear = true;
+    _eval_new_sites!( lm, lmeta, objf, mop, id);
+    _set_gradient!.(lm.basis)
+    return lm, lmeta
+end
+
+
+function eval_models( lm :: LagrangeModel, x̂ :: RVec, ℓ :: Int ) :: Real
+    sum( lp.value[ℓ] * eval_poly(lp.p, x̂) for lp ∈ lm.basis)    
+end
+
+function eval_models( lm :: LagrangeModel, x̂ :: RVec ) :: RVec
+    sum( lp.value .* eval_poly(lp.p, x̂) for lp ∈ lm.basis )
+end
+
+function get_gradient( lm :: LagrangeModel, x̂ :: RVec, ℓ :: Int ) :: RVec
+    sum( lp.value[ℓ] * eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis )
+end
+
+function get_jacobian( lm :: LagrangeModel, x̂ :: RVec ) :: RMat
+    grad_evals = [ eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis ];
+    return Matrix(transpose( 
+        hcat(
+            [ sum( lm.basis[i].value[ℓ] * grad_evals[i] for i = eachindex(grad_evals) ) 
+                for ℓ = 1 : length( lm.basis[1].value ) ]...
+        )
+    ));
+end
+
+_rand_box_point(lb::RVec, ub::RVec)::RVec = lb .+ (ub .- lb) .* rand(length(lb));
+
+function make_basis_poised!( basis :: Vector{LagrangePoly}, id :: AbstractIterData, mop :: AbstractMOP;
+    Δ_factor :: Real = 1, ε_accept :: Real = 1e-3, max_solver_evals :: Union{Int,Nothing} = nothing )
+    @info("Finding a poised set...")
+    
+    x = xᵗ( id );
+    N = length(x);
+    if isnothing( max_solver_evals)
+        max_solver_evals = 300*(N+1);   # TODO is sensible?
+    end
+
+    # always include current iterate
+    DB = db(id);
+    x_index = xᵗ_index( DB );
+    basis[1].site = x;
+    basis[1].db_id = XInt(x_index);
+    _normalize!(basis[1]);
+    _orthogonalize!(basis, 1, x);
+
+    # find all points in database in current trust region
+    lb_eff, ub_eff = local_bounds(mop, x, Δᵗ(id) * Δ_factor);
+    box_indices = setdiff(find_points_in_box(DB, lb_eff,ub_eff), [x_index,]);
+    
+    num_new = 0;
+    p = length( basis )
+    for i = 2 : p
+        Y = get_sites(id, box_indices );
+        lyᵢ, jᵢ = isempty(Y) ? (0,0) : findmax( abs.( eval_poly.(basis[i], Y) ) );
+        if lyᵢ > ε_accept
+            @info "\t 1.$(i)) Recycling a point from the database."
+            yᵢ = Y[ jᵢ ];
+            db_id = box_indices[jᵢ];
+            deleteat!( box_indices, jᵢ );
+        else
+            @info "\t 1.$(i)) Computing a poised point by Optimization."
+            opt = NLopt.Opt(NLopt.:LN_BOBYQA, N)
+            opt.lower_bounds = lb_eff;
+            opt.upper_bounds = ub_eff;
+            opt.maxeval = max_solver_evals;
+            opt.xtol_rel = 1e-3;
+            opt.max_objective = (x,g) -> abs( eval_poly( basis[i], x) )
+            y₀ = _rand_box_point(lb_eff, ub_eff);
+            (_, yᵢ, ret) = NLopt.optimize(opt, y₀)
+            #push!(new_sites, yᵢ)
+            db_id = nothing;
+            num_new += 1;
+        end
+
+        # Normalization
+        basis[i].site = yᵢ;
+        basis[i].db_id = db_id;
+        _normalize!(basis[i]);
+
+        # Orthogonalization
+        _orthogonalize!( basis, i, yᵢ)    
+    end
+     
+    nothing
+end
+
+function make_basis_lambda_poised!( basis :: Vector{LagrangePoly}, id :: AbstractIterData, mop :: AbstractMOP;
+    Δ_factor :: Real = 1, Λ :: Real = 1.5, max_solver_evals :: Union{Int,Nothing} = nothing )
+    @info("Making the set $(Λ)-poised...")
+    x = xᵗ( id );
+
 
     N = length(x);
     if isnothing( max_solver_evals)
@@ -137,18 +261,105 @@ function make_basis_poised!( basis :: Vector{LagrangePoly}, candidates :: RVecAr
     end
 
     p = length( basis )
-    new_sites = RVec[];
-    accepted_indices = zeros(Bool, length(candidates))
-    
-    for i = 1 : p
-        Y = candidates[ .!(accepted_indices) ]
-        lyᵢ, jᵢ = isempty(Y) ? (0,0) : findmax( abs.( eval_poly.(basis[i], Y) ) );
-        if lyᵢ > ε_accept
+    lb_eff, ub_eff = local_bounds(mop, x, Δᵗ(id) * Δ_factor);
+ 
+    iter_counter = 1;
+    while !isinf(Λ)
+        iₖ = -1;
+        yₖ = similar(x);
+        Λ_max = -Inf;
+        for (i,lp) = enumerate(basis)
+            opt = NLopt.Opt(NLopt.:LN_BOBYQA, N);
+            opt.lower_bounds = lb_eff;
+            opt.upper_bounds = ub_eff;
+            opt.maxeval = max_solver_evals;
+            opt.xtol_rel = 1e-3;
+            opt.max_objective = (x,g) -> abs( eval_poly( lp, x) )
+            y₀ = _rand_box_point(lb_eff, ub_eff);
+            (abs_lᵢ, yᵢ, _) = NLopt.optimize(opt, y₀);
+
+            if abs_lᵢ > Λ
+                if abs_lᵢ > Λ_max || isnothing( lp.db_id )
+                    Λ_max = abs_lᵢ 
+                    iₖ = i;
+                    yₖ[:] = yᵢ;
+                    if isnothing(lp.db_id)
+                        break;
+                    end
+                end
+            end
+        end#for 
+        if iₖ > 0
+            # there was a polynomial with abs value > Λ 
+            # perform a point swap and normalize
+            @info "\t2.$(iter_counter)) Replacing point at index $(iₖ)."
+            basis[iₖ].site = yₖ;
+            basis[iₖ].db_id = nothing;
+            _normalize!(basis[iₖ])
             
+            # orthogonalization 
+            _orthogonalize!(basis, iₖ, yₖ)
+       else
+            # finished, there is no poly with abs value > Λ 
+            return nothing
+        end#if
+        iter_counter += 1;
+    end#while
+end
+
+
+# helper function to easily evaluate polynomial
+function eval_poly(p :: AbstractPolynomialLike, x :: RVec)
+    return p( variables(p) => x ) 
+end
+
+function eval_poly( lp :: LagrangePoly, x :: RVec )
+    eval_poly( lp.p, x )
+end
+
+function _orthogonalize!( basis :: Vector{LagrangePoly}, i :: Int , yᵢ :: RVec ) :: Nothing
+    p = length(basis)
+    for j=1:p
+        if j≠i 
+            basis[j].p -= (eval_poly( basis[j], yᵢ) * basis[i].p)
         end
+    end
+    nothing 
+end
+
+function _normalize!( lp :: LagrangePoly )
+    @assert !isempty(lp.site);
+    lp.p /= eval_poly( lp, lp.site )
+end
+
+# helper function to easily evaluate polynomial array for gradient
+function eval_poly(p::Vector{<:AbstractPolynomialLike}, x :: RVec)
+    [g( variables(p) => x ) for g ∈ p]
+end
+
+# helper function for initial monomial basis
+@doc """
+Return array of solution vectors [x_1, …, x_len] to the equation
+``x_1 + … + x_len = rhs``
+where the variables must be non-negative integers.
+"""
+function non_negative_solutions( rhs :: Int, len :: Int )
+    if len == 1
+        return rhs
+    else
+        solutions = [];
+        for i = 0 : rhs
+            for shorter_solution ∈ non_negative_solutions( i, len - 1)
+                push!( solutions, [ rhs-i; shorter_solution ] )
+            end
+        end
+        return solutions
     end
 end
 
+
+@doc "Factorial of a multinomial."
+_multifactorial( arr :: Vector{Int} ) =  prod( factorial(α) for α in arr )
 
 #=
 @doc """

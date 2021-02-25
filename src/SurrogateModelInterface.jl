@@ -30,6 +30,11 @@ end
 
 # overwrite, this is inefficient
 eval_models( sm :: SurrogateModel, x̂ :: RVec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
+function improve_model!( mod :: SurrogateModel, objf:: AbstractObjective, meta :: SurrogateMeta,
+    mop :: AbstractMOP, id :: AbstractIterData;
+    ensure_fully_linear) :: Tuple{SurrogateModel,SurrogateMeta}
+    return mod, meta 
+end
 
 # check if surrogate configurations are equal (only really needed if combinable)
 function Base.:(==)( cfg1 :: T, cfg2 :: T ) where T <: SurrogateConfig

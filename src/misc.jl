@@ -34,26 +34,6 @@ function find_points_in_box( x, Δ, sites_array, filter_x :: Val{false} )
    candidate_indices = findall( [ all( x_lb .<= site .<= x_ub ) for site ∈ sites_array ] )
 end
 
-# helper function
-@doc """
-Return array of solution vectors [x_1, …, x_len] to the equation
-``x_1 + … + x_len = rhs``
-where the variables must be non-negative integers.
-"""
-function non_negative_solutions( rhs :: Int64, len :: Int64 )
-    if len == 1
-        return rhs
-    else
-        solutions = [];
-        for i = 0 : rhs
-            for shorter_solution ∈ non_negative_solutions( i, len - 1)
-                push!( solutions, [ rhs-i; shorter_solution ] )
-            end
-        end
-        return solutions
-    end
-end
-
 @doc "Evaluate the objective functions (referenced in `config_struct.problem`) at sites `additional_sites`
 and push the results to `config_struct.iter_data` arrays. Return indices of results in `sites_db`."
 function eval_new_sites( config_struct :: AlgoConfig, additional_sites :: Vector{Vector{R}} where R<:Real)

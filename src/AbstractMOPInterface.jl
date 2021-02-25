@@ -108,10 +108,10 @@ function output_indices( objf ::AbstractObjective, mop :: AbstractMOP )
 end
 
 "Remove `objf` from `list_of_objectives(mop)` and return its output indices."
-function pop_objf!( mop :: AbstractObjective, objf :: AbstractObjective )
-    output_indices = output_indices( objf, mop );
+function pop_objf!( mop :: AbstractMOP, objf :: AbstractObjective )
+    oi = output_indices( objf, mop );
     _del!(mop, objf)
-    return output_indices
+    return oi
 end
 
 "Return lower variable bounds for scaled variables."

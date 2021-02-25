@@ -56,7 +56,7 @@ end
 
 function _del!( mop :: MixedMOP, objf :: AbstractObjective )
     position = _objf_index( objf, mop );
-    deleteat!( mop.list_of_objectives, poisiton );
+    deleteat!( mop.vector_of_objectives, position );
     nothing 
 end
 
