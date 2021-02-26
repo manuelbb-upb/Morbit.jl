@@ -13,7 +13,7 @@ cpd_order( ::Val{:cubic} ) = 2 :: Int64;
 cpd_order( ::Val{:thin_plate_spline} ) = typemax(Int64) :: Int64;
 
 const RVec = Vector{R} where R<:Real;
-const RVecArr = Vector{Vector{R}} where R<:Real;
+const RVecArr = Vector{<:RVec};
 
 @with_kw mutable struct RBFModel
     training_sites :: RVecArr = RVec[];
@@ -27,7 +27,7 @@ const RVecArr = Vector{Vector{R}} where R<:Real;
     rbf_coefficients :: Array{R,2} where R<:Real = Matrix{Float16}(undef,0,0);
     poly_coefficients :: Array{R,2} where R<:Real = Matrix{Float16}(undef,0,0);
 
-    function_handle :: Union{Nothing, Function} = nothing;      # TODO deprecate
+    #function_handle :: Union{Nothing, Function} = nothing;      # TODO deprecate
 
     @assert polynomial_degree <= 1 "For now only polynomials with degree -1, 0, or 1 are allowed."
     @assert isa(shape_parameter, Real) || length(shape_parameter) == length(training_sites)
@@ -59,7 +59,7 @@ function min_num_sites( m :: RBFModel )
     end
 end
 
-n_out( m::RBFModel ) = length( m.training_values[end] );
+num_outputs( m::RBFModel ) = length( m.training_values[end] );
 
 @doc "Return `true` if RBFModel `m` conforms to the requirements by [WILD]."
 is_valid( m :: RBFModel ) = m.polynomial_degree >= cpd_order( Val(m.kernel) ) - 1 &&
@@ -68,14 +68,7 @@ is_valid( m :: RBFModel ) = m.polynomial_degree >= cpd_order( Val(m.kernel) ) - 
 Broadcast.broadcastable(m::RBFModel) = Ref(m);
 
 function (m::RBFModel)(eval_site:: RVec)
-    m.function_handle(eval_site)  # return an array of arrays for ease of use in other methods
-end
-
-@doc "Modify first model to equal second."
-function as_second!(destination :: RBFModel, source :: RBFModel )
-    @unpack_RBFModel source;
-    @pack_RBFModel! destination;
-    return nothing
+    output(m, eval_site)  # return an array of arrays for ease of use in other methods
 end
 
 # === Evaluate RBF part of the Model ===
@@ -166,7 +159,7 @@ end
 @doc "Compute the Jacobian matrix of the RBF part of the model"
 function rbf_jacobian( m::RBFModel, x :: RVec )
     n_vars = n_in( m );
-    n_out = n_out( m );
+    n_out = num_outputs( m );
 
     difference_vectors = x_minus_sites(m,x); # array with len n_sites and entries n_vars
     distances = norm.(difference_vectors)       # n_sites x 1
@@ -332,7 +325,7 @@ function solve_rbf_problem( Π, Φ, f, :: Val{true} )
     ]
     Z = Q[:, size(Π,1) + 1 : end ]
 
-    ZΦZ = Hermitian( Z'Φ*Z );
+    ZΦZ = Hermitian( Z'Φ*Z );   # ensure it is really Symmetric (rounding errors etc)
     #@show eigen(ZΦZ).values
     try
         L = cholesky( ZΦZ ).L     # should also be empty at this point
@@ -365,7 +358,7 @@ end
 function set_coefficients!( m :: RBFModel, coefficients :: AbstractArray{R} where R<:Real)
     pd = m.polynomial_degree
     n_vars = n_in(m);
-    n_out = n_out(m);
+    n_out = num_outputs(m);
     n_sites = length( m.training_sites );
     if pd == -1
         m.rbf_coefficients = reshape(coefficients, (n_sites, n_out));
@@ -388,7 +381,6 @@ function train!( m::RBFModel )
 
     coefficients = solve_rbf_problem( Π, Φ, RHS, Val( is_valid(m) ) )
     set_coefficients!(m, coefficients)
-    m.function_handle = x -> output(m, x);
     return m
 end
 
@@ -399,8 +391,13 @@ function train!(m::RBFModel, Q , R, Z, L, Φ)
     RHS = hcat( m.training_values... )';
     λ, v = null_space_coefficients( Q, R, Z, L, RHS, Φ)
     set_coefficients!(m, vcat(λ,v))
-    m.function_handle = x -> output(m, x);
     return m
+end
+
+function _test_interpolation( m :: RBFModel )
+    for (i,site) in enumerate(m.training_sites)
+        @assert all( isapprox.( m(site), m.training_values[i] ) )
+    end
 end
 
 end#module

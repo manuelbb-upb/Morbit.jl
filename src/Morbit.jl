@@ -155,8 +155,8 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         fx = fxᵗ(iter_data);
         Δ = Δᵗ(iter_data);
 
-        @assert all( isapprox.( get_site( iter_data, xᵗ_index(iter_data ) ), x ) ); 
-        @assert get_value(iter_data,xᵗ_index(iter_data)) == fx
+        #@assert all( isapprox.( get_site( iter_data, xᵗ_index(iter_data ) ), x ) ); 
+        #@assert get_value(iter_data,xᵗ_index(iter_data)) == fx
  
         # check other stopping conditions (could also be done in head of while-loop,
         # but looks a bit more tidy here
@@ -300,10 +300,10 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
 
         if ACCEPT_TRIAL_POINT
             set_next_iterate!(iter_data, x₊, fx₊, new_Δ);
-            @assert all(isapprox.(x₊,xᵗ(iter_data)))
+            #@assert all(isapprox.(x₊,xᵗ(iter_data)))
         else
             keep_current_iterate!(iter_data, x₊, fx₊, new_Δ);
-            @assert all( isapprox.(x, xᵗ(iter_data)))
+            #@assert all( isapprox.(x, xᵗ(iter_data)))
         end
         @info """\n
             The step is $(ACCEPT_TRIAL_POINT ? (ρ >= ν_succ ? "very sucessfull!" : "acceptable.") : "unsucessfull…")

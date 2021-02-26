@@ -30,7 +30,7 @@ end
 
 # overwrite, this is inefficient
 eval_models( sm :: SurrogateModel, x̂ :: RVec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
-function improve_model!( mod :: SurrogateModel, objf:: AbstractObjective, meta :: SurrogateMeta,
+function improve_model( mod :: SurrogateModel, objf:: AbstractObjective, meta :: SurrogateMeta,
     mop :: AbstractMOP, id :: AbstractIterData;
     ensure_fully_linear) :: Tuple{SurrogateModel,SurrogateMeta}
     return mod, meta 

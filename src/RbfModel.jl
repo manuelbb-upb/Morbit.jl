@@ -9,16 +9,21 @@
 using Lazy: @forward
 
 include("RBFBase.jl")
-import .RBF: n_out, RBFModel, train!, is_valid, get_Π, get_Φ, φ, Π_col, as_second!, min_num_sites
+import .RBF: num_outputs, RBFModel, train!, is_valid, get_Π, get_Φ, φ, Π_col, min_num_sites
 
 # wrapper to make RBFModel a subtype of SurrogateModel interface
 # # NOTE the distinction:
 # # • RBFModel from module .RBF
 # # • RbfModel the actual SurrogateModel used in the algorithm
-struct RbfModel <: SurrogateModel
+@with_kw mutable struct RbfModel <: SurrogateModel
     model :: RBFModel
+
+    # matrices for the sampling and improvement algorithm
+    Y :: RMat = Matrix{Real}(undef, 0, 0);
+    Z :: RMat = Matrix{Real}(undef, 0, 0);
+    
+    fully_linear :: Bool = false;
 end
-Broadcast.broadcastable( M :: RbfModel ) = Ref(M);
 
 @with_kw mutable struct RbfConfig <: SurrogateConfig
     kernel :: Symbol = :cubic;
@@ -54,13 +59,11 @@ end
     round2_indices :: Vector{Int64} = [];
     round3_indices :: Vector{Int64} = [];
     round4_indices :: Vector{Int64} = [];
-    fully_linear :: Bool = false;
-    Y :: RMat = Matrix{Real}(undef, 0, 0);
-    Z :: RMat = Matrix{Real}(undef, 0, 0);
+    fully_linear :: Bool = false;   
 end
 
 max_evals( cfg :: RbfConfig ) = cfg.max_evals;
-num_outputs( m :: RbfModel ) = n_out(m.model);
+num_outputs( m :: RbfModel ) = num_outputs(m.model);
 
 @doc "Modify first meta data object to equal second."
 function as_second!(destination :: RBFMeta, source :: RBFMeta )
