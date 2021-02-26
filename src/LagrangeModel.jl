@@ -5,18 +5,20 @@ import NLopt;
 
 @with_kw mutable struct LagrangePoly 
     p :: AbstractPolynomialLike 
-    site :: RVec = Real[]
-    db_id :: Union{Int, Nothing, XInt} = nothing
-    value :: RVec = Real[]
     grad_poly :: Union{Nothing, Vector{<:AbstractPolynomialLike}} = nothing
+    res :: Result = init_res(Res)  
+    # TODO check if `res` is a reference (good) or copy (bad for memory)
+    # if the latter, store only values at interpolation sites                                
 end
 Broadcast.broadcastable(lp :: LagrangePoly ) = Ref(lp);
 
 @with_kw mutable struct LagrangeModel <: SurrogateModel
     n_vars :: Int;  # stored for convenience
+    n_out :: Int;
     basis :: Vector{LagrangePoly} = LagrangePoly[];
     vals :: RVecArr = RVec[];
     fully_linear :: Bool = false;
+    out_indices :: Vector{Int} = Int[];
 end
 
 @with_kw mutable struct LagrangeConfig <: SurrogateConfig
@@ -66,6 +68,8 @@ function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective,
     mop :: AbstractMOP, id :: AbstractIterData ) :: Tuple{LagrangeModel, LagrangeMeta}
     lm = LagrangeModel(; 
         n_vars = num_vars(objf),
+        n_out = num_outputs(objf),
+        out_indices = output_indices( objf, mop),
     );
     # prepare initial basis of polynomial space 
     @polyvar χ[1:lm.n_vars]
@@ -76,7 +80,8 @@ function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective,
         end
     end     
     lmeta = LagrangeMeta();
-    return update_model(lm, objf, lmeta, mop, id; ensure_fully_linear = !cfg.allow_not_linear)
+    return update_model(lm, objf, lmeta, mop, id; 
+        ensure_fully_linear = !cfg.allow_not_linear)
 end
 
 function _point_in_box( x̂ :: RVec, lb :: RVec, ub :: RVec ) :: Bool 
@@ -84,34 +89,24 @@ function _point_in_box( x̂ :: RVec, lb :: RVec, ub :: RVec ) :: Bool
 end
 
 "Indices of sites in database that lie in box with bounds `lb` and `ub`."
-function find_points_in_box( db :: AbstractDB, lb :: RVec, ub :: RVec ) :: Vector{Int}
-    all_sites = sites(db);
-    return [i for i = eachindex(all_sites) if _point_in_box(all_sites[i], lb, ub) ]
+function find_points_in_box( id :: AbstractIterData, lb :: RVec, ub :: RVec;
+    filter_x :: Bool = true ) :: Vector{Int}
+    if !filter_x
+        return [i for i = eachindex(db(id)) if _point_in_box(get_site(id, i), lb, ub) ]
+    else
+        xind = xᵗ_index(id);
+        return [i for i = eachindex(db(id)) if i != xind && 
+            _point_in_box(get_site(id, i), lb, ub) ]
+    end
 end
 
-function _eval_new_sites!( lm :: LagrangeModel, lmeta :: LagrangeMeta, objf :: AbstractObjective,
-    mop :: AbstractMOP, id :: AbstractIterData )  :: Nothing
+function _eval_new_sites!( lm :: LagrangeModel, lmeta :: LagrangeMeta, 
+        mop :: AbstractMOP, id :: AbstractIterData )  :: Nothing
 
-    # evaluate at new sites
-    # we first collect, so that batch evaluation can be exploited
-    new_sites = [ lp.site for lp ∈ lm.basis if isnothing(lp.db_id) ];
-    @info "We have to evaluate at $(length(new_sites)) new sites."
-    new_vals = eval_all_objectives.(mop, new_sites)
-    new_ids = add_result!.( db(id), zip( new_sites, new_vals ) );
-
-    val_indices = output_indices( objf, mop );
-    empty!(lmeta.interpolation_indices);
-    id_index = 1;
-    for lp = lm.basis 
-        if isnothing(lp.db_id)
-            lp.db_id = new_ids[id_index];
-            lp.value = new_vals[ id_index ][val_indices];
-            id_index += 1;
-        else 
-            lp.value = get_value(id, lp.db_id)[val_indices];
-        end
-        push!(lmeta.interpolation_indices, lp.db_id);
-    end
+    basis_results = [lp.res for lp ∈ lm.basis];
+    _eval_and_store_new_results!(id, basis_results, mop);
+    #@show  [ get_id(res) for res ∈ basis_results ];
+    lmeta.interpolation_indices = [ convert(Union{Int,Nothing},get_id(res)) for res ∈ basis_results ];
     nothing 
 end
 
@@ -125,28 +120,33 @@ function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: 
     
     @info("Building Lagrange Models...");
     cfg = model_cfg(objf) :: LagrangeConfig;
-    make_basis_poised!( lm.basis, id, mop ; 
+    
+    make_basis_poised!( 
+        lm.basis, id, mop ; 
         Δ_factor = cfg.θ_enlarge, ε_accept = cfg.ε_accept,
-        max_solver_evals = cfg.algo1_max_evals);
+        max_solver_evals = cfg.algo1_max_evals
+    );
+    
     if ensure_fully_linear || !cfg.allow_not_linear
-        make_basis_lambda_poised!(lm.basis, id, mop;
-        Δ_factor = cfg.θ_enlarge, Λ = cfg.Λ, max_solver_evals = cfg.algo2_max_evals)
+        make_basis_lambda_poised!(
+            lm.basis, id, mop;
+            Δ_factor = cfg.θ_enlarge, Λ = cfg.Λ, max_solver_evals = cfg.algo2_max_evals
+        );
         lm.fully_linear = true;
     end
 
-    _eval_new_sites!( lm, lmeta, objf, mop, id);
+    _eval_new_sites!( lm, lmeta, mop, id);
     _set_gradient!.(lm.basis);
 
     # todo remove this
     oi = output_indices(objf, mop);
     for lp in lm.basis 
         try
-            @assert lp.site == get_site(id, lp.db_id)
-            @assert lp.value == get_value(id, lp.db_id)[oi]
-            @assert all(isapprox.(lp.value, eval_models( lm, lp.site ); atol = 1e-3));
+            @assert eval_poly( lp, get_site(lp.res) ) ≈ 1
+            @assert all(get_value(lp.res)[oi] .≈ eval_models( lm, get_site(lp.res) ))
         catch e
             @warn "Imprecise Lagrange Models."
-            @info lp.value .- eval_models( lm, lp.site )
+            @info get_value(lp.res)[oi] .- eval_models( lm, get_site(lp.res) )
         end
     end
 
@@ -160,18 +160,18 @@ function improve_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta ::
     make_basis_lambda_poised!( lm.basis, objf, mop; 
         Δ_factor = cfg.θ_enlarge, Λ = cfg.Λ, max_solver_evals = cfg.algo2_max_evals );
     lm.fully_linear = true;
-    _eval_new_sites!( lm, lmeta, objf, mop, id);
+    _eval_new_sites!( lm, lmeta, mop, id);
     _set_gradient!.(lm.basis)
     return lm, lmeta
 end
 
 
 function eval_models( lm :: LagrangeModel, x̂ :: RVec, ℓ :: Int ) :: Real
-    sum( lp.value[ℓ] * eval_poly(lp.p, x̂) for lp ∈ lm.basis)    
+    sum( get_value(lp.res)[ ℓ ] * eval_poly(lp.p, x̂) for lp ∈ lm.basis)    
 end
 
 function eval_models( lm :: LagrangeModel, x̂ :: RVec ) :: RVec
-    sum( lp.value .* eval_poly(lp.p, x̂) for lp ∈ lm.basis )
+    sum( get_value(lp.res)[ lm.out_indices ] * eval_poly(lp.p, x̂) for lp ∈ lm.basis)    
 end
 
 function get_gradient( lm :: LagrangeModel, x̂ :: RVec, ℓ :: Int ) :: RVec
@@ -180,12 +180,10 @@ end
 
 function get_jacobian( lm :: LagrangeModel, x̂ :: RVec ) :: RMat
     grad_evals = [ eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis ];
-    return Matrix(transpose( 
-        hcat(
-            [ sum( lm.basis[i].value[ℓ] * grad_evals[i] for i = eachindex(grad_evals) ) 
-                for ℓ = 1 : length( lm.basis[1].value ) ]...
-        )
-    ));
+    return Matrix(transpose( hcat(
+        [ sum( get_value(lm.basis[i].res)[ ℓ ] * grad_evals[i] 
+            for i = eachindex(grad_evals) )               
+                for ℓ = 1 : lm.n_out ]... )));
 end
 
 _rand_box_point(lb::RVec, ub::RVec)::RVec = lb .+ (ub .- lb) .* rand(length(lb));
@@ -201,19 +199,16 @@ function make_basis_poised!( basis :: Vector{LagrangePoly}, id :: AbstractIterDa
     end
 
     # always include current iterate
-    DB = db(id);
-    x_index = xᵗ_index( DB );
-    basis[1].site = x;
-    basis[1].db_id = XInt(x_index);
+    @assert xᵗ_index( id ) isa XInt
+    basis[1].res = get_result( id, xᵗ_index(id));
     _normalize!(basis[1]);
-    _orthogonalize!(basis, 1, x);
+    _orthogonalize!(basis, 1);
 
     # find all points in database in current trust region
     lb_eff, ub_eff = local_bounds(mop, x, Δᵗ(id) * Δ_factor);
-    box_indices = setdiff(find_points_in_box(DB, lb_eff,ub_eff), [x_index,]);
+    box_indices = find_points_in_box(id, lb_eff, ub_eff; filter_x = true);
     
-    num_new = 0;
-    p = length( basis )
+    p = length( basis );
     for i = 2 : p
         Y = get_sites(id, box_indices );
         lyᵢ, jᵢ = isempty(Y) ? (0,0) : findmax( abs.( eval_poly.(basis[i], Y) ) );
@@ -234,16 +229,13 @@ function make_basis_poised!( basis :: Vector{LagrangePoly}, id :: AbstractIterDa
             (_, yᵢ, ret) = NLopt.optimize(opt, y₀)
             #push!(new_sites, yᵢ)
             db_id = nothing;
-            num_new += 1;
         end
 
-        # Normalization
-        basis[i].site = yᵢ;
-        basis[i].db_id = db_id;
+        # Set site & id, then normalize and orthogonalize basis
+        change_site!(basis[i].res, yᵢ);
+        change_id!(basis[i].res, db_id);
         _normalize!(basis[i]);
-
-        # Orthogonalization
-        _orthogonalize!( basis, i, yᵢ)    
+        _orthogonalize!( basis, i)    
     end
      
     nothing
@@ -268,6 +260,7 @@ function make_basis_lambda_poised!( basis :: Vector{LagrangePoly}, id :: Abstrac
         iₖ = -1;
         yₖ = similar(x);
         Λ_max = -Inf;
+        swap_id = nothing;
         for (i,lp) = enumerate(basis)
             opt = NLopt.Opt(NLopt.:LN_BOBYQA, N);
             opt.lower_bounds = lb_eff;
@@ -277,13 +270,16 @@ function make_basis_lambda_poised!( basis :: Vector{LagrangePoly}, id :: Abstrac
             opt.max_objective = (x,g) -> abs( eval_poly( lp, x) )
             y₀ = _rand_box_point(lb_eff, ub_eff);
             (abs_lᵢ, yᵢ, _) = NLopt.optimize(opt, y₀);
-
             if abs_lᵢ > Λ
-                if abs_lᵢ > Λ_max || isnothing( lp.db_id )
+                res_id = get_id(lp.res)
+                if isa(swap_id, XInt) || abs_lᵢ > Λ_max || isnothing( res_id )
                     Λ_max = abs_lᵢ 
                     iₖ = i;
                     yₖ[:] = yᵢ;
-                    if isnothing(lp.db_id)
+                    swap_id = res_id
+                    if isnothing(res_id)
+                        # break if we have a suitable swapping point that is not yet 
+                        # in the database (i.e. not evaluated yet)
                         break;
                     end
                 end
@@ -293,12 +289,10 @@ function make_basis_lambda_poised!( basis :: Vector{LagrangePoly}, id :: Abstrac
             # there was a polynomial with abs value > Λ 
             # perform a point swap and normalize
             @info "\t2.$(iter_counter)) Replacing point at index $(iₖ)."
-            basis[iₖ].site = yₖ;
-            basis[iₖ].db_id = nothing;
-            _normalize!(basis[iₖ])
-            
-            # orthogonalization 
-            _orthogonalize!(basis, iₖ, yₖ)
+            change_site!(basis[iₖ].res , yₖ);
+            change_id!(basis[iₖ].res, nothing);
+            _normalize!(basis[iₖ])            
+            _orthogonalize!(basis, iₖ);
        else
             # finished, there is no poly with abs value > Λ 
             return nothing
@@ -317,19 +311,21 @@ function eval_poly( lp :: LagrangePoly, x :: RVec )
     eval_poly( lp.p, x )
 end
 
-function _orthogonalize!( basis :: Vector{LagrangePoly}, i :: Int , yᵢ :: RVec ) :: Nothing
+function _orthogonalize!( basis :: Vector{LagrangePoly}, i :: Int ) :: Nothing
     p = length(basis)
+    y = get_site( basis[i].res );
     for j=1:p
         if j≠i 
-            basis[j].p -= (eval_poly( basis[j], yᵢ) * basis[i].p)
+            basis[j].p -= (eval_poly( basis[j], y )* basis[i].p )
         end
     end
     nothing 
 end
 
 function _normalize!( lp :: LagrangePoly )
-    @assert !isempty(lp.site);
-    lp.p /= eval_poly( lp, lp.site )
+    x = get_site(lp.res);
+    @assert !isempty(x);
+    lp.p /= eval_poly( lp, x);
 end
 
 # helper function to easily evaluate polynomial array for gradient

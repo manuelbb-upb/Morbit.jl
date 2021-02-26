@@ -12,3 +12,5 @@ NothIntVec = Vector{<:NothInt};
 Base.vec(x::Real) = [x,];
 
 Base.convert( ::Type{<:Int}, xint :: XInt ) = isnothing(xint.val) ? -1 : xint.val;
+Base.:(==)( i :: Int, xint :: XInt ) = isnothing(xint.val) ? false : xint.val == i;
+Base.:(==)(x :: XInt, i :: Int) = i == x;

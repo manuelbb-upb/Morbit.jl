@@ -2,7 +2,7 @@
 #include("RBFModel.jl")
 include("ExactModel.jl")
 include("TaylorModel.jl")
-#include("LagrangeModel.jl")
+include("LagrangeModel.jl")
 
 struct SurrogateWrapper
     objf :: AbstractObjective;

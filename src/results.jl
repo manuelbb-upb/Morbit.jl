@@ -1,8 +1,13 @@
 get_site( :: Result ) :: RVec = Real[];
-get_val( :: Result ) :: RVec = Real[];
+get_value( :: Result ) :: RVec = Real[];
 get_id( :: Result ) :: NothInt = nothing;
-change_site!(::Result, RVec) :: Nothing = nothing;
-change_val!(::Result, RVec) :: Nothing = nothing;
+change_site!(::Result, :: RVec) :: Nothing = nothing;
+change_value!(::Result, :: RVec) :: Nothing = nothing;
+change_id!(::Result, :: NothInt) :: Nothing = nothing;
+init_res(::Type{<:Result}, args... ) :: Result = nothing;
+
+struct NoRes <:Result end;
+init_res(NoRes, args... ) = NoRes();
 
 @with_kw mutable struct Res <: Result
     x :: RVec = Real[];
@@ -11,17 +16,24 @@ change_val!(::Result, RVec) :: Nothing = nothing;
 end
 
 get_site( res :: Res ) = res.x;
-get_val( res :: Res ) = res.y;
+get_value( res :: Res ) = res.y;
 get_id( res :: Res ) = res.db_id;
-function change_site!(res ::Result, s :: RVec) :: Nothing 
+function change_site!(res ::Res, s :: RVec) :: Nothing 
     res.x = s;
     nothing;
 end 
-function change_val!(res ::Result, s :: RVec) :: Nothing 
+function change_value!(res ::Res, s :: RVec) :: Nothing 
     res.y = s;
     nothing;
 end 
+function change_id!(res ::Res, s :: NothInt) :: Nothing 
+    res.db_id = s;
+    nothing;
+end 
 
+function init_res( ::Type{Res}, x :: RVec = Real[], y::RVec = Real[], id :: NothInt = nothing ) :: Res
+    return Res(; x = x, y = y, db_id = id )
+end
 ############################################
 # AbstractDB
 
@@ -38,14 +50,8 @@ values( :: AbstractDB ) = RVec[] :: RVecArr;
 
 Base.eachindex( db :: AbstractDB ) :: NothIntVec = Int[];
 
-get_value( db :: AbstractDB, id :: Nothing ) :: RVec = Real[];
-get_site( db :: AbstractDB, id :: Nothing ) :: RVec = Real[];
-
-function get_site( db :: AbstractDB, id :: Int) :: RVec
-end
-
-function get_value( db :: AbstractDB, id :: Int) :: RVec
-end
+get_value( db :: AbstractDB, id :: NothInt ) :: RVec = Real[];
+get_site( db :: AbstractDB, id :: NothInt ) :: RVec = Real[];
 
 #=
 function get_result( db :: AbstractDB, id :: NothInt ) :: Tuple{RVec, RVec}
@@ -54,7 +60,7 @@ end
 =#
 
 function get_result( db :: AbstractDB, id :: NothInt ) :: Result
-    nothing
+    NoRes()
 end
 
 function stamp!(db::AbstractDB) ::Nothing 
@@ -75,25 +81,22 @@ function change_result!( db :: AbstractDB, id :: NothInt,
     nothing
 end
 
-function find_result( db :: AbstractDB, x :: RVec, y :: RVec ) :: NothInt
+function find_result( db :: AbstractDB, target :: Result  ) :: NothInt
+    x = get_site(target);
+    y = get_value(target);
     for id ∈ eachindex(db)
         res = get_result(db, id)
-        if all(get_site(res) .== x) && all(get_val(res) .== y)
+        if all(get_site(res) .== x) && all(get_value(res) .== y)
             return pos
         end
     end
     return nothing
 end
 
-# TODO also use Tuples here instead of x&y
-function contains_result( db :: AbstractDB, x :: RVec, y :: RVec ) :: Bool 
-    return !isnothing(find_result(db, x, y))
-end
-
-function ensure_contains_result!( db :: AbstractDB, x :: RVec, y :: RVec ) :: NothInt
-    x_pos = find_result(db, x, y);
+function ensure_contains_result!( db :: AbstractDB, res :: Result) :: NothInt
+    x_pos = find_result(db, res);
     if isnothing(x_pos)
-        x_pos = add_result!(db, Res( x, y, nothing))
+        x_pos = add_result!(db, res);
     end
     x_pos
 end
@@ -149,7 +152,7 @@ Base.length(db :: ArrayDB) = length(db.res);
 Base.eachindex(db :: ArrayDB ) = collect(keys(db.res));
 init_db( :: Type{ArrayDB} ) = ArrayDB();
 sites( db :: ArrayDB ) :: RVecArr = [ get_site(res) for res ∈ values(db.res) ];
-values( db :: ArrayDB ) :: RVecArr = [ get_val(res) for res ∈ values(db.res) ];
+values( db :: ArrayDB ) :: RVecArr = [ get_value(res) for res ∈ values(db.res) ];
 
 #=
 function stamp!(db :: ArrayDB )::Nothing
@@ -163,7 +166,7 @@ function get_site( db :: ArrayDB, id :: Int )
 end
 
 function get_value( db :: ArrayDB, id :: Int)
-    return get_val(db.res[id]);
+    return get_value(db.res[id]);
 end
 
 get_result(db::ArrayDB, id :: Int) = db.res[id];
@@ -171,6 +174,7 @@ get_result(db::ArrayDB, id :: Int) = db.res[id];
 function add_result!( db :: ArrayDB, res :: Result )
     db.max_id += 1;
     db.res[db.max_id] = res
+    change_id!(res, db.max_id)
     return db.max_id
 end
 
@@ -180,7 +184,7 @@ function change_site!( db :: ArrayDB, id :: Int, new_site :: RVec) :: Nothing
 end
 
 function change_value!( db :: ArrayDB, id :: Int, new_val :: RVec) :: Nothing
-    change_val!(db.res[id], new_val);
+    change_value!(db.res[id], new_val);
     nothing 
 end
 
@@ -225,15 +229,16 @@ function set_next_iterate!( id :: AbstractIterData, x̂ :: RVec,
     fxᵗ!(id, ŷ);
     Δᵗ!(id, Δ);
 
-    x_index = add_result!(db(id), Res( x̂, ŷ, nothing ) );
+    x_index = add_result!(db(id), init_res( Res, x̂, ŷ, nothing));
     xᵗ_index!( id, x_index );
+
     nothing 
 end
 
 function keep_current_iterate!( id :: AbstractIterData, x̂ :: RVec, ŷ :: RVec,
       Δ :: Union{Real, RVec}) :: Nothing
     Δᵗ!(id, Δ);
-    add_result!(db(id),Res( x̂, ŷ, nothing ) );
+    add_result!(db(id),init_res( Res, x̂, ŷ, nothing) );
     nothing
 end
 
@@ -289,6 +294,20 @@ function init_iter_data( ::Type{IterData}, x :: RVec, fx :: RVec, Δ :: Union{Re
 end
 
 # special retrieval commands for XInt (if no db is kept)
+function get_result( id :: AbstractIterData, pos :: Union{Nothing,Int})
+    get_result( db(id), pos )
+end
+function get_result( id :: AbstractIterData, pos :: XInt)
+    x_res = get_result( db(id), pos.val )
+
+    if isempty(get_site( x_res ) )
+        return init_res(Res, xᵗ(id), fxᵗ(id), xᵗ_index(id))
+    else
+        return x_res
+    end
+end
+
+
 get_value(id::AbstractIterData,pos::Union{Nothing,Int}) = get_value(db(id), pos)
 get_value(id::AbstractIterData, pos::XInt) = fxᵗ(id);
 
@@ -301,4 +320,23 @@ end
 
 function get_values(id :: AbstractIterData, positions :: NothIntVec )
     [ s for s ∈ get_value.(id, positions) if !isempty(s) ]
+end
+
+# modifies first two arguments
+function _eval_and_store_new_results!(id :: AbstractIterData, res_list :: Vector{<:Result},
+    mop :: AbstractMOP) :: Nothing
+    DB = db(id);
+    # evaluate at new sites
+    # we first collect, so that batch evaluation can be exploited
+    unstored_results = [ res for res ∈ res_list if isnothing( get_id( res) ) ];
+    @info "We have to evaluate at $(length(unstored_results)) new sites."
+    new_vals = eval_all_objectives.(mop, [ get_site(res) for res ∈ unstored_results ]);
+
+    # add to db and modify results to contain new data
+    for (res,val) ∈ zip( unstored_results, new_vals )
+        change_value!(res, val)
+        new_id = add_result!(DB, res)
+        #change_id!(res, new_id)
+    end
+    
 end

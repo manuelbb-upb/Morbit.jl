@@ -11,14 +11,14 @@ p = Morbit.MixedMOP(lb, ub)
 f1 = x -> sum( (x.-1).^2 );
 f2 = x -> sum( (x.+1).^2 );
 
-cfg = Morbit.ExactConfig();# degree = 2 );
+cfg = Morbit.LagrangeConfig();# degree = 2 );
  
 taylor_cfg = Morbit.TaylorConfig( degree = 2, gradients = :fdm)
 Morbit.add_objective!( p, f1, cfg );
 Morbit.add_objective!( p, f2, cfg );
 
 ac = Morbit.AlgoConfig(  
-    db = Morbit.ArrayDB, 
+    db = Morbit.NoDB, 
     strict_backtracking = true,
     strict_acceptance_test = true,
     Δ_critical = 1e-10,

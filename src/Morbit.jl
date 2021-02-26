@@ -132,11 +132,14 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     else
         data_base = init_db(use_db(algo_config));
     end
-    ensure_contains_result!(data_base, x, fx);
-    stamp!(data_base);
-    @assert data_base isa AbstractDB;
+    # make sure, x & fx are in database
+    start_res = init_res(Res, x, fx );
+    ensure_contains_result!(data_base, start_res);
+    @show get_value(start_res)
+    #stamp!(data_base);
 
     iter_data = init_iter_data(IterData, x, fx, Δ⁰(algo_config), data_base);
+    xᵗ_index!(iter_data, get_id(start_res));
 
     # initialize surrogate models
     sc = init_surrogates( mop, iter_data );
@@ -151,6 +154,9 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         x = xᵗ(iter_data);
         fx = fxᵗ(iter_data);
         Δ = Δᵗ(iter_data);
+
+        @assert all( isapprox.( get_site( iter_data, xᵗ_index(iter_data ) ), x ) ); 
+        @assert get_value(iter_data,xᵗ_index(iter_data)) == fx
  
         # check other stopping conditions (could also be done in head of while-loop,
         # but looks a bit more tidy here
@@ -297,6 +303,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
             @assert all(isapprox.(x₊,xᵗ(iter_data)))
         else
             keep_current_iterate!(iter_data, x₊, fx₊, new_Δ);
+            @assert all( isapprox.(x, xᵗ(iter_data)))
         end
         @info """\n
             The step is $(ACCEPT_TRIAL_POINT ? (ρ >= ν_succ ? "very sucessfull!" : "acceptable.") : "unsucessfull…")
