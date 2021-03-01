@@ -165,10 +165,10 @@ function rbf_jacobian( m::RBFModel, x :: RVec )
     distances = norm.(difference_vectors)       # n_sites x 1
     ∂kernel_vals = ∂kernel.( Val(m.kernel), distances, m.shape_parameter )  # n_sites
 
-    rbf_jac = zeros(T, n_out, n_vars);
+    rbf_jac = zeros(eltype(x), n_out, n_vars);
     for ℓ = 1 : n_out
         coeff_ℓ = m.rbf_coefficients[:,ℓ]           # n_sites x 1
-        grad_ℓ = zeros(T, n_vars);
+        grad_ℓ = zeros(eltype(x), n_vars);
         for i = 1 : length(distances)
             if distances[i] != 0
                 grad_ℓ += coeff_ℓ[i] / distances[i] * ∂kernel_vals[i] .* difference_vectors[i]
@@ -178,7 +178,7 @@ function rbf_jacobian( m::RBFModel, x :: RVec )
     end
     return rbf_jac
 end
-rbf_jacobian( m::RBFModel, x :: T where{T<:Real} ) = rbf_jacobian( m, [x])
+rbf_jacobian( m::RBFModel, x :: Real ) = rbf_jacobian( m, [x])
 
 # === Hessians of the model ===
 # note ∂ᵢ ∂kernel(r(x)) = (x_i -c_i) * ∂∂kernel(x)

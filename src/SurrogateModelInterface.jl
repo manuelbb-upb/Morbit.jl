@@ -15,8 +15,9 @@ fully_linear( :: SurrogateModel ) = false :: Bool;
 # to a new vector objective?
 combinable( :: SurrogateConfig ) = false :: Bool     
 
-_init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP, :: AbstractIterData ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
-update_model( :: SurrogateModel,:: AbstractObjective, :: SurrogateMeta, :: AbstractMOP, :: AbstractIterData) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+_init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP, :: AbstractIterData, :: AbstractConfig ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+update_model( :: SurrogateModel,:: AbstractObjective, :: SurrogateMeta, :: AbstractMOP, 
+:: AbstractIterData, :: AbstractConfig; kwargs... ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
 
 eval_models( :: SurrogateModel, ::RVec ) = nothing :: RVec
 get_gradient( :: SurrogateModel, ::RVec, :: Int ) = nothing :: RVec
@@ -31,7 +32,7 @@ end
 # overwrite, this is inefficient
 eval_models( sm :: SurrogateModel, x̂ :: RVec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
 function improve_model( mod :: SurrogateModel, objf:: AbstractObjective, meta :: SurrogateMeta,
-    mop :: AbstractMOP, id :: AbstractIterData;
+    mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig;
     ensure_fully_linear) :: Tuple{SurrogateModel,SurrogateMeta}
     return mod, meta 
 end

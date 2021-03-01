@@ -100,18 +100,18 @@ end
 
 @doc "Return a TaylorModel build from a VectorObjectiveFunction `objf`."
 function _init_model( cfg ::TaylorConfig, objf :: AbstractObjective, 
-    mop :: AbstractMOP, id :: AbstractIterData ) :: Tuple{TaylorModel, TaylorMeta}
+    mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig ) :: Tuple{TaylorModel, TaylorMeta}
     tm0 = TaylorModel(; mop = mop, objf = objf );
     set_gradients!( tm0, objf, mop );
     if cfg.degree >= 2
         set_hessians!( tm0, objf, mop );
     end
     tmeta0 = TaylorMeta()
-    return update_model( tm0, objf, tmeta0, mop, id);    
+    return update_model( tm0, objf, tmeta0, mop, id, ac);    
 end
 
 function update_model( tm :: TaylorModel, objf :: AbstractObjective, tmeta :: TaylorMeta,
-    mop :: AbstractMOP, id :: AbstractIterData; ensure_fully_linear :: Bool = false ) :: Tuple{TaylorModel,TaylorMeta}
+    mop :: AbstractMOP, id :: AbstractIterData, :: AbstractConfig; ensure_fully_linear :: Bool = false ) :: Tuple{TaylorModel,TaylorMeta}
     @info "Building Taylor model(s)."
     tm.x0 = xᵗ(id);
     tm.fx0 = fxᵗ(id)[output_indices(objf,mop)];
@@ -135,7 +135,7 @@ function update_model( tm :: TaylorModel, objf :: AbstractObjective, tmeta :: Ta
 end
 
 function improve_model(tm::TaylorModel, ::AbstractObjective, tmeta :: TaylorMeta,
-    ::AbstractMOP, id :: AbstractIterData;
+    ::AbstractMOP, id :: AbstractIterData, :: AbstractConfig;
     ensure_fully_linear :: Bool = false ) :: Tuple{TaylorModel, TaylorMeta}
     tm, tmeta 
 end

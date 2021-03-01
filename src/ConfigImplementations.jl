@@ -30,7 +30,7 @@ Applies only to backtracking descent steps, i.e., :steepest_descent."
 strict_backtracking( :: AbstractConfig )::Bool = true;
 
 strict_acceptance_test( :: AbstractConfig )::Bool = true;
-ν_success( :: AbstractConfig )::Real = 0.4;
+ν_success( :: AbstractConfig )::Real = 0.1;
 ν_accept(::AbstractConfig)::Real = 0.0;
 
 μ(::AbstractConfig) = 2e3;

@@ -142,7 +142,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     xᵗ_index!(iter_data, get_id(start_res));
 
     # initialize surrogate models
-    sc = init_surrogates( mop, iter_data );
+    sc = init_surrogates( mop, iter_data, algo_config );
     sc.surrogates
 
     IMPROVEMENT_STEP_FLAG = false;
@@ -189,9 +189,9 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         # update surrogate models
         if n_iterations > 1
             if IMPROVEMENT_STEP_FLAG 
-                improve_surrogates!( sc, mop, iter_data; ensure_fully_linear = false );
+                improve_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = false );
             else
-                update_surrogates!( sc, mop, iter_data; ensure_fully_linear = false );
+                update_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = false );
             end
         end
 
@@ -205,7 +205,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
             @info "Entered Criticallity Test."
             if !_fully_linear
                 @info "Ensuring all models to be fully linear."
-                update_surrogates!( sc, mop, iter_data; ensure_fully_linear = true );
+                update_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = true );
                 
                 ω, x₊, mx₊, steplength = compute_descent_step(algo_config,mop,iter_data,sc);
                 if !fully_linear(sc)
@@ -229,7 +229,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
                 # shrink radius
                 Δᵗ!( iter_data, Δᵗ(iter_data) .* gamma_crit );
                 # make model linear 
-                update_surrogates!( sc, mop, iter_data; ensure_fully_linear = true );
+                update_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = true );
                 # (re)calculate criticality
                 # TODO make backtracking optional and don't do here
                 ω, x₊, mx₊, steplength = compute_descent_step(algo_config,mop,iter_data,sc);
@@ -306,6 +306,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
             #@assert all( isapprox.(x, xᵗ(iter_data)))
         end
         @info """\n
+            The trial point is $(ACCEPT_TRIAL_POINT ? "" : "not ")accepted.
             The step is $(ACCEPT_TRIAL_POINT ? (ρ >= ν_succ ? "very sucessfull!" : "acceptable.") : "unsucessfull…")
             Moreover, the radius was updated as below:
             old radius : $Δ

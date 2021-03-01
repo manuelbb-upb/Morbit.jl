@@ -65,7 +65,7 @@ end
 end
 
 function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective,
-    mop :: AbstractMOP, id :: AbstractIterData ) :: Tuple{LagrangeModel, LagrangeMeta}
+    mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig ) :: Tuple{LagrangeModel, LagrangeMeta}
     lm = LagrangeModel(; 
         n_vars = num_vars(objf),
         n_out = num_outputs(objf),
@@ -80,24 +80,8 @@ function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective,
         end
     end     
     lmeta = LagrangeMeta();
-    return update_model(lm, objf, lmeta, mop, id; 
-        ensure_fully_linear = !cfg.allow_not_linear)
-end
-
-function _point_in_box( x̂ :: RVec, lb :: RVec, ub :: RVec ) :: Bool 
-    return all( lb .<= x̂ .<= ub )
-end
-
-"Indices of sites in database that lie in box with bounds `lb` and `ub`."
-function find_points_in_box( id :: AbstractIterData, lb :: RVec, ub :: RVec;
-    filter_x :: Bool = true ) :: Vector{Int}
-    if !filter_x
-        return [i for i = eachindex(db(id)) if _point_in_box(get_site(id, i), lb, ub) ]
-    else
-        xind = xᵗ_index(id);
-        return [i for i = eachindex(db(id)) if i != xind && 
-            _point_in_box(get_site(id, i), lb, ub) ]
-    end
+    return update_model(lm, objf, lmeta, mop, id, ac;
+        ensure_fully_linear = true)
 end
 
 function _eval_new_sites!( lm :: LagrangeModel, lmeta :: LagrangeMeta, 
@@ -116,7 +100,8 @@ function _set_gradient!(lp :: LagrangePoly) :: Nothing
 end
 
 function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
-    mop :: AbstractMOP, id :: AbstractIterData; ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
+    mop :: AbstractMOP, id :: AbstractIterData, :: AbstractConfig; 
+    ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
     
     @info("Building Lagrange Models...");
     cfg = model_cfg(objf) :: LagrangeConfig;
@@ -154,7 +139,7 @@ function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: 
 end
 
 function improve_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
-    mop :: AbstractMOP, id :: AbstractIterData; ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
+    mop :: AbstractMOP, id :: AbstractIterData, :: AbstractConfig; ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
 
     cfg = model_cfg( objf );
     make_basis_lambda_poised!( lm.basis, objf, mop; 
@@ -206,7 +191,10 @@ function make_basis_poised!( basis :: Vector{LagrangePoly}, id :: AbstractIterDa
 
     # find all points in database in current trust region
     lb_eff, ub_eff = local_bounds(mop, x, Δᵗ(id) * Δ_factor);
-    box_indices = find_points_in_box(id, lb_eff, ub_eff; filter_x = true);
+    box_indices = find_points_in_box(
+        id, lb_eff, ub_eff;
+        exclude_indices = [xᵗ_index(id)] 
+    );
     
     p = length( basis );
     for i = 2 : p

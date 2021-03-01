@@ -307,7 +307,6 @@ function get_result( id :: AbstractIterData, pos :: XInt)
     end
 end
 
-
 get_value(id::AbstractIterData,pos::Union{Nothing,Int}) = get_value(db(id), pos)
 get_value(id::AbstractIterData, pos::XInt) = fxᵗ(id);
 
@@ -340,3 +339,15 @@ function _eval_and_store_new_results!(id :: AbstractIterData, res_list :: Vector
     end
     
 end
+
+function _point_in_box( x̂ :: RVec, lb :: RVec, ub :: RVec ) :: Bool 
+    return all( lb .<= x̂ .<= ub )
+end
+
+"Indices of sites in database that lie in box with bounds `lb` and `ub`."
+function find_points_in_box( id :: AbstractIterData, lb :: RVec, ub :: RVec;
+    exclude_indices :: Vector{<:NothInt} = NothInt[] ) :: Vector{Int}
+    return [i for i = eachindex(db(id)) if i ∉ exclude_indices && 
+        _point_in_box(get_site(id, i), lb, ub) ]
+end
+

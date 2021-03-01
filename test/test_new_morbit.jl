@@ -12,6 +12,7 @@ f1 = x -> sum( (x.-1).^2 );
 f2 = x -> sum( (x.+1).^2 );
 
 cfg = Morbit.LagrangeConfig( degree = 2 );
+cfg = Morbit.RbfConfig();
  
 taylor_cfg = Morbit.TaylorConfig( degree = 2, gradients = :fdm)
 Morbit.add_objective!( p, f1, cfg );
@@ -23,6 +24,6 @@ ac = Morbit.AlgoConfig(
     strict_acceptance_test = true,
     Δ_critical = 1e-10,
     Δ_min = 1e-13,
-    max_iter = 15)#, max_evals = 10 );
+    max_iter = 10)#, max_evals = 10 );
 
 X,_ = Morbit.optimize( p, x0; algo_config = ac );

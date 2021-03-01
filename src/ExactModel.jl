@@ -59,20 +59,20 @@ end
 @doc "Return an ExactModel build from a VectorObjectiveFunction `objf`. 
 Model is the same inside and outside of criticality round."
 function _init_model( ::ExactConfig, objf :: AbstractObjective, 
-    mop :: AbstractMOP, ::AbstractIterData )
+    mop :: AbstractMOP, ::AbstractIterData , :: AbstractConfig)
     em = ExactModel(; mop = mop, objf = objf );
     set_gradients!( em, objf, mop );
     return em, ExactMeta();
 end
 
 function update_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
-    ::AbstractMOP, id :: AbstractIterData; 
+    ::AbstractMOP, id :: AbstractIterData, :: AbstractConfig; 
     ensure_fully_linear :: Bool = false ) :: Tuple{ ExactModel, ExactMeta }
     return em, meta
 end
 
 function improve_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
-    ::AbstractMOP, id :: AbstractIterData; 
+    ::AbstractMOP, id :: AbstractIterData, :: AbstractConfig; 
     ensure_fully_linear :: Bool = false ) :: Tuple{ ExactModel, ExactMeta }
     return em, meta
 end
