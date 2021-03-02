@@ -151,8 +151,8 @@ end
 Base.length(db :: ArrayDB) = length(db.res);
 Base.eachindex(db :: ArrayDB ) = collect(keys(db.res));
 init_db( :: Type{ArrayDB} ) = ArrayDB();
-sites( db :: ArrayDB ) :: RVecArr = [ get_site(res) for res ∈ values(db.res) ];
-values( db :: ArrayDB ) :: RVecArr = [ get_value(res) for res ∈ values(db.res) ];
+get_sites( db :: ArrayDB ) :: RVecArr = [ get_site(res) for res ∈ values(db.res) ];
+get_values( db :: ArrayDB ) :: RVecArr = [ get_value(res) for res ∈ values(db.res) ];
 
 #=
 function stamp!(db :: ArrayDB )::Nothing
@@ -335,7 +335,6 @@ function _eval_and_store_new_results!(id :: AbstractIterData, res_list :: Vector
     for (res,val) ∈ zip( unstored_results, new_vals )
         change_value!(res, val)
         new_id = add_result!(DB, res)
-        #change_id!(res, new_id)
     end
     
 end

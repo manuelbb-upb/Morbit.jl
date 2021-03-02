@@ -275,6 +275,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         #@assert all( mx .>= mx₊ )
 
         ACCEPT_TRIAL_POINT = false
+        IMPROVEMENT_STEP_FLAG = false
         ρ = isnan(ρ) ? -Inf : ρ;
         Δ = Δᵗ(iter_data);  # if it was changed in criticality test
         if ρ >= ν_succ

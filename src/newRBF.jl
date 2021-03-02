@@ -1,7 +1,7 @@
 include("RBFBase.jl");
 import .RBF
-using LinearAlgebra: qr, I, norm
-
+using LinearAlgebra: qr, I, norm, givens, Hermitian, cholesky, inv
+using LinearAlgebra: diag # remove
 
 @with_kw mutable struct RbfModel <: SurrogateModel
     model :: Union{Nothing,RBF.RBFModel} = nothing;
@@ -18,7 +18,7 @@ using LinearAlgebra: qr, I, norm
     # for gathering training data in form of `Results`
     # dict key is the "construction round" for metadata (plotting)
     # dict values are vectors of training data    
-    tdata :: Dict{Int,Vector{<:Result}} = Dict( i => Result[] for i = 1:4);
+    tdata :: Dict{Int,Vector{<:Result}} = Dict( i => Result[] for i = 0:4);
 end
 
 function RbfModel( model :: RBF.RBFModel, n_vars :: Int )
@@ -32,6 +32,10 @@ function RbfModel( model :: RBF.RBFModel, n_vars :: Int )
         Z₂ = Z
     );
 end
+
+tdata_length( rbf :: RbfModel ) :: Int = sum( length.(Base.values(rbf.tdata) ) )
+db_indices( rbf :: RbfModel ) = vcat( [ get_id.(tdat) for tdat ∈ Base.values(rbf.tdata) ]... );
+tdata_results(rbf :: RbfModel ) = vcat( (rbf.tdata[i] for i ∈ keys(rbf.tdata) )... );
 
 @with_kw mutable struct RbfConfig <: SurrogateConfig
     kernel :: Symbol = :cubic;
@@ -119,6 +123,7 @@ function update_model( rbf :: RbfModel, objf :: AbstractObjective, rmeta:: RbfMe
     );
 
     rbf =  RbfModel(inner_model, n_vars);
+    push!(rbf.tdata[0], get_result( id, xᵗ_index(id) ));
 
     rmeta = RbfMeta();
 
@@ -133,16 +138,18 @@ function update_model( rbf :: RbfModel, objf :: AbstractObjective, rmeta:: RbfMe
     end
 
     n_missing -= length(rbf.tdata[2]);
-    n_new = min( n_missing, min( max_evals(ac), max_evals(cfg) ) - 1 );
+    n_new = max(0, min( n_missing, min( max_evals(ac), max_evals(cfg) ) - 1 ));
 
     add_new_sites!(rbf, cfg, mop, id; max_new = n_new);
 
     if length(rbf.tdata[3]) < n_new 
         return rebuild_model( rbf, objf, rmeta, id, mop, ac);
-    end# if (rebuild model) 
+    end
     
     rbf.fully_linear = isempty(rbf.tdata[2]) && length(rbf.tdata[1]) + length(rbf.tdata[3]) == n_vars
     @info "RBF Model is $(rbf.fully_linear ? "" : "not ")fully linear."
+
+    add_old_sites!( rbf, cfg, mop, id)
 
     #Evaluate resuts...
     _eval_new_sites!( rbf, rmeta, objf, mop, id );
@@ -161,19 +168,19 @@ end
 function improve_model( rbf:: RbfModel, objf::AbstractObjective, rmeta :: RbfMeta,
     mop ::AbstractMOP, id :: AbstractIterData, ac:: AbstractConfig;
     ensure_fully_linear :: Bool = false ) :: Tuple{RbfModel, RbfMeta}
-    @show size(rbf.Z)
     if size(rbf.Z, 2) > 0
         @info "Performing an improvement step..."
+        cfg = model_cfg(objf);
 
         x = xᵗ(id);
         Δ = Δᵗ(id);
         
-        dir = copy( Z[:,1] );
+        dir = copy( rbf.Z[:,1] );
         Δ₁ = cfg.θ_enlarge_1 * Δ;
-        pivot = cfg.pivot * Δ;
+        pivot = cfg.θ_pivot * Δ;
         
+        len = intersect_bounds( mop, x, Δ₁, dir; return_vals = :absmax)
         if abs(len) > pivot
-            len = intersect_bounds( mop, x, Δ₁, dir; return_vals = :absmax)
             offset = len .* dir;
             push!(rbf.tdata[3], init_res( Res, x .+ offset));
         
@@ -206,6 +213,8 @@ function rebuild_model( rbf :: RbfConfig, objf :: AbstractObjective, rmeta :: Rb
         Z = Matrix{Int}(I( n_vars )),
     );
 
+    push!(rbf.tdata[0], get_result( id, xᵗ_index(id) ));
+
     for i = 1 : max_new
         dir = zeros(Int, n_vars);
         dir[i] = 1;
@@ -218,7 +227,8 @@ function rebuild_model( rbf :: RbfConfig, objf :: AbstractObjective, rmeta :: Rb
             @warn("Cannot make model fully linear!")
         end
     end#for 
-
+    rbf.Y₂ = rbf.Y;
+    rbf.Z₂ = rbf.Z;
     _eval_new_sites!(rbf, rmeta, objf, mop, id );
     RBF.train!(rbf.model);
     return rbf, rmeta
@@ -228,6 +238,19 @@ end
 # optional helper
 num_outputs( rbf :: RbfModel ) :: Int = Rbf.num_outputs( rbf.model );
 
+function _transfer_training_sites!( rbf :: RbfModel ) :: Nothing
+    basis_results = tdata_results(rbf);
+    empty!(rbf.model.training_sites)
+    push!(rbf.model.training_sites, [ get_site(res) for res ∈ basis_results ]... ) ;
+    nothing 
+end
+
+function _transfer_training_values!( rbf :: RbfModel, out_indices :: Vector{Int}) :: Nothing
+    basis_results = tdata_results(rbf);
+    empty!(rbf.model.training_values)
+    push!(rbf.model.training_values, [ get_value(res)[out_indices] for res ∈ basis_results ]... );
+    nothing
+end
 
 # evaluate at new sites
 # set `training_sites` and `training_values` for inner model
@@ -246,14 +269,8 @@ function _eval_new_sites!( rbf :: RbfModel, rmeta :: RbfMeta, objf :: AbstractOb
     rmeta.round4_indices = [ convert( NotXint, get_id( res ) ) for res ∈ rbf.tdata[4] ] ;
 
     # "transfer" training data to inner model 
-    empty!(rbf.model.training_sites)
-    push!(rbf.model.training_sites, xᵗ(id));
-    push!(rbf.model.training_sites, [ get_site(res) for res ∈ basis_results ]... ) ;
-    oi = output_indices( objf, mop )
-    empty!(rbf.model.training_values)
-    push!(rbf.model.training_values, fxᵗ(id)[oi]);
-    push!(rbf.model.training_values, [ get_value(res)[oi] for res ∈ basis_results ]... );
-
+    _transfer_training_sites!(rbf);
+    _transfer_training_values!(rbf, output_indices( objf, mop));  
     nothing 
 end
 
@@ -298,12 +315,12 @@ function find_box_independent_points1!( rbf :: RbfModel, cfg :: RbfConfig, id ::
 
     res, Y, Z = _find_box_independent_points( 
         rbf, id, mop, xᵗ(id), Δᵗ(id) * cfg.θ_enlarge_1; 
-        θ_pivot = cfg.θ_pivot * Δᵗ(id) 
+        θ_pivot = cfg.θ_pivot
     );
 
     rbf.tdata[1] = res;
-    rbf.Y = Y;
-    rbf.Z = Z;
+    rbf.Y₂ = rbf.Y = Y;
+    rbf.Z₂ = rbf.Z = Z;
     nothing 
 end
 
@@ -334,31 +351,35 @@ function _find_box_independent_points( rbf :: RbfModel,
     
     box_results = get_result.( id, box_indices );
 
+    pivot = Δ * θ_pivot;
+
     affinely_independent_box_indices, Y, Z = _affinely_independent_points( 
         box_results, 
         x, 
         rbf.Y, 
         rbf.Z, 
-        θ_pivot = θ_pivot
+        piv_val = pivot
     )
 
-    @info("\tFound $(length(affinely_independent_box_indices)) points in box of radius $(Δ) with pivot $(θ_pivot).");
+    @info("\tFound $(length(affinely_independent_box_indices)) points in box of radius $(Δ) with pivot $(pivot).");
     return (box_results[affinely_independent_box_indices], Y, Z);
 end
   
 
 function _affinely_independent_points( list_of_results :: Vector{<:Result}, x₀ :: RVec, 
     Y :: RMat = Matrix{Real}(undef, 0, 0), Z :: RMat = Matrix{Real}(undef, 0, 0);
-    θ_pivot :: Real = 1e-3 ) :: Tuple{Vector{<:Int},RMat,RMat}
-    return _affinely_independent_points( get_site.(list_of_results), x₀, Y, Z; θ_pivot )
+    piv_val :: Real = 1e-3 ) :: Tuple{Vector{<:Int},RMat,RMat}
+    return _affinely_independent_points( get_site.(list_of_results), x₀, Y, Z; piv_val )
 end
     
  
 function _affinely_independent_points( list_of_points :: RVecArr, x₀ :: RVec, 
-    Y :: RMat = Matrix{Real}(undef, 0, 0), Z :: RMat = Matrix{Real}(undef, 0, 0);
-    θ_pivot :: Real = 1e-3 ) :: Tuple{Vector{<:Int},RMat,RMat}
+    Ŷ :: RMat = Matrix{Real}(undef, 0, 0), Ẑ :: RMat = Matrix{Real}(undef, 0, 0);
+    piv_val :: Real = 1e-3 ) :: Tuple{Vector{<:Int},RMat,RMat}
     
     n_vars = length(x₀);
+    Y = copy(Ŷ);    # because we are possible modifying the matrices
+    Z = copy(Ẑ);
 
     if isempty( list_of_points )
         return Int[], Matrix{Real}(undef, n_vars, 0), Matrix{Int}(I(n_vars))
@@ -388,7 +409,7 @@ function _affinely_independent_points( list_of_points :: RVecArr, x₀ :: RVec,
             # NOTE: this inner loop is not mandatory
             best_val, best_index = findmax( proj.( list_of_points[ candidate_indices ] ) );
 
-            if best_val > θ_pivot
+            if best_val > piv_val
                 true_index = candidate_indices[best_index];
                 push!(accepted_indices, true_index );
                 deleteat!(candidate_indices, best_index)
@@ -410,36 +431,179 @@ end
 
 function add_new_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP,
     id :: AbstractIterData, ::Val{:orthogonal}; max_new :: Int ) :: Nothing
-    x = xᵗ(id);
-    Δ = Δᵗ(id);
-    n_vars = length(x);
-    
-    Δ₁ = Δ * cfg.θ_enlarge_1;
-    for dir = eachcol( rbf.Z )
-        @assert norm(dir, Inf) ≈ 1;
-        len = intersect_bounds( mop, x, Δ₁, copy(dir); return_vals = :absmax)
-        if abs(len) > cfg.θ_pivot * Δ 
-            # pivot big enough, accept new site
-            offset = len .* dir;
-            push!(rbf.tdata[3], init_res( Res, x .+ offset));
-            rbf.Y = hcat( rbf.Y, offset );
-            rbf.Z = rbf.Z[:, 2:end];
-        else
-            # could not sample far enough from current iterate, break 
-            break;
-        end
-        if length(rbf.tdata[3]) >= max_new 
-            break;
+    if max_new > 0
+        x = xᵗ(id);
+        Δ = Δᵗ(id);
+        n_vars = length(x);
+        
+        Δ₁ = Δ * cfg.θ_enlarge_1;
+        for dir = eachcol( rbf.Z )
+            if length(rbf.tdata[3]) >= max_new 
+                break;
+            end
+            @assert norm(dir, Inf) ≈ 1;
+            len = intersect_bounds( mop, x, Δ₁, copy(dir); return_vals = :absmax)
+            if abs(len) > cfg.θ_pivot * Δ 
+                # pivot big enough, accept new site
+                offset = len .* dir;
+                push!(rbf.tdata[3], init_res( Res, x .+ offset));
+                rbf.Y = hcat( rbf.Y, offset );
+                rbf.Z = rbf.Z[:, 2:end];
+            else
+                # could not sample far enough from current iterate, break 
+                break;
+            end
+            
         end
     end
     return nothing;    
 end
 
-function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, id :: AbstractIterData;
-    max_new :: Int ) :: Nothing
-    return add_old_sites!(rbf,cfg,id,Val( cfg.sampling_algorithm); max_new )
+function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP, id :: AbstractIterData ) :: Nothing
+    return add_old_sites!(rbf, cfg, mop, id, Val( cfg.sampling_algorithm))
 end
-function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, id :: AbstractIterData, 
-    ::Val{:orthogonal}; max_new :: Int) :: Nothing
+function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP, 
+    id :: AbstractIterData, ::Val{:orthogonal} ):: Nothing
+    x = xᵗ(id);
+    Δ₂ = cfg.θ_enlarge_2 * Δᵗ(id);
+    n_vars = length(x);
+    
+    chol_pivot = cfg.θ_pivot_cholesky;
+    
+    N₀ = N = tdata_length( rbf )
+    MAX_POINTS = cfg.max_model_points <= 0 ? 2*n_vars+1 : cfg.max_model_points;
+
+    if N < MAX_POINTS
+        # make sure, training sites are set
+        _transfer_training_sites!(rbf);
+
+        # prepare matrices as by Wild, R has to be augmented by rows of zeros
+        Φ = RBF.get_Φ( rbf.model );
+        Π = RBF.get_Π( rbf.model );
+        Q, R = qr( transpose(Π) );
+        R = [
+            Matrix(R);
+            zeros( size(Q,1) - size(R,1), size(R,2) )
+        ];
+        Z = Q[:, RBF.min_num_sites(rbf.model) + 1 : end ];
+
+        ZΦZ = Hermitian(Z'Φ*Z);
+        L = cholesky( ZΦZ ).L     # should also be empty at this point
+        Lⁱ = inv(L);
+
+        φ₀ = Φ[1,1]; # constant value
+
+        # TEST FOR ADDITIONAL POINTS
+        # we reverse the order of database indices because in our 
+        # implementation this favors recently added points, i.e.,
+        # points that are near the current iterate. other heuristics 
+        # are very much possible
+        DB = db(id);
+        all_ids = sort( collect( eachindex( DB ) ); rev = true );
+        training_ids = db_indices( rbf ) 
+
+        lb, ub = local_bounds(mop, x, Δ₂);
+
+        for id ∈ all_ids
+            if N >= MAX_POINTS 
+                break;
+            end
+            if id ∉ training_ids 
+                y_res = get_result(DB, id);
+                y = get_site( y_res );
+                if _point_in_box( y, lb, ub)
+                    test_retval = _test_new_cholesky_site( rbf.model, y, φ₀, Q, R, Z, L, Lⁱ, Φ, Π, chol_pivot );
+                    if !isnothing(test_retval)
+                        Q, R, Z, L, Lⁱ, Φ, Π = test_retval;
+                        push!(rbf.tdata[4], y_res );
+                        push!(rbf.model.training_sites, y ); # so that the _test… works properly
+                        N +=1 ; # increase point counter
+                    end
+                end
+            end
+        end
+        @info "\t Found $(N - N₀) additional sites to add to the model."
+    end
     nothing
+end
+
+
+function _test_new_cholesky_site(m :: RBF.RBFModel, y :: RVec, φ₀ :: Real, 
+    Q :: AbstractArray, R :: AbstractArray,  Z :: AbstractArray, L :: AbstractArray, 
+    Lⁱ :: AbstractArray, Φ :: AbstractArray, Π :: AbstractArray,  θ_pivot_cholesky :: Real )
+    
+    # evaluate RBF basis at new site
+    φy = RBF.φ(m, y)
+    Φy = [
+        [Φ φy];
+        [φy' φ₀]
+    ]
+
+    # get polynomial basis column and stack transpose below R 
+    πy = RBF.Π_col( m, y );
+    Ry = [
+        R ;
+        πy'
+    ]
+
+    # perform givens rotations to turn last row in Ry to zeros
+    row_index = size( Ry, 1)
+    G = Matrix(I, row_index, row_index) # whole orthogonal matrix
+    for j = 1 : size(R,2) 
+        # in each column, take the diagonal as pivot to turn last elem to zero 
+        g = givens( Ry[j,j], Ry[row_index, j], j, row_index )[1];
+        Ry = g*Ry;
+        G = g*G;
+    end
+    # now, from G we can update the other matrices 
+    Gᵀ = transpose(G);
+    g̃ = Gᵀ[1 : end-1, end];
+    ĝ = Gᵀ[end, end];
+
+    Qg = Q*g̃;
+    v_y = Z'*( Φ*Qg + φy .* ĝ );
+    σ_y = Qg'*Φ*Qg + (2*ĝ) * φy'*Qg + ĝ^2*φ₀;
+
+    τ_y² = σ_y - norm( Lⁱ * v_y, 2 )^2 
+    # τ_y (and hence τ_y^2) must be bounded away from zero 
+    # for the model to remain fully linear
+    if τ_y² > θ_pivot_cholesky
+        τ_y = sqrt(τ_y²)
+
+        Qy = [
+            [ Q zeros( size(Q,1), 1) ];
+            [ zeros(1, size(Q,2)) 1 ]
+        ] * Gᵀ
+
+
+        z = [
+            Q * g̃;
+            ĝ
+        ]
+
+        Zy = [
+            [
+                Z;
+                zeros(1, size(Z,2))
+            ] z
+        ]
+
+        Lyⁱ = [
+            [Lⁱ zeros(size(Lⁱ,1),1)];
+            [ -(v_y'Lⁱ'Lⁱ)./τ_y 1/τ_y ]
+        ];
+
+        Ly = [
+            [ L zeros(size(L,1), 1) ];
+            [ v_y'Lⁱ' τ_y ]
+        ]
+
+        Πy = [ Π πy ];
+
+        @assert diag(Ly * Lyⁱ) ≈ ones(size(Ly,1))
+    
+        return Qy, Ry, Zy, Ly, Lyⁱ, Φy, Πy
+    else
+        return nothing
+    end
 end
