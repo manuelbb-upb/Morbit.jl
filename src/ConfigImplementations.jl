@@ -23,11 +23,16 @@ count_nonlinear_iterations( :: AbstractConfig )::Bool=true;
 stepsize_crit(ac::AbstractConfig)::Union{RVec,Real}= Δ_crit(ac) .* 1e-4;
 stepsize_min(::AbstractConfig)::Union{RVec,Real} = eps(Float64) * 10;
 
-descent_method( :: AbstractConfig )::Symbol = :steepest_descent
+descent_method( :: AbstractConfig )::Symbol = :steepest_descent # or :ps
 
 "Require a descent in all model objective components. 
 Applies only to backtracking descent steps, i.e., :steepest_descent."
 strict_backtracking( :: AbstractConfig )::Bool = true;
+
+# settings for pascoletti_serafini descent 
+reference_point(::AbstractConfig) :: RVec = Real[];
+reference_direction(::AbstractConfig) :: RVec = Real[];
+max_ideal_point_problem_evals(::AbstractConfig) :: Int = -1;
 
 strict_acceptance_test( :: AbstractConfig )::Bool = true;
 ν_success( :: AbstractConfig )::Real = 0.1;
@@ -67,6 +72,9 @@ use_db( ::EmptyConfig ) = ArrayDB;
 
     descent_method :: Symbol = descent_method(empty_config);
     strict_backtracking :: Bool = strict_backtracking(empty_config);
+    reference_direction :: RVec = reference_direction(empty_config)
+    reference_point :: RVec = reference_point(empty_config);
+    max_ideal_point_problem_evals :: Int = max_ideal_point_problem_evals(empty_config);
 
     strict_acceptance_test :: Bool = strict_acceptance_test(empty_config);
     ν_success :: Real = ν_success( empty_config );
@@ -80,6 +88,8 @@ use_db( ::EmptyConfig ) = ArrayDB;
     γ_grow :: Real = γ_grow(empty_config);
     γ_shrink :: Real = γ_shrink(empty_config);
     γ_shrink_much::Real = γ_shrink_much(empty_config);
+    
+    @assert descent_method ∈ [:steepest_descent, :ps, :pascoletti_serafini]
 end
 
 max_evals( ac :: AlgoConfig ) = ac.max_evals;
@@ -96,8 +106,11 @@ stepsize_min(ac::AlgoConfig) = ac.stepsize_min;
 use_db( ac :: AlgoConfig ) = ac.db;
 descent_method( ac :: AlgoConfig ) = ac.descent_method;
 strict_backtracking( ac :: AlgoConfig ) = ac.strict_backtracking;
-strict_acceptance_test( ac :: AlgoConfig ) = ac.strict_acceptance_test;
+reference_direction(ac :: AlgoConfig ) = ac.reference_direction;
+reference_point(ac :: AlgoConfig ) = ac.reference_point;
+max_ideal_point_problem_evals(ac :: AlgoConfig) :: Int = ac.max_ideal_point_problem_evals;
 
+strict_acceptance_test( ac :: AlgoConfig ) = ac.strict_acceptance_test;
 ν_success( ac :: AlgoConfig ) = ac.ν_success;
 ν_accept( ac :: AlgoConfig ) = ac.ν_accept;
 

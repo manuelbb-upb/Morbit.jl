@@ -66,9 +66,9 @@ function replace_surrogate!(sc :: SurrogateContainer, si :: Int,
     nothing 
 end
 
-
 @doc "Return a SurrogateContainer initialized from the information provided in `mop`."
 function init_surrogates( mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig ) :: SurrogateContainer
+    @logmsg loglevel2 "Initializing surrogate models."
     sc = SurrogateContainer();
     for objf ∈ list_of_objectives(mop)
         model, meta = init_model( objf, mop, id, ac );
@@ -79,6 +79,7 @@ end
 
 function update_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP, 
     id :: AbstractIterData, ac :: AbstractConfig; ensure_fully_linear :: Bool = false ) :: Nothing 
+    @logmsg loglevel2 "Updating surrogate models."
     for (si,sw) ∈ enumerate(sc.surrogates)
         new_model, new_meta = update_model( sw.model, sw.objf, sw.meta, mop, id, ac; ensure_fully_linear )
         new_sw = SurrogateWrapper( 
@@ -93,6 +94,7 @@ end
 
 function improve_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP, 
     id :: AbstractIterData, ac :: AbstractConfig; ensure_fully_linear :: Bool = false ) :: Nothing 
+    @logmsg loglevel2 "Improving surrogate models."
     for (si,sw) ∈ enumerate(sc.surrogates)
         new_model, new_meta = improve_model( sw.model, sw.objf, sw.meta, mop, id, ac; ensure_fully_linear )
         new_sw = SurrogateWrapper( 

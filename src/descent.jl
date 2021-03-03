@@ -4,6 +4,8 @@ function compute_descent_step( algo_config :: AbstractConfig, mop :: AbstractMOP
     return compute_descent_step( Val(descent_method(algo_config)), algo_config, mop, id, sc )
 end
 
+# STEEPEST DESCENT AND BACKTRACKING
+
 function _steepest_descent( x :: RVec, ∇F :: RMat, lb :: RVec, ub :: RVec )
         
     n = length(x);
@@ -96,4 +98,40 @@ function compute_descent_step(::Val{:steepest_descent}, algo_config :: AbstractC
     else
         return 0, copy(x), eval_models( sc, x ), 0
     end
+end
+
+# PASCOLETTI-SERAFINI
+
+function compute_descent_step(::Val{:pascoletti_serafini}, algo_config :: AbstractConfig,
+    mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
+    pascoletti_serafini(Val(ps), algo_config, mop, id, sc )
+end
+
+function compute_descent_step(::Val{:ps}, algo_config :: AbstractConfig,
+    mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
+
+    x = xᵗ(id);
+    fx = fxᵗ(id);
+    n_vars = num_vars(mop);
+    n_out = num_objectives(mop);
+    
+    r = begin 
+        if !isempty( reference_direction(algo_config) )
+            reference_direction(algo_config)
+        elseif !isempty( reference_point(algo_config))
+            reference_point(algo_config) .- reverse_internal_sorting(fx, mop)
+        else
+            _local_ideal_point(mop, algo_config, id, sc) .- reverse_internal_sorting(fx,mop)
+        end
+    end
+        
+    return 0, copy(x), eval_models( sc, x ), 0
+end
+
+function _local_ideal_point(mop :: AbstractMOP, algo_config :: AbstractConfig,
+    id :: AbstractIterData, sc :: SurrogateContainer)
+    # TODO enable adjustable enlargment factor here
+    lb, ub = local_bounds(mop, xᵗ(id), 1.1 .* Δᵗ(id));
+    
+    ȳ = fill( typemin( eltype( fxᵗ(id) ) ), num_objectives(mop) );
 end

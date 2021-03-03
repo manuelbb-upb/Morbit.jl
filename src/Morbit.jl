@@ -1,9 +1,14 @@
 module Morbit
 
+export morbit_formatter;
+
 # steepest descent
 using LinearAlgebra: norm
 import JuMP;
 import OSQP;
+
+# LagrangeModels and PS
+import NLopt;
 
 using Parameters: @with_kw, @unpack, @pack!
 using MathOptInterface;
@@ -16,6 +21,32 @@ const FD = FiniteDiff#erences
 
 import ForwardDiff
 const AD = ForwardDiff
+
+import Logging: LogLevel, @logmsg;
+import Logging;
+
+const loglevel1 = LogLevel(-1);
+const loglevel2 = LogLevel(-2);
+const loglevel3 = LogLevel(-3);
+const loglevel4 = LogLevel(-4);
+
+const printDict = Dict( 
+    loglevel1 => (:blue, "Morbit"),
+    loglevel2 => (:cyan, "Morbit "),
+    loglevel3 => (:green, "Morbit  "),
+    loglevel4 => (:green, "Morbit   ")
+)
+
+function morbit_formatter(level::LogLevel, _module, group, id, file, line)
+    @nospecialize
+    if level in keys(printDict)
+        color, prefix = printDict[ level ]
+        suffix::String = ""
+        return color, prefix, ""
+    else 
+        return Logging.default_metafmt( level, _module, group, id, file, line )
+    end
+end
 
 include("shorthands.jl");
 
@@ -49,13 +80,12 @@ function _rel_tol_test_decision_space( Δ :: Union{Real,RVec}, steplength :: Rea
     ret_val =  all(Δ .<= Δₗ(ac)) || all(steplength .< stepsize_min(ac )) || 
         all( Δ .<= Δ_crit(ac) ) && all( steplength .<= stepsize_crit(ac) );
     if ret_val
-        @info("""\n
+        @logmsg loglevel1 """\n
                 Radius or stepsize too small.
                 Δ = $(Δ), stepsize = $(steplength).
                 Δ_min = $(Δₗ(ac)), Δ_crit = $(Δ_crit(ac)).
                 stepsize_min = $(stepsize_min(ac)), stepsize_crit = $(stepsize_crit(ac)).
             """
-        );
     end
     return ret_val
 end
@@ -136,7 +166,6 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     start_res = init_res(Res, x, fx );
     ensure_contains_result!(data_base, start_res);
     @show get_value(start_res)
-    #stamp!(data_base);
 
     iter_data = init_iter_data(IterData, x, fx, Δ⁰(algo_config), data_base);
     xᵗ_index!(iter_data, get_id(start_res));
@@ -145,10 +174,11 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     sc = init_surrogates( mop, iter_data, algo_config );
     sc.surrogates
 
-    IMPROVEMENT_STEP_FLAG = false;
-    n_iterations = 0
+    it_stat = SUCCESSFULL;
+    n_improvements = n_iterations = 0
     MAX_ITER = max_iter(algo_config)
     steplength = Inf;   # set here for initial stopping test
+    @logmsg loglevel1 "Entering main optimization loop."
     while n_iterations < MAX_ITER
         # read iter data to handy variables
         x = xᵗ(iter_data);
@@ -161,7 +191,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         # check other stopping conditions (could also be done in head of while-loop,
         # but looks a bit more tidy here
         if !_budget_okay(mop, algo_config)
-            @info "Stopping. Computational budget is exhausted."
+            @logmsg loglevel1 "Stopping. Computational budget is exhausted."
             break;
         end
         
@@ -171,24 +201,27 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         end
 
         # set iteration counter
-        if !IMPROVEMENT_STEP_FLAG || count_nonlinear_iterations(algo_config) 
+        if it_stat != MODELIMPROVING || count_nonlinear_iterations(algo_config) 
             n_iterations += 1
+            n_improvements = 0;
+        else 
+            n_improvements += 1;
         end
-
-        @info("""\n
+        
+        @logmsg loglevel1 """\n
             |--------------------------------------------
-            |Iteration $(n_iterations).
+            |Iteration $(n_iterations).$(n_improvements)
             |--------------------------------------------
             |  Current trust region radius is $(Δ).
             |  Current number of function evals is $(num_evals(mop)).
-            |  Iterate is $(_prettify(x))
-            |  Values are $(_prettify(fx))
+            |  Iterate is $(_prettify(unscale(x, mop)))
+            |  Values are $(_prettify(reverse_internal_sorting(fx,mop)))
             |--------------------------------------------
-        """);
+        """
 
         # update surrogate models
         if n_iterations > 1
-            if IMPROVEMENT_STEP_FLAG 
+            if it_stat == MODELIMPROVING 
                 improve_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = false );
             else
                 update_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = false );
@@ -197,32 +230,33 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
 
         # calculate descent step and criticality value
         ω, x₊, mx₊, steplength = compute_descent_step( algo_config, mop, iter_data, sc )
-        @info "Criticality is ω = $(ω)."
+        @logmsg loglevel1 "Criticality is ω = $(ω)."
 
         # Criticallity test
         _fully_linear = fully_linear(sc)
+        num_critical_loops = 0;
+
         if ω <= eps_crit && (!_fully_linear || all(Δ .> mu * ω))
-            @info "Entered Criticallity Test."
+            @logmsg loglevel1 "Entered Criticallity Test."
             if !_fully_linear
-                @info "Ensuring all models to be fully linear."
+                @logmsg loglevel1 "Ensuring all models to be fully linear."
                 update_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = true );
                 
                 ω, x₊, mx₊, steplength = compute_descent_step(algo_config,mop,iter_data,sc);
                 if !fully_linear(sc)
-                    @info "Could not make all models fully linear. Trying one last descent step."
+                    @logmsg loglevel1 "Could not make all models fully linear. Trying one last descent step."
                     @goto MAIN;
                 end
             end
-            num_critical_loops = 0;
             
             while all(Δᵗ(iter_data) .> mu * ω)
-                @info "Criticality loop $(num_critical_loops + 1)." 
+                @logmsg loglevel1 "Criticality loop $(num_critical_loops + 1)." 
                 if num_critical_loops >= max_critical_loops(algo_config)
-                    @info "Maximum number ($(max_critical_loops(algo_config))) of critical loops reached. Exiting..."
+                    @logmsg loglevel1 "Maximum number ($(max_critical_loops(algo_config))) of critical loops reached. Exiting..."
                     @goto EXIT_MAIN
                 end
                 if !_budget_okay(mop, algo_config)
-                    @info "Computational budget exhausted. Exiting…"
+                    @logmsg loglevel1 "Computational budget exhausted. Exiting…"
                     @goto EXIT_MAIN
                 end
                 
@@ -239,7 +273,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
                 end
 
                 if !fully_linear(sc)
-                    @info "Could not make all models fully linear. Trying one last descent step."
+                    @logmsg loglevel1 "Could not make all models fully linear. Trying one last descent step."
                     @goto MAIN;
                 end
 
@@ -262,7 +296,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
             ρ = (maximum(fx) - maximum( fx₊ ))/(maximum(mx)-maximum(mx₊))
         end
         
-        @info """\n
+        @logmsg loglevel2 """\n
         Attempting descent of length $steplength.
         | f(x)  | $(_prettify(fx))
         | f(x₊) | $(_prettify(fx₊))
@@ -274,8 +308,6 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         """
         #@assert all( mx .>= mx₊ )
 
-        ACCEPT_TRIAL_POINT = false
-        IMPROVEMENT_STEP_FLAG = false
         ρ = isnan(ρ) ? -Inf : ρ;
         Δ = Δᵗ(iter_data);  # if it was changed in criticality test
         if ρ >= ν_succ
@@ -284,42 +316,56 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
             else
                 new_Δ = Δ;
             end
-            ACCEPT_TRIAL_POINT = true;
+            it_stat = SUCCESSFULL
         else
             if fully_linear(sc)
                 if ρ < ν_acc
                     new_Δ = shrink_radius_much(algo_config, Δ, steplength);
+                    it_stat = INACCEPTABLE
                 else
                     new_Δ = shrink_radius(algo_config, Δ, steplength);
-                    ACCEPT_TRIAL_POINT = true;
+                    it_stat = ACCEPTABLE
                 end
             else
-                IMPROVEMENT_STEP_FLAG = true;
+                it_stat = MODELIMPROVING
                 new_Δ = Δ
             end
         end
 
-        if ACCEPT_TRIAL_POINT
-            set_next_iterate!(iter_data, x₊, fx₊, new_Δ);
+        # accept x?
+        old_x_index = xᵗ_index(iter_data); # for stamp!ing
+        if it_stat == SUCCESSFULL || it_stat == ACCEPTABLE
+            trial_point_index = set_next_iterate!(iter_data, x₊, fx₊, new_Δ);
             #@assert all(isapprox.(x₊,xᵗ(iter_data)))
         else
-            keep_current_iterate!(iter_data, x₊, fx₊, new_Δ);
+            trial_point_index = keep_current_iterate!(iter_data, x₊, fx₊, new_Δ);
             #@assert all( isapprox.(x, xᵗ(iter_data)))
         end
-        @info """\n
-            The trial point is $(ACCEPT_TRIAL_POINT ? "" : "not ")accepted.
-            The step is $(ACCEPT_TRIAL_POINT ? (ρ >= ν_succ ? "very sucessfull!" : "acceptable.") : "unsucessfull…")
+        @logmsg loglevel1 """\n
+            The trial point was $((it_stat == SUCCESSFULL || it_stat == ACCEPTABLE) ? "" : "not ")accepted.
+            The iteration is $(it_stat).
             Moreover, the radius was updated as below:
             old radius : $Δ
             new radius : $new_Δ ($(round(new_Δ/Δ * 100;digits=1)) %)
         """
-
-        stamp!(data_base)
+        
+        stamp!(data_base, Dict( 
+                "iter_status" => it_stat,
+                "xᵗ_index" => old_x_index,
+                "xᵗ₊_index" => trial_point_index,
+                "ρ" => ρ,
+                "Δ" => Δ, 
+                "ω" => ω,
+                "num_critical_loops" => num_critical_loops,
+                "stepsize" => steplength,
+                "model_meta" => [ deepcopy(sw.meta) for sw ∈ sc.surrogates ]            
+            )
+        );
     end
 
     ret_x = unscale(xᵗ(iter_data),mop);
     ret_fx = reverse_internal_sorting(fxᵗ(iter_data),mop);
-    @info("""\n
+    @logmsg loglevel1 """\n
         |--------------------------------------------
         | FINISHED
         |--------------------------------------------
@@ -328,7 +374,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         | final unscaled vectors:
         | iterate: $(_prettify(ret_x, 10))
         | value:   $(_prettify(ret_fx, 10))
-    """);
+    """
 
     # unscale sites and re-sort values to return to user
     if !isnothing( db(iter_data) )

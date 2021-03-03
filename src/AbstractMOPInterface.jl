@@ -329,3 +329,6 @@ function set_non_exact_indices!( mop :: MixedMOP )
     end
 end
 =#
+
+# use for finite (e.g. local) bounds only
+_rand_box_point(lb::RVec, ub::RVec, type :: Type{<:Real} = Float16)::RVec = lb .+ (ub .- lb) .* rand(type, length(lb));

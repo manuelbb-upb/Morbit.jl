@@ -1,3 +1,12 @@
+# classify the iterations 
+# mainly for user information collection 
+@enum ITER_TYPE begin
+    ACCEPTABLE = 1;     # accept trial point, shrink radius 
+    SUCCESSFULL = 2;    # accept trial point, grow radius 
+    MODELIMPROVING = 3; # reject trial point, keep radius 
+    INACCEPTABLE = 4;   # reject trial point, shrink radius (much)
+end
+
 get_site( :: Result ) :: RVec = Real[];
 get_value( :: Result ) :: RVec = Real[];
 get_id( :: Result ) :: NothInt = nothing;
@@ -61,10 +70,6 @@ end
 
 function get_result( db :: AbstractDB, id :: NothInt ) :: Result
     NoRes()
-end
-
-function stamp!(db::AbstractDB) ::Nothing 
-    nothing 
 end
 
 function add_result!( db :: AbstractDB, res :: Result ) :: NothInt 
@@ -133,6 +138,50 @@ function reverse_internal_sorting!( db :: AbstractDB, mop :: AbstractMOP ) :: No
     nothing  
 end
 
+#stamp_xᵗ!( :: AbstractDB, :: RVec )::Nothing = nothing;   # save iterate
+#stamp_fxᵗ!( :: AbstractDB, :: RVec )::Nothing = nothing;  # save iterave values 
+#stamp_xᵗ₊!( :: AbstractDB, :: RVec )::Nothing = nothing;  # save trial point 
+#stamp_fxᵗ₊!( :: AbstractDB, :: RVec )::Nothing = nothing;  # save trial point values
+stamp_xᵗ_index!( :: AbstractDB, :: NothInt )::Nothing = nothing;   # save iterate index 
+stamp_xᵗ₊_index!( :: AbstractDB, :: NothInt )::Nothing = nothing;  # save trial point index
+stamp_iter_status!( :: AbstractDB, :: ITER_TYPE )::Nothing = nothing;
+stamp_ρ!(::AbstractDB, ::Real)::Nothing = nothing;
+stamp_Δ!(::AbstractDB, ::Union{Real,RVec})::Nothing = nothing;
+stamp_stepsize!(::AbstractDB, ::Union{Real,RVec})::Nothing = nothing;
+stamp_ω!(::AbstractDB, ::Real)::Nothing = nothing;
+stamp_num_critical_loops!(::AbstractDB, ::Int )::Nothing = nothing;
+stamp_model_meta!(::AbstractDB, ::Vector{<:SurrogateMeta})::Nothing = nothing;
+
+function stamp!(DB::AbstractDB, d::Union{NamedTuple,Dict})::Nothing
+    for k ∈ keys(d)
+        func_name = Symbol("stamp_$(k)!")
+        if @isdefined(func_name)
+            @eval begin 
+                let db_obj = $DB, val = $(d[k]);
+                    $func_name( db_obj, val );
+                end
+            end
+        end
+    end
+end
+
+get_iterate_indices( :: AbstractDB ) = nothing;   # save iterate index 
+get_trial_indices( :: AbstractDB) = nothing;  # save trial point index
+get_iter_status_array( :: AbstractDB) = nothing;
+get_ρ_array(::AbstractDB) = nothing;
+get_Δ_array(::AbstractDB) = nothing;
+get_stepsize_array(::AbstractDB) = nothing;
+get_ω_array(::AbstractDB) = nothing;
+get_num_critical_loops_array(::AbstractDB) = nothing;
+get_model_meta_array(::AbstractDB) = nothing;
+
+function get_iterate_sites( db :: AbstractDB )
+    get_site.( db, get_iterate_indices(db) )
+end
+function get_iterate_values( db :: AbstractDB )
+    get_value.( db, get_iterate_indices(db) )
+end
+
 ############################################
 # Implementations
 
@@ -147,19 +196,59 @@ init_db( :: Type{NoDB} ) = NoDB();
     x_index :: Int = 0;
 
     iter_indices :: Vector{Int} = [];
+
+    iterate_indices :: Vector{Int} = [];
+    trial_indices :: Vector{Int} = [];
+    iter_states :: Vector{ITER_TYPE} = ITER_TYPE[];
+    ρ_array :: RVec = Real[];
+    Δ_array :: Vector{<:Union{RVec,Real}} = Union{RVec,Real}[];
+    stepsize_array :: RVec = Real[];
+    ω_array :: RVec = Real[];
+    num_critical_loops_array :: Vector{Int} = [];
+    model_meta_array :: Vector{T} where T<:Vector{<:SurrogateMeta} = Vector{<:SurrogateMeta}[];
 end
 Base.length(db :: ArrayDB) = length(db.res);
-Base.eachindex(db :: ArrayDB ) = collect(keys(db.res));
+Base.eachindex(db :: ArrayDB ) = collect(Base.keys(db.res));
 init_db( :: Type{ArrayDB} ) = ArrayDB();
-get_sites( db :: ArrayDB ) :: RVecArr = [ get_site(res) for res ∈ values(db.res) ];
-get_values( db :: ArrayDB ) :: RVecArr = [ get_value(res) for res ∈ values(db.res) ];
+get_sites( db :: ArrayDB ) :: RVecArr = [ get_site(res) for res ∈ Base.values(db.res) ];
+get_values( db :: ArrayDB ) :: RVecArr = [ get_value(res) for res ∈ Base.values(db.res) ];
 
-#=
-function stamp!(db :: ArrayDB )::Nothing
-    push!(db.iter_indices,xᵗ_index(db));
+function stamp_xᵗ_index!(db :: ArrayDB, i :: NothInt )::Nothing 
+    push!( db.iterate_indices, convert(Int, i))
+    nothing 
+end
+function stamp_xᵗ₊_index!( db::ArrayDB, i :: NothInt )::Nothing 
+    push!( db.trial_indices, convert(Int,i)) 
     nothing
 end
-=#
+function stamp_iter_status!( db :: ArrayDB, i :: ITER_TYPE )::Nothing 
+    push!( db.iter_states, i ) 
+    nothing
+end
+function stamp_ρ!( db :: ArrayDB , ρ::Real)::Nothing 
+    push!( db.ρ_array, ρ)
+    nothing
+end
+function stamp_Δ!( db::ArrayDB, Δ::Union{Real,RVec})::Nothing
+    push!(db.Δ_array, Δ);
+    nothing
+end
+function stamp_stepsize!( db ::ArrayDB, s:: Real)::Nothing 
+    push!(db.stepsize_array,s)
+    nothing
+end
+function stamp_ω!(db::ArrayDB, ω ::Real)::Nothing 
+    push!(db.ω_array, ω);
+    nothing
+end
+function stamp_num_critical_loops!( db ::ArrayDB, i::Int )::Nothing 
+    push!(db.num_critical_loops_array, i);
+    nothing
+end
+function stamp_model_meta!( db :: ArrayDB, vm ::Vector{<:SurrogateMeta})::Nothing 
+    push!(db.model_meta_array, vm )
+    nothing
+end
 
 function get_site( db :: ArrayDB, id :: Int )
     return get_site(db.res[id]);
@@ -187,6 +276,16 @@ function change_value!( db :: ArrayDB, id :: Int, new_val :: RVec) :: Nothing
     change_value!(db.res[id], new_val);
     nothing 
 end
+
+get_iterate_indices( db :: ArrayDB ) = db.iterate_indices;
+get_trial_point_indices( db :: ArrayDB) = db.trial_indices;
+get_iter_status_array( db :: ArrayDB) = db.iter_states;
+get_ρ_array(db :: ArrayDB) = db.ρ_array;
+get_Δ_array(db :: ArrayDB) = db.Δ_array;
+get_stepsize_array(db :: ArrayDB) = db.stepsize_array;
+get_ω_array(db :: ArrayDB) = db.ω_array;
+get_num_critical_loops_array(db :: ArrayDB) = db.num_critical_loops;
+get_model_meta_array(db :: ArrayDB) = db.model_meta_array;
 
 ############################################
 
@@ -224,7 +323,7 @@ init_iter_data( ::Type{<:AbstractIterData}, x :: RVec, fx :: RVec, Δ :: Union{R
     db :: Union{AbstractDB,Nothing}) = nothing :: AbstractIterData;
 
 function set_next_iterate!( id :: AbstractIterData, x̂ :: RVec, 
-    ŷ :: RVec, Δ :: Union{Real, RVec} ) :: Nothing
+    ŷ :: RVec, Δ :: Union{Real, RVec} ) :: NothInt
     xᵗ!(id, x̂);
     fxᵗ!(id, ŷ);
     Δᵗ!(id, Δ);
@@ -232,14 +331,13 @@ function set_next_iterate!( id :: AbstractIterData, x̂ :: RVec,
     x_index = add_result!(db(id), init_res( Res, x̂, ŷ, nothing));
     xᵗ_index!( id, x_index );
 
-    nothing 
+    return x_index 
 end
 
 function keep_current_iterate!( id :: AbstractIterData, x̂ :: RVec, ŷ :: RVec,
-      Δ :: Union{Real, RVec}) :: Nothing
+      Δ :: Union{Real, RVec}) :: NothInt
     Δᵗ!(id, Δ);
-    add_result!(db(id),init_res( Res, x̂, ŷ, nothing) );
-    nothing
+    return add_result!(db(id),init_res( Res, x̂, ŷ, nothing) );    
 end
 
 ####### IterData
@@ -328,7 +426,7 @@ function _eval_and_store_new_results!(id :: AbstractIterData, res_list :: Vector
     # evaluate at new sites
     # we first collect, so that batch evaluation can be exploited
     unstored_results = [ res for res ∈ res_list if isnothing( get_id( res) ) ];
-    @info "We have to evaluate at $(length(unstored_results)) new sites."
+    @logmsg loglevel2 "We have to evaluate at $(length(unstored_results)) new sites."
     new_vals = eval_all_objectives.(mop, [ get_site(res) for res ∈ unstored_results ]);
 
     # add to db and modify results to contain new data

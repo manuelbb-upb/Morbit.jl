@@ -34,7 +34,8 @@ function RbfModel( model :: RBF.RBFModel, n_vars :: Int )
 end
 
 tdata_length( rbf :: RbfModel ) :: Int = sum( length.(Base.values(rbf.tdata) ) )
-db_indices( rbf :: RbfModel ) = vcat( [ get_id.(tdat) for tdat ∈ Base.values(rbf.tdata) ]... );
+db_indices( rbf :: RbfModel, i :: Int ) = convert( Vector{NothInt}, get_id.( rbf.tdata[i]) ) # WHY DO I HAVE TO CONVERT???
+db_indices( rbf :: RbfModel ) = vcat( [ db_indices(rbf, i) for i ∈ Base.keys(rbf.tdata) ]... );
 tdata_results(rbf :: RbfModel ) = vcat( (rbf.tdata[i] for i ∈ keys(rbf.tdata) )... );
 
 @with_kw mutable struct RbfConfig <: SurrogateConfig
@@ -53,6 +54,7 @@ tdata_results(rbf :: RbfModel ) = vcat( (rbf.tdata[i] for i ∈ keys(rbf.tdata) 
     use_max_points :: Bool = false;
 
     sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
+    sampling_algorithm2 :: Symbol = :standard_rand
 
     constrained :: Bool = false;    # restrict sampling of new sites
 
@@ -106,13 +108,15 @@ end
 function update_model( rbf :: RbfModel, objf :: AbstractObjective, rmeta:: RbfMeta, mop :: AbstractMOP,
     id :: AbstractIterData, ac :: AbstractConfig;
     ensure_fully_linear :: Bool = false ) :: Tuple{ RbfModel, RbfMeta }
-    @info "UPDATE RBF"
+    
+    @logmsg loglevel3 "Updating RBF with indices $(output_indices(objf, mop))."
     cfg = model_cfg(objf);
     DB = db(id);
     Δ = Δᵗ(id);
     x = xᵗ(id);
     n_vars = length(x);
-
+    
+    MAX_EVALS = min( max_evals(ac), max_evals(cfg) ) - 1 ;
     # we completly start from scratch here, nothing to recycle 
     # this way, tdata is empty and properly initialized
     inner_model = RBF.RBFModel(;
@@ -138,7 +142,7 @@ function update_model( rbf :: RbfModel, objf :: AbstractObjective, rmeta:: RbfMe
     end
 
     n_missing -= length(rbf.tdata[2]);
-    n_new = max(0, min( n_missing, min( max_evals(ac), max_evals(cfg) ) - 1 ));
+    n_new = max(0, min( n_missing, MAX_EVALS) );
 
     add_new_sites!(rbf, cfg, mop, id; max_new = n_new);
 
@@ -147,9 +151,10 @@ function update_model( rbf :: RbfModel, objf :: AbstractObjective, rmeta:: RbfMe
     end
     
     rbf.fully_linear = isempty(rbf.tdata[2]) && length(rbf.tdata[1]) + length(rbf.tdata[3]) == n_vars
-    @info "RBF Model is $(rbf.fully_linear ? "" : "not ")fully linear."
+    @logmsg loglevel4 "RBF Model is $(rbf.fully_linear ? "" : "not ")fully linear."
 
-    add_old_sites!( rbf, cfg, mop, id)
+    n_evals_left = MAX_EVALS - n_new;
+    add_old_sites!( rbf, cfg, mop, id; max_new = n_evals_left);
 
     #Evaluate resuts...
     _eval_new_sites!( rbf, rmeta, objf, mop, id );
@@ -169,7 +174,7 @@ function improve_model( rbf:: RbfModel, objf::AbstractObjective, rmeta :: RbfMet
     mop ::AbstractMOP, id :: AbstractIterData, ac:: AbstractConfig;
     ensure_fully_linear :: Bool = false ) :: Tuple{RbfModel, RbfMeta}
     if size(rbf.Z, 2) > 0
-        @info "Performing an improvement step..."
+        @logmsg loglevel3 "Performing an improvement step for RBF with indices $(output_indices(objf, mop))."
         cfg = model_cfg(objf);
 
         x = xᵗ(id);
@@ -199,14 +204,16 @@ end
 
 function rebuild_model( rbf :: RbfConfig, objf :: AbstractObjective, rmeta :: RbfMeta, 
         mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig ) :: Tuple{RbfModel, RbfMeta}
-    @info "Rebuild model along coordinates..."
+    @logmsg loglevel3 "Rebuild model along coordinates..."
 
     x = xᵗ(id);
     n_vars = length(x);
     Δ = Δᵗ(id);
     Δ₁ = cfg.θ_enlarge_1 * Δ;
 
-    max_new = min(min( max_evals(ac), max_evals(cfg) ) - 1, n_vars);
+    MAX_EVALS = min( max_evals(ac), max_evals(cfg) ) - 1;
+    max_new = min(MAX_EVALS, n_vars);
+
     rbf = RbfModel(;
         model = rbf.model,
         Y = Matrix{Real}(undef, n_vars, 0),
@@ -229,6 +236,10 @@ function rebuild_model( rbf :: RbfConfig, objf :: AbstractObjective, rmeta :: Rb
     end#for 
     rbf.Y₂ = rbf.Y;
     rbf.Z₂ = rbf.Z;
+
+    n_evals_left = MAX_EVALS - max_new;
+    add_old_sites!( rbf, cfg, mop, id; max_new = n_evals_left);
+
     _eval_new_sites!(rbf, rmeta, objf, mop, id );
     RBF.train!(rbf.model);
     return rbf, rmeta
@@ -317,8 +328,7 @@ function find_box_independent_points1!( rbf :: RbfModel, cfg :: RbfConfig, id ::
         rbf, id, mop, xᵗ(id), Δᵗ(id) * cfg.θ_enlarge_1; 
         θ_pivot = cfg.θ_pivot
     );
-
-    rbf.tdata[1] = res;
+    push!(rbf.tdata[1], res...);
     rbf.Y₂ = rbf.Y = Y;
     rbf.Z₂ = rbf.Z = Z;
     nothing 
@@ -332,10 +342,10 @@ function find_box_independent_points2!( rbf :: RbfModel, cfg :: RbfConfig, id ::
     res, Y, Z = _find_box_independent_points( 
         rbf, id, mop, xᵗ(id), Δ₂; 
         θ_pivot = (Δᵗ(id) * cfg.θ_enlarge_1 / Δ₂) * cfg.θ_pivot,
-        exclude_indices = [ xᵗ_index(id); get_id.( rbf.tdata[1] ) ]
+        exclude_indices = [ xᵗ_index(id); db_indices(rbf, 1) ]
     );
 
-    rbf.tdata[2] = res;
+    push!(rbf.tdata[2], res...);
     rbf.Y₂ = Y;
     rbf.Z₂ = Z;
     nothing 
@@ -361,7 +371,7 @@ function _find_box_independent_points( rbf :: RbfModel,
         piv_val = pivot
     )
 
-    @info("\tFound $(length(affinely_independent_box_indices)) points in box of radius $(Δ) with pivot $(pivot).");
+    @logmsg loglevel4 "Found $(length(affinely_independent_box_indices)) points in box of radius $(Δ) with pivot $(pivot)."
     return (box_results[affinely_independent_box_indices], Y, Z);
 end
   
@@ -459,11 +469,12 @@ function add_new_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP,
     return nothing;    
 end
 
-function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP, id :: AbstractIterData ) :: Nothing
-    return add_old_sites!(rbf, cfg, mop, id, Val( cfg.sampling_algorithm))
+function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP, id :: AbstractIterData; kwargs... ) :: Nothing
+    return add_old_sites!(rbf, cfg, mop, id, Val( cfg.sampling_algorithm2); kwargs...)
 end
 function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP, 
-    id :: AbstractIterData, ::Val{:orthogonal} ):: Nothing
+    id :: AbstractIterData, ::Val{:standard_rand}; 
+    max_new :: Int = typemax(Int) ):: Nothing
     x = xᵗ(id);
     Δ₂ = cfg.θ_enlarge_2 * Δᵗ(id);
     n_vars = length(x);
@@ -509,20 +520,38 @@ function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP,
                 break;
             end
             if id ∉ training_ids 
-                y_res = get_result(DB, id);
-                y = get_site( y_res );
-                if _point_in_box( y, lb, ub)
-                    test_retval = _test_new_cholesky_site( rbf.model, y, φ₀, Q, R, Z, L, Lⁱ, Φ, Π, chol_pivot );
+                old_res = get_result(DB, id);
+                x̂ = get_site( old_res );
+                if _point_in_box( x̂, lb, ub)
+                    test_retval = _test_new_cholesky_site( rbf.model, x̂, φ₀, Q, R, Z, L, Lⁱ, Φ, Π, chol_pivot );
                     if !isnothing(test_retval)
                         Q, R, Z, L, Lⁱ, Φ, Π = test_retval;
-                        push!(rbf.tdata[4], y_res );
-                        push!(rbf.model.training_sites, y ); # so that the _test… works properly
+                        push!(rbf.tdata[4], old_res );
+                        push!(rbf.model.training_sites, x̂ ); # so that the _test… works properly
                         N +=1 ; # increase point counter
                     end
                 end
             end
         end
-        @info "\t Found $(N - N₀) additional sites to add to the model."
+        @logmsg loglevel4 "Found $(N - N₀) additional sites to add to the model."
+        if max_new > 0 && cfg.use_max_points && N < MAX_POINTS
+            n_new = min(MAX_POINTS, max_new);
+            max_tries = 10*n_new;
+            n_tries = 0;
+            @logmsg loglevel4 "`use_max_points` … trying to find $(n_new - N) new sites."
+            while N < n_new && n_tries < max_tries;
+                # simple hit-or-miss, not very effective nor good for model quality
+                x̂ = _rand_box_point( lb, ub )
+                test_retval = _test_new_cholesky_site( rbf.model, x̂, φ₀, Q, R, Z, L, Lⁱ, Φ, Π, chol_pivot );
+                if !isnothing(test_retval)
+                    Q, R, Z, L, Lⁱ, Φ, Π = test_retval;
+                    push!(rbf.tdata[4], init_res(Res, x̂));
+                    push!(rbf.model.training_sites, x̂ ); # so that the _test… works properly
+                    N +=1 ; # increase point counter
+                end
+                n_tries += 1;
+            end
+        end
     end
     nothing
 end
