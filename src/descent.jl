@@ -79,6 +79,8 @@ end
 
 function compute_descent_step(::Val{:steepest_descent}, algo_config :: AbstractConfig,
     mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
+    @logmsg loglevel3 "Calculating steepest descent."
+
     x = xᵗ(id);
     ∇m = get_jacobian(sc, x);
     lb, ub = full_bounds_internal( mop );    
@@ -109,29 +111,154 @@ end
 
 function compute_descent_step(::Val{:ps}, algo_config :: AbstractConfig,
     mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
-
+    @logmsg loglevel3 "Calculating Pascoletti-Serafini descent."
     x = xᵗ(id);
     fx = fxᵗ(id);
+    FX = reverse_internal_sorting(fx,mop)
     n_vars = num_vars(mop);
     n_out = num_objectives(mop);
     
     r = begin 
         if !isempty( reference_direction(algo_config) )
-            reference_direction(algo_config)
+            dir = reference_direction(algo_config)
+            if all( dir .<= 0 )
+                dir *= -1
+            end
         elseif !isempty( reference_point(algo_config))
-            reference_point(algo_config) .- reverse_internal_sorting(fx, mop)
+            dir = FX .- reference_point(algo_config)
         else
-            _local_ideal_point(mop, algo_config, id, sc) .- reverse_internal_sorting(fx,mop)
+            dir = FX .- _local_ideal_point(mop, algo_config, id, sc)
+        end
+        dir
+    end
+
+    @logmsg loglevel4 "Local image direction is $(_prettify(r))"
+
+    if any( r .<= 0 )
+        return 0, copy(x), eval_models(sc, x), 0
+    end
+
+    lb, ub = local_bounds(mop, x, 1.1 .* Δᵗ(id));
+    mx = eval_models( sc, x );
+
+    MAX_EVALS = max_ps_problem_evals(algo_config);
+    if MAX_EVALS < 0 MAX_EVALS = 500 * (n_vars+1); end
+
+    polish_algo = ps_polish_algo(algo_config)
+    MAX_EVALS_global = isnothing( polish_algo ) ? MAX_EVALS : Int( floor( MAX_EVALS*3/4 ) );
+    
+    τ, χ_min, ret = _ps_optimization(sc,mop,ps_algo(algo_config),lb,ub,
+        MAX_EVALS_global,[-0.5;x],mx,r,n_vars,n_out);
+
+    if !isnothing(polish_algo)
+        @logmsg loglevel4 "Local polishing enabled."
+        MAX_EVALS_local = MAX_EVALS - MAX_EVALS_global;
+        τₗ, χ_minₗ, retₗ = _ps_optimization(sc,mop,polish_algo,lb,ub,
+            MAX_EVALS_local,χ_min,mx,r,n_vars,n_out);
+        if !(retₗ == :FAILURE || isinf(τₗ) || isnan(τₗ))
+            τ, χ_min, ret = τₗ, χ_minₗ, retₗ
         end
     end
-        
-    return 0, copy(x), eval_models( sc, x ), 0
+
+    if ret == :FAILURE
+        return 0, copy(x), eval_models(sc, x), 0
+    else
+        ω = abs( τ );
+        x₊ = χ_min[2 : end];
+        mx₊ = eval_models( sc, x₊ );
+        sl = norm( x .- x₊, Inf );
+
+        return ω, x₊, mx₊, sl
+    end
+end
+
+function _ps_optimization( sc :: SurrogateContainer, mop :: AbstractMOP, 
+    algo :: Symbol, lb :: RVec, ub :: RVec, MAX_EVALS :: Int, χ0 :: RVec, 
+    mx :: RVec, r :: RVec, n_vars :: Int, n_out :: Int )
+    
+    opt = NLopt.Opt( algo, n_vars + 1 );
+    opt.lower_bounds = [-1.0 ; lb ];
+    opt.upper_bounds = [ 0.0 ; ub ];
+    opt.xtol_rel = 1e-3;
+    opt.maxeval = MAX_EVALS;
+    opt.min_objective = _get_ps_objective_func();
+    
+    #NLopt.inequality_constraint!( opt, _get_ps_constraint_func(sc,mx,r), 1e-12 );
+    for l = 1 : n_out 
+        NLopt.inequality_constraint!( opt, _get_ps_constraint_func(sc,mop,mx,r,l), 1e-12 );
+    end
+
+    @logmsg loglevel4 "Starting PS optimization."
+    τ, χ_min, ret = NLopt.optimize(opt, χ0 );
+    @logmsg loglevel4 "Finished with $(ret) after $(opt.numevals) model evals."
+    return τ, χ_min, ret 
+end
+
+function _get_ps_constraint_func( sc :: SurrogateContainer, mx :: RVec, dir :: RVec ) :: Function
+    # return the l-th constraint functions for pascoletti_serafini
+    # dir .>= 0 is the image direction
+    # χ = [t;x] is the augmented variable vector
+    # g is a matrix of gradients (columns are grads, hence g is a jacobian transposed)
+    return function(χ, g)
+        if !isempty(g)
+            g[1, :] .= -dir;
+            g[2:end, :] .= transpose(get_jacobian( sc, χ[2:end]));
+        end
+        return eval_models(sc, χ[2:end]) .- mx .- χ[1] .* dir
+    end
+end
+
+function _get_ps_constraint_func( sc :: SurrogateContainer, mop :: AbstractMOP, mx :: RVec,
+    dir :: RVec, l :: Int ) :: Function
+    # return the l-th constraint functions for pascoletti_serafini
+    # dir .>= 0 is the image direction
+    # χ = [t;x] is the augmented variable vector
+    
+    return function(χ, g)
+        if !isempty(g)
+            g[1] = -dir[l]
+            g[2:end] .= get_gradient(sc,mop,χ[2:end],l);
+        end
+        ret_val = eval_models(sc, mop, χ[2:end], l) - mx[l] - χ[1] * dir[l]
+        return ret_val
+    end
+end
+
+function _get_ps_objective_func() :: Function
+    function( χ, g )
+        if !isempty(g)
+            g[1] = 1.0;
+            g[2:end] .= 0.0;
+        end
+        return χ[1]
+    end
 end
 
 function _local_ideal_point(mop :: AbstractMOP, algo_config :: AbstractConfig,
-    id :: AbstractIterData, sc :: SurrogateContainer)
+    id :: AbstractIterData, sc :: SurrogateContainer) :: RVec
+    @logmsg loglevel4 "Computing local ideal point. This can take a bit…"
+    x0 = xᵗ(id);
     # TODO enable adjustable enlargment factor here
-    lb, ub = local_bounds(mop, xᵗ(id), 1.1 .* Δᵗ(id));
+    lb, ub = local_bounds(mop, x0, 1.1 .* Δᵗ(id));
+    n_vars = num_vars(mop);
     
+    MAX_EVALS = max_ideal_point_problem_evals(algo_config);
+    if MAX_EVALS < 0 MAX_EVALS = 500 * (n_vars+1); end
+    
+    # preallocate local ideal point:
     ȳ = fill( typemin( eltype( fxᵗ(id) ) ), num_objectives(mop) );
+
+    # minimize each individual scalar surrogate output 
+    for l = 1 : num_objectives(mop)
+        opt = NLopt.Opt( ideal_point_algo(algo_config), n_vars );
+        opt.lower_bounds = lb;
+        opt.upper_bounds = ub;
+        opt.xtol_rel = 1e-3;
+        opt.maxeval = MAX_EVALS;
+        opt.min_objective = get_optim_handle( sc, mop, l )
+        minf, _ = NLopt.optimize( opt, x0 );
+        ȳ[l] = minf;
+    end
+    return ȳ;
 end
+

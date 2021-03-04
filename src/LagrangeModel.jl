@@ -162,7 +162,7 @@ function eval_models( lm :: LagrangeModel, x̂ :: RVec ) :: RVec
 end
 
 function get_gradient( lm :: LagrangeModel, x̂ :: RVec, ℓ :: Int ) :: RVec
-    sum( lp.value[ℓ] * eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis )
+    sum( get_value(lp.res)[ℓ] * eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis )
 end
 
 function get_jacobian( lm :: LagrangeModel, x̂ :: RVec ) :: RMat

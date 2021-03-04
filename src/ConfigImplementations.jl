@@ -32,7 +32,12 @@ strict_backtracking( :: AbstractConfig )::Bool = true;
 # settings for pascoletti_serafini descent 
 reference_point(::AbstractConfig) :: RVec = Real[];
 reference_direction(::AbstractConfig) :: RVec = Real[];
+max_ps_problem_evals(::AbstractConfig)::Int = -1;
 max_ideal_point_problem_evals(::AbstractConfig) :: Int = -1;
+ps_algo(::AbstractConfig)::Symbol= :GN_AGS; #valid NLopt algorithm, e.g. GN_ISRES or GN_AGS
+ideal_point_algo(::AbstractConfig)::Symbol=:GN_AGS;
+"Specify local algorithm to polish Pascoletti-Serafini solution. Uses 1/4 of maximum allowed evals."
+ps_polish_algo(::AbstractConfig)::Union{Nothing,Symbol}=:LD_MMA
 
 strict_acceptance_test( :: AbstractConfig )::Bool = true;
 ν_success( :: AbstractConfig )::Real = 0.1;
@@ -71,10 +76,18 @@ use_db( ::EmptyConfig ) = ArrayDB;
     stepsize_min :: Union{Real,RVec} = stepsize_min(empty_config);
 
     descent_method :: Symbol = descent_method(empty_config);
+    
+    # steepest_descent settings
     strict_backtracking :: Bool = strict_backtracking(empty_config);
+    
+    # pascoletti_serafini settings
     reference_direction :: RVec = reference_direction(empty_config)
     reference_point :: RVec = reference_point(empty_config);
     max_ideal_point_problem_evals :: Int = max_ideal_point_problem_evals(empty_config);
+    max_ps_problem_evals :: Int = max_ps_problem_evals(empty_config);
+    ps_algo :: Symbol = ps_algo(empty_config);
+    ideal_point_algo :: Symbol = ideal_point_algo(empty_config);
+    ps_polish_algo :: Union{Symbol,Nothing} = ps_polish_algo(empty_config);
 
     strict_acceptance_test :: Bool = strict_acceptance_test(empty_config);
     ν_success :: Real = ν_success( empty_config );
@@ -104,11 +117,18 @@ count_nonlinear_iterations(ac :: AlgoConfig) = ac.count_nonlinear_iterations;
 stepsize_crit( ac :: AlgoConfig ) = ac.stepsize_critical;
 stepsize_min(ac::AlgoConfig) = ac.stepsize_min;
 use_db( ac :: AlgoConfig ) = ac.db;
+
 descent_method( ac :: AlgoConfig ) = ac.descent_method;
+
 strict_backtracking( ac :: AlgoConfig ) = ac.strict_backtracking;
+
 reference_direction(ac :: AlgoConfig ) = ac.reference_direction;
 reference_point(ac :: AlgoConfig ) = ac.reference_point;
 max_ideal_point_problem_evals(ac :: AlgoConfig) :: Int = ac.max_ideal_point_problem_evals;
+max_ps_problem_evals(ac::AlgoConfig)::Int = ac.max_ps_problem_evals;
+ps_algo(ac::AlgoConfig)::Symbol=ac.ps_algo
+ideal_point_algo(ac::AlgoConfig)::Symbol=ac.ideal_point_algo
+ps_polish_algo(ac::AlgoConfig)::Union{Nothing,Symbol}=ac.ps_polish_algo;
 
 strict_acceptance_test( ac :: AlgoConfig ) = ac.strict_acceptance_test;
 ν_success( ac :: AlgoConfig ) = ac.ν_success;

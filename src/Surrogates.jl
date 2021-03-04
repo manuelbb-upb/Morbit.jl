@@ -28,10 +28,10 @@ end
 @memoize function _get_surrogate_from_output_index( sc :: SurrogateContainer, ℓ :: Int, 
     mop :: AbstractMOP, hash :: UUIDs.UUID ) :: Union{Nothing,Tuple{SurrogateWrapper,Int}}
     for sw ∈ sc.surrogates
-        objf_out_indices = output_indices( objf, mop );
-        l = findfirst( x -> x == ℓ, output_indices(objf,mop) );
+        objf_out_indices = output_indices( sw.objf, mop );
+        l = findfirst( x -> x == ℓ, objf_out_indices );
         if !isnothing(l)
-            return sw,l 
+            return sw, l 
         end
     end
     return nothing
@@ -116,6 +116,54 @@ function get_jacobian( sc :: SurrogateContainer, x̂ :: RVec) :: RMat
     vcat( model_jacobians... )
 end
 
+@doc """
+Return a function handle to be used with `NLopt` for output `l` of `sc`.
+Index `l` is assumed to be an internal index in the range of 1,…,n_objfs,
+where n_objfs is the total number of (scalarized) objectives stored in `sc`.
+"""
+function get_optim_handle( sc :: SurrogateContainer, mop :: AbstractMOP, l :: Int )
+    sw, ℓ = get_surrogate_from_output_index( sc, l, mop )
+    return get_optim_handle( sw.model, ℓ )
+end
+
+
+@doc """
+Return a function handle to be used with `NLopt` for output `ℓ` of `model`.
+That is, if `model` is a surrogate for two scalar objectives, then `ℓ` must 
+be either 1 or 2.
+"""
+function get_optim_handle( model :: SurrogateModel, ℓ :: Int )
+    # Return an anonymous function that modifies the gradient if present
+    function (x :: RVec, g :: RVec)
+        if !isempty(g)
+            g[:] = get_gradient( model, x, ℓ)
+        end
+        return eval_models( model, x, ℓ)
+    end
+end
+
+# These are used for PS constraints
+@doc """
+Return model value for output `l` of `sc` at `x̂`.
+Index `l` is assumed to be an internal index in the range of 1,…,n_objfs,
+where n_objfs is the total number of (scalarized) objectives stored in `sc`.
+"""
+function eval_models( sc :: SurrogateContainer, mop :: AbstractMOP, x̂ :: RVec, l :: Int )
+    sw, ℓ = get_surrogate_from_output_index( sc, l, mop );
+    return eval_models( sw.model, x̂, ℓ)
+end
+
+@doc """
+Return a gradient for output `l` of `sc` at `x̂`.
+Index `4` is assumed to be an internal index in the range of 1,…,n_objfs,
+where n_objfs is the total number of (scalarized) objectives stored in `sc`.
+"""
+function get_gradient( sc :: SurrogateContainer, mop :: AbstractMOP, x̂ :: RVec, l :: Int )
+    sw, ℓ = get_surrogate_from_output_index( sc, l, mop );
+    return get_gradient( sw.model, x̂, ℓ );
+end
+
+
 #=
 
 function improve!(sc :: SurrogateContainer, non_linear_indices :: Vector{Int64},
@@ -169,19 +217,6 @@ function fully_linear( sc :: SurrogateContainer )
         end
     end
     return linear_flag, non_linear_indices
-end
-
-@doc """
-Return a function handle to be used with `NLopt` for output `l` of `model`.
-Assume `l` to be in [1, …, `model.n_out`].
-"""
-function get_optim_handle( model :: M where{ M <: SurrogateModel}, l :: Int64 )
-    function (x :: Vector{Float64}, g :: Vector{Float64})
-        if !isempty(g)
-            g[:] = get_gradient( model, x, l)
-        end
-        return eval_models( model, x, l)
-    end
 end
 
 @doc """

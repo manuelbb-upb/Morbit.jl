@@ -147,7 +147,7 @@ function rbf_grad( m::RBFModel, ℓ :: Int64, x :: RVec )
     ∂kernel_vals = ∂kernel.( Val(m.kernel), distances, m.shape_parameter )  # n_sites
 
     coeff_ℓ = m.rbf_coefficients[:,ℓ]           # n_sites x 1
-    grad_ℓ = zeros(T, n_vars);
+    grad_ℓ = zeros(eltype(x), n_vars);
     for i = 1 : length(distances)
         if distances[i] != 0
             grad_ℓ += coeff_ℓ[i] / distances[i] * ∂kernel_vals[i] .* difference_vectors[i]
