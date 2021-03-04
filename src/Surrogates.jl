@@ -143,6 +143,7 @@ function get_optim_handle( model :: SurrogateModel, ℓ :: Int )
 end
 
 # These are used for PS constraints
+# one can in theory provide vector constraints but most solvers fail then
 @doc """
 Return model value for output `l` of `sc` at `x̂`.
 Index `l` is assumed to be an internal index in the range of 1,…,n_objfs,

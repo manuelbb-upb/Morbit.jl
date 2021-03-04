@@ -50,6 +50,12 @@ function _scale!( x :: RVec, lb :: RVec, ub :: RVec )
     nothing
 end
 
+function _scale( x :: RVec, lb :: RVec, ub :: RVec )
+    χ = copy(x);
+    _scale!(χ, lb, ub);
+    return χ
+end
+
 function _unscale!( x̂ :: RVec, lb :: RVec, ub :: RVec )
     for (i,var_bounds) ∈ enumerate(zip( lb, ub ))
         if !(isinf(var_bounds[1]) || isinf(var_bounds[2]))
@@ -59,6 +65,12 @@ function _unscale!( x̂ :: RVec, lb :: RVec, ub :: RVec )
         end
     end
     nothing
+end
+
+function _unscale( x̂ :: RVec, lb :: RVec, ub :: RVec )
+    χ̂ = copy( x̂ );
+    _unscale!(χ̂, lb, ub);
+    return χ̂;
 end
 
 "Scale variables fully constrained to a closed interval to [0,1] internally."
