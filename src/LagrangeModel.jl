@@ -1,6 +1,6 @@
 using DynamicPolynomials
 
-#using FileIO, JLD2;
+using FileIO;
 
 @with_kw mutable struct LagrangePoly 
     p :: AbstractPolynomialLike 
@@ -34,8 +34,8 @@ end
     optimized_sampling :: Bool = true;
 
     # # if optimized_sampling = false, shall we try to use saved sites?
-    # use_saved_sites :: Bool = true;
-    # io_lock :: Union{Nothing, ReentrantLock, Threads.SpinLock} = nothing;
+    save_path :: Union{AbstractString, Nothing} = nothing;
+    io_lock :: Union{Nothing, ReentrantLock, Threads.SpinLock} = nothing;
 
     algo1_max_evals :: Union{Nothing,Int} = nothing;    # nothing = automatic
     algo2_max_evals :: Union{Nothing,Int} = nothing;
@@ -46,6 +46,7 @@ end
     max_evals :: Int64 = typemax(Int64);
 end
 
+# overwrite lock and unlock so we can use `nothing` as a lock
 function Base.lock(::Nothing) end
 function Base.unlock(::Nothing) end
 
@@ -95,61 +96,142 @@ function _set_gradient!(lp :: LagrangePoly) :: Nothing
     nothing
 end
 
-function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
+function _update_model_optimized( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
     mop :: AbstractMOP, id :: AbstractIterData, :: AbstractConfig; 
     ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
-    
-    @logmsg loglevel3 "Building LagrangeModel with indices $(output_indices(objf, mop))."
     cfg = model_cfg(objf) :: LagrangeConfig;
     
-    if cfg.optimized_sampling
-        make_basis_poised!( 
-            lm.basis, id, mop ; 
-            Δ_factor = cfg.θ_enlarge, ε_accept = cfg.ε_accept,
-            max_solver_evals = cfg.algo1_max_evals,
-            solver = cfg.algo1_solver
+    make_basis_poised!( 
+        lm.basis, id, mop ; 
+        Δ_factor = cfg.θ_enlarge, ε_accept = cfg.ε_accept,
+        max_solver_evals = cfg.algo1_max_evals,
+        solver = cfg.algo1_solver
+    );
+    
+    if ensure_fully_linear || !cfg.allow_not_linear
+        make_basis_lambda_poised!(
+            lm.basis, id, mop;
+            Δ_factor = cfg.θ_enlarge, Λ = cfg.Λ, max_solver_evals = cfg.algo2_max_evals, 
+            solver = cfg.algo2_solver
         );
-        
-        if ensure_fully_linear || !cfg.allow_not_linear
-            make_basis_lambda_poised!(
-                lm.basis, id, mop;
-                Δ_factor = cfg.θ_enlarge, Λ = cfg.Λ, max_solver_evals = cfg.algo2_max_evals, 
-                solver = cfg.algo2_solver
-            );
-            lm.fully_linear = true;
-        end
-    else
-        unit_basis = _unit_basis( num_vars(mop), cfg.degree; 
-            solver1 = cfg.algo1_solver, solver2 = cfg.algo2_solver,
-            max_evals1 = cfg.algo1_max_evals, max_evals2 = cfg.algo2_max_evals,
-            Λ = cfg.Λ
-        );
-        lb_eff, ub_eff = local_bounds(mop, xᵗ(id), Δᵗ(id) * cfg.θ_enlarge);
-        χ = variables( unit_basis[1].p );
-
-        # combine the polyonmial from unit_basis (working on [0,1]^n)
-        # with a poly that maps the current trust region to [0,1]^n 
-        scaling_poly = (χ .- lb_eff) ./ (ub_eff .- lb_eff)
-
-        scaled_basis = LagrangePoly[];
-        for ub ∈ unit_basis
-            lp = LagrangePoly(;
-                p = subs( ub.p, χ => scaling_poly ),
-                # we `unscale` the sites from [0,1]^n to correspond to sites in 
-                # current trust region
-                res = init_res( Res, _unscale( get_site( ub.res ), lb_eff, ub_eff ) )
-            );
-            push!(scaled_basis, lp);
-        end
-        lm.basis = scaled_basis;
         lm.fully_linear = true;
     end
-
+    
     _eval_new_sites!( lm, lmeta, mop, id);
     _set_gradient!.(lm.basis);
 
-    # TODO remove this
+    return lm, lmeta;
+end 
+
+@memoize function _get_unit_basis( n_vars :: Int, cfg :: LagrangeConfig ) :: Vector{LagrangePoly}
+    return _get_unit_basis( Val(!isnothing( cfg.save_path ) ) , n_vars, cfg ) 
+end
+
+function _get_unit_basis( use_saved :: Val{true}, n_vars :: Int, cfg :: LagrangeConfig )
+    proceed = true;
+    unit_sites = [];
+    lock(cfg.io_lock) 
+    try 
+        file_dict = load(cfg.save_path);
+        unit_sites = file_dict["sites"];
+    catch
+        stacktrace( catch_backtrace() )
+        @warn "Could not load files from file. Calculating a poised set."
+        proceed = false;
+    end
+    unlock(cfg.io_lock);
     
+    if proceed
+        if length( unit_sites[1] ) != n_vars || 
+            length( unit_sites ) != binomial( n_vars + cfg.degree, n_vars )
+            any( any( ( s .< 0 ) .| ( s .> 1 ) ) for s ∈ unit_sites )
+            @warn "Loaded sites not suited for interpolation."
+            proceed = false;
+        end
+    end
+
+    if !proceed
+        return _get_unit_basis( Val(false), n_vars, cfg )
+    end
+    @logmsg loglevel4 "Loaded sites from $(cfg.save_path)"
+    unit_basis = copy( _canonical_basis( n_vars, cfg.degree ) );
+    for (i,x) ∈ enumerate(unit_sites)
+        unit_basis[i].res = init_res( Res, x );
+        _normalize!(unit_basis[i]);
+        _orthogonalize!(unit_basis, i);
+    end
+    return unit_basis;
+end
+
+function _get_unit_basis( use_saved :: Val{false}, n_vars :: Int, cfg :: LagrangeConfig )
+    unit_basis = _unit_basis( n_vars, cfg.degree; 
+        solver1 = cfg.algo1_solver, solver2 = cfg.algo2_solver,
+        max_evals1 = cfg.algo1_max_evals, max_evals2 = cfg.algo2_max_evals,
+        Λ = cfg.Λ
+    );
+    if !isnothing( cfg.save_path )
+        lock(cfg.io_lock) 
+        try 
+            unit_sites = [ get_site(ub.res) for ub ∈ unit_basis ];
+            save(cfg.save_path, Dict( "sites" => unit_sites ) );
+        catch
+            stacktrace( catch_backtrace() )
+            @warn "Could not save unit sites."
+        end
+        unlock(cfg.io_lock);
+    end
+    return unit_basis;
+end
+
+ function _update_model_unoptimized(
+    lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
+    mop :: AbstractMOP, id :: AbstractIterData, :: AbstractConfig; 
+    ensure_fully_linear :: Bool = false ):: Tuple{LagrangeModel, LagrangeMeta}
+    
+    cfg = model_cfg(objf);
+    unit_basis = _get_unit_basis( num_vars(mop), cfg ); # this is memoized
+    lb_eff, ub_eff = local_bounds(mop, xᵗ(id), Δᵗ(id) * cfg.θ_enlarge);
+    lm.basis = _scale_unit_basis( unit_basis, lb_eff, ub_eff );
+    lm.fully_linear = true;
+
+    _eval_new_sites!( lm, lmeta, mop, id);
+    _set_gradient!.(lm.basis);
+    return  lm, lmeta ;
+end
+
+function _scale_unit_basis( unit_basis :: Vector{LagrangePoly}, lb :: RVec, ub :: RVec )
+    χ = variables( unit_basis[1].p );
+
+    # combine the polyonmial from unit_basis (working on [0,1]^n)
+    # with a poly that maps the current trust region to [0,1]^n 
+    scaling_poly = (χ .- lb) ./ (ub .- lb)
+
+    scaled_basis = LagrangePoly[];
+    for up ∈ unit_basis
+        lp = LagrangePoly(;
+            p = subs( up.p, χ => scaling_poly ),
+            # we `unscale` the sites from [0,1]^n to correspond to sites in 
+            # current trust region
+            res = init_res( Res, _unscale( get_site( up.res ), lb, ub ) )
+        );
+        push!(scaled_basis, lp);
+    end
+    return scaled_basis 
+end
+
+function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
+    mop :: AbstractMOP, id :: AbstractIterData, algo_config :: AbstractConfig; 
+    ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
+    
+    @logmsg loglevel3 "Building LagrangeModel with indices $(output_indices(objf, mop))."
+    cfg = model_cfg(objf);
+    if cfg.optimized_sampling
+        lm,lmeta = _update_model_optimized(lm,objf,lmeta,mop,id,algo_config; ensure_fully_linear);
+    else
+        lm,lmeta = _update_model_unoptimized(lm,objf,lmeta,mop,id,algo_config; ensure_fully_linear);
+    end
+    # TODO remove this
+    #=
     oi = output_indices(objf, mop);
     for lp in lm.basis 
         try
@@ -160,7 +242,7 @@ function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: 
             @info get_value(lp.res)[oi] .- eval_models( lm, get_site(lp.res) )
         end
     end
-    
+    =#
     return lm, lmeta;
 end
 
@@ -198,10 +280,12 @@ function get_jacobian( lm :: LagrangeModel, x̂ :: RVec ) :: RMat
     return Matrix(transpose( hcat(
         [ sum( get_value(lm.basis[i].res)[ ℓ ] * grad_evals[i] 
             for i = eachindex(grad_evals) )               
-                for ℓ = 1 : lm.n_out ]... )));
+                for ℓ = 1 : lm.n_out ]... 
+    )));
 end
 
-@memoize function _unit_basis( n_vars :: Int, degree :: Int ;
+#@memoize
+function _unit_basis( n_vars :: Int, degree :: Int ;
         solver1 :: Symbol, solver2 :: Symbol, max_evals1 :: Union{Nothing,Int}, 
         max_evals2 :: Union{Nothing,Int}, Λ :: Real ) :: Vector{LagrangePoly}
     lb = zeros(n_vars);

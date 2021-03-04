@@ -13,7 +13,9 @@ p = Morbit.MixedMOP(lb, ub)
 f1 = x -> sum( (x.-1).^2 );
 f2 = x -> sum( (x.+1).^2 );
 
-lag_cfg = Morbit.LagrangeConfig( degree = 2 , optimized_sampling = false);
+sites_path = joinpath( @__DIR__, "deg2_vars2_sites.jld2")
+lag_cfg = Morbit.LagrangeConfig( degree = 2 , optimized_sampling = false, 
+    save_path = sites_path);
 cfg = Morbit.RbfConfig(shape_parameter ="10/Δ", use_max_points = true);
  
 taylor_cfg = Morbit.TaylorConfig( degree = 2, gradients = :fdm)
