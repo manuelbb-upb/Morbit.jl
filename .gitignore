@@ -6,3 +6,4 @@
 /.vscode
 *.jld2
 /test/Manifest.toml
+/docs/Manifest.toml
