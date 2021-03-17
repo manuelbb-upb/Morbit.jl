@@ -49,6 +49,7 @@ jobs:
       - run: |
           julia --project=docs -e '
             using Pkg
+            Pkg.develop(url="git@github.com:manuelbb-upb/DynamicPolynomials.jl.git")
             Pkg.develop(PackageSpec(path=pwd()))
             Pkg.instantiate()'
       - run: |
