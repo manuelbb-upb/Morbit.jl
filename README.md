@@ -38,6 +38,7 @@ For extensive usage information please refer to the [documentation](https://manu
 
 * Provide more examples.
 * Finish the MathOptInterface. `AbstractMOP` already is `MOI.ModelLike`, but for the solver we wait on [this issue](https://github.com/jump-dev/JuMP.jl/issues/2099).
+* Re-enable the sampling from [PointSampler.jl](https://github.com/manuelbb-upb/PointSampler.jl) for surrogate construction.
 * Saving of results and evaluation data needs re-implementation.
 * Maybe provide some plotting recipes?
   
