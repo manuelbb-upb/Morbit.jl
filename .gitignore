@@ -5,3 +5,4 @@
 /docs/build/
 /.vscode
 *.jld2
+/test/Manifest.toml
