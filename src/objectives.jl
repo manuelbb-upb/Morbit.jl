@@ -34,7 +34,7 @@ If `can_batch == true` then the objective function must be able to return an arr
 (whilst still returning a single result, not a singleton array containing the result, for a single input vector).
 
 # Examples
-```jldoctest
+```
 # Define 2 scalar objective functions and a MOP ℝ^2 → ℝ^2
 
 f1(x) =  x[1]^2 + x[2]

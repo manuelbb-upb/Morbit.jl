@@ -1,6 +1,8 @@
 module Morbit
 
 export morbit_formatter;
+export MixedMOP, optimize, AlgoConfig, add_objective!, add_vector_objective!;
+export ExactConfig, TaylorConfig, RbfConfig, LagrangeConfig;
 
 # steepest descent
 using LinearAlgebra: norm
@@ -140,6 +142,10 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
 
     # TODO warn here 
     reset_evals!( mop );
+    # for backwards-compatibility with unconstrained problems:
+    if num_vars(mop) == 0
+        MOI.add_variables(mop, length(x⁰))
+    end
 
     # initialize first iteration site
     @assert !isempty( x⁰ );
@@ -165,7 +171,6 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     # make sure, x & fx are in database
     start_res = init_res(Res, x, fx );
     ensure_contains_result!(data_base, start_res);
-    @show get_value(start_res)
 
     iter_data = init_iter_data(IterData, x, fx, Δ⁰(algo_config), data_base);
     xᵗ_index!(iter_data, get_id(start_res));

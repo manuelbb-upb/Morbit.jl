@@ -14,12 +14,12 @@ using Test
 
     # I) unconstrained
     opt_settings = AlgoConfig(
-        max_iter = 20
+        max_iter = 30
     );
     ## 1) treat objective as cheap
     mop = MixedMOP();
     add_objective!( mop, f1, :cheap );
-    x,fx = optimize!(opt_settings, mop, x0);
+    x,fx = optimize(mop, x0; algo_config = opt_settings);
 
     @test x ≈ [ 0.0 ] atol=1e-2
 
@@ -29,7 +29,7 @@ using Test
     );
     mop = MixedMOP();
     add_objective!( mop, f1, :expensive )
-    x,fx = optimize!(opt_settings, mop, x0)
+    x,fx = optimize(mop, x0; algo_config = opt_settings)
 
     @test x ≈ [ 0.0 ] atol = 1e-2
 
@@ -39,9 +39,9 @@ using Test
     opt_settings = AlgoConfig(
         max_iter = 10
     );
-    mop = MixedMOP( lb = [-8.0], ub = [8.0] );
+    mop = MixedMOP( [-8.0], [8.0] );
     add_objective!( mop, f1, :cheap)
-    x,fx = optimize!(opt_settings, mop, x0)
+    x,fx = optimize(mop, x0; algo_config = opt_settings)
 
     @test x ≈ [ 0.0 ] atol=0.1
 
@@ -49,9 +49,9 @@ using Test
     opt_settings = AlgoConfig(
         max_iter = 30
     );
-    mop = MixedMOP( lb = [-8.0], ub = [8.0] );
+    mop = MixedMOP( [-8.0], [8.0] );
     add_objective!( mop, f1, :expensive);
-    x,fx = optimize!(opt_settings, mop, x0);
+    x,fx = optimize(mop, x0; algo_config = opt_settings);
 
     @test x ≈ [ 0.0 ] atol=.1
 end
@@ -68,13 +68,13 @@ end
     # unconstrained, cheap
     @testset "unbound_cheap_cheap" begin
         opt_settings = AlgoConfig(
-            Δ₀ = 0.2,
+            Δ_0= 0.2,
             max_iter = 30,
         );
         mop = MixedMOP();
         add_objective!(mop, g1, :cheap);
         add_objective!(mop, g2, :cheap);
-        x,fx = optimize!( opt_settings, mop, x0 );
+        x,fx = optimize(mop, x0; algo_config = opt_settings);
 
         @test x[1] ≈ x[2] atol = .1
     end
@@ -87,7 +87,7 @@ end
         mop = MixedMOP();
         add_objective!(mop, g1, :expensive);
         add_objective!(mop, g2, :expensive);
-        x,fx = optimize!( opt_settings, mop, x0 );
+        x,fx = optimize(mop, x0; algo_config = opt_settings);
 
         @test x[1] ≈ x[2] atol = .1
     end
@@ -100,7 +100,7 @@ end
         mop = MixedMOP();
         add_objective!(mop, g1, :expensive);
         add_objective!(mop, g2, :cheap);
-        x,fx = optimize!( opt_settings, mop, x0 );
+        x,fx = optimize(mop, x0; algo_config = opt_settings);
 
         @test x[1] ≈ x[2] atol = .1
     end
@@ -110,10 +110,10 @@ end
         opt_settings = AlgoConfig(
             max_iter = 30
         );
-        mop = MixedMOP(lb = lb, ub = ub);
+        mop = MixedMOP(lb, ub);
         add_objective!(mop, g1, :cheap);
         add_objective!(mop, g2, :cheap);
-        x,fx = optimize!( opt_settings, mop, x0 );
+        x,fx = optimize(mop, x0; algo_config = opt_settings);
 
         @test x[1] ≈ x[2] atol = .1
     end
@@ -123,10 +123,10 @@ end
         opt_settings = AlgoConfig(
             max_iter = 50,
         );
-        mop = MixedMOP(lb = lb, ub = ub);
+        mop = MixedMOP(lb,ub);
         add_objective!(mop, g1, :expensive);
         add_objective!(mop, g2, :expensive);
-        x,fx = optimize!( opt_settings, mop, x0 );
+        x,fx = optimize(mop, x0; algo_config = opt_settings);
 
         @test x[1] ≈ x[2] atol = .1
     end
@@ -137,18 +137,18 @@ end
             max_iter = 50,
             Δ_max = .4,
             ε_crit = 0.1,
-            all_objectives_descent = true,
+            strict_acceptance_test = true,
         );
-        mop = MixedMOP(lb = lb, ub = ub);
+        mop = MixedMOP(lb,ub);
         add_objective!(mop, g1, RbfConfig(kernel=:multiquadric));
         add_objective!(mop, g2, :cheap);
-        x,fx = optimize!( opt_settings, mop, x0 );
+        x,fx = optimize(mop, x0; algo_config = opt_settings);
 
         @test x[1] ≈ x[2] atol = .1
     end
 end
 #%%
-
+#=
 @testset "direct_search" begin
     # 1D1D
     x0 = [5.0];
@@ -163,10 +163,10 @@ end
                     descent_method = :direct_search,
                     ideal_point = ideal_point,
                 )
-                mop = MixedMOP(lb = lb, ub = ub)
+                mop = MixedMOP(lb,ub)
                 Morbit.scale( mop, x0)
                 add_objective!(mop, f1, type)
-                x, fx = optimize!(opt_settings, mop, x0)
+                x, fx = optimize(mop, x0; algo_config = opt_settings)
                 @test x[end] ≈ 0.0 atol = .1
             end
         end
@@ -189,18 +189,19 @@ end
                     max_iter = 50,
                     rbf_kernel = :multiquadric,
                     rbf_shape_parameter = cs -> let Δ = cs.iter_data.Δ; return 1/(10*Δ) end,
-                    Δ₀ = 0.5,
+                    Δ_0= 0.5,
                     all_objectives_descent = true,
                     use_max_points = type_tuple ==  (:expensive, :expensive) ? true : false,
                     max_model_points = 12,
                 )
-                mop = MixedMOP( lb = lb, ub = ub )
+                mop = MixedMOP(lb,ub)
                 add_objective!(mop, g1, type1)
                 add_objective!(mop, g2, type2)
-                x, fx = optimize!(opt_settings, mop, x0)
+                x, fx = optimize(mop, x0; algo_config = opt_settings)
                 @test x[1] ≈ x[2] atol = .5
             end
         end
     end
     =#
 end
+=#

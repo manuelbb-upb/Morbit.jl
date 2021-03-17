@@ -82,7 +82,7 @@ end
 function MOI.add_variable( mop :: MixedMOP )
     new_var = length(mop.vars) + 1;
     push!( mop.vars, new_var );
-    mop.state_hash = uuid4();
+    mop.state_hash = UUIDs.uuid4();
     return MOI.VariableIndex( new_var )
 end
 
@@ -103,7 +103,7 @@ end
 function MOI.add_variables( mop :: MixedMOP, N :: Int )
     new_vars = [length(mop.vars) + i for i = 1 : N];
     push!( mop.vars, new_vars... );
-    mop.var_state = uuid4();
+    mop.var_state = UUIDs.uuid4();
     return MOI.VariableIndex.( new_vars )
 end
 
@@ -115,7 +115,7 @@ function MOI.add_constraint( mop :: MixedMOP, var ::F, bounds ::MOI.Interval ) w
     var_int =  var.variable.value;
     mop.lb[ var_int ] = bounds.lower;
     mop.ub[ var_int ] = bounds.upper;
-    mop.var_state = uuid4();
+    mop.var_state = UUIDs.uuid4();
     return MOI.ContstraintIndex{F, MOI.Interval}
 end
 
