@@ -224,10 +224,10 @@ function (sgf:: TransformerFn)( x̂ :: RVec )
     return _transform_unscale( x̂, lb, ub);
 end
 
-# special broadcast to only retrieve bounds once
-function Broadcast.broadcasted( sgf ::TransformerFn,  X :: RVecArr )
+# used in special broadcast to only retrieve bounds once
+function ( sgf ::TransformerFn)( X :: RVecArr )
     lb, ub = full_bounds(sgf.mop);
-    return [ _transform( x, lb, ub ) for x ∈ X ]
+    return [ _transform_unscale( x, lb, ub ) for x ∈ X ]
 end
 
 @memoize function _get_transformer_fn( mop :: AbstractMOP)
@@ -237,15 +237,11 @@ end
 function _add_objective!( mop :: AbstractMOP, T :: Type{<:AbstractObjective},
     func :: Function, model_cfg :: SurrogateConfig, n_out :: Int = 0, 
     can_batch :: Bool = false )
-    
+
     # use a transformer to be able to directly evaluate scaled variables 
-    # this makes internal differentiation *so much* easier.
     tfn = _get_transformer_fn(mop);
 
-    # making sure, that everything is a vector 
-    fvec = x -> vec( func( tfn(x) ) );
-
-    fx = can_batch ? BatchObjectiveFunction(fvec) : fvec;
+    fx = can_batch ? BatchObjectiveFunction(func ∘ tfn) : vec ∘ func ∘ tfn;
 
     objf = _wrap_func( T, fx, model_cfg, num_vars(mop), n_out );
     
@@ -293,10 +289,36 @@ function eval_all_objectives( mop :: AbstractMOP,  x̂ :: RVec )
     vcat( [ eval_objf( objf, x̂ ) for objf ∈ list_of_objectives(mop) ]... )
 end
 
+function Broadcast.broadcasted(::typeof(eval_all_objectives), mop :: AbstractMOP, X :: RVecArr )
+    if isempty(X)
+        return RVec[]
+    else
+        all_vec_objfs = list_of_objectives(mop);
+        b_res = Vector{RVecArr}(undef, length(all_vec_objfs));
+        for (i,objf) ∈ enumerate(all_vec_objfs)
+            b_res[i] = eval_objf.(objf, X)
+        end
+
+        # stack the results
+        N = length(X);
+        ret_res = Vector{RVec}(undef, N)
+        for i = 1:N
+            ret_res[i] = vcat( (r[i] for r ∈ b_res )...)
+        end
+        return ret_res
+    end
+end
+
 "Evaluate all objectives at site `x̂::RVec` and sort the result according to the order in which objectives were added."
 function eval_and_sort_objectives(mop :: AbstractMOP, x̂ :: RVec)
     ŷ = eval_all_objectives(mop, x̂);
     return reverse_internal_sorting( ŷ, mop );
+end
+
+function Broadcast.broadcasted( ::typeof(eval_and_sort_objectives), mop :: AbstractMOP, X :: RVecArr )
+    R = eval_all_objectives.(mop, X);
+    reverse_internal_sorting!.(R, mop)
+    return R
 end
 
 # Helper functions …

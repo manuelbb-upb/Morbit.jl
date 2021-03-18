@@ -6,25 +6,25 @@
 end
 
 # evaluation of a BatchObjectiveFunction
-function (objf::BatchObjectiveFunction)(args...)
-    objf.function_handle(args...)
+function (objf::BatchObjectiveFunction)(x :: RVec)
+    vec(objf.function_handle(x))
 end
 
 # overload broadcasting for BatchObjectiveFunction's
 # that are assumed to handle arrays themselves
-function Broadcast.broadcasted( objf::BatchObjectiveFunction, args... )
-    objf.function_handle( args... )
+function Broadcast.broadcasted( objf::BatchObjectiveFunction, X :: RVecArr)
+    vec.( objf.function_handle( X ) )
 end
 
 function _new_batch( func1 :: F, func2 :: T ) where{ F <:Function ,T <: Function }
     return BatchObjectiveFunction(
         function( x :: Union{ RVecArr, RVec } )
-            if isa( x, Rvec )
+            if isa( x, RVec )
                 [ func1(x); func2(x) ]
             else
                 f1 = func1.(x)
                 f2 = func2.(x)
-                [ [f1[i];f2[i]] for i = eachindex(x) ]
+                [ [f1[i];f2[i] ] for i = eachindex(x) ]
             end
         end
     )

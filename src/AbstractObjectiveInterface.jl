@@ -11,11 +11,8 @@ function _wrap_func( :: Type{<:AbstractObjective}, fn :: Function,
     nothing
 end
 
-#_eval_handle(::AbstractObjective) = nothing :: Function;
-"Evaluate objective at scaled site."
-function eval_objf_at_site(objf::AbstractObjective, x̂ :: Union{RVec,RVecArr})::Union{RVec,RVecArr}
-    return nothing
-end
+"Return a function that evaluates an objective at a unscaled site."
+eval_handle(::AbstractObjective) :: Function = nothing;
 
 num_vars( :: AbstractObjective ) = nothing :: Int;
 
@@ -38,10 +35,16 @@ num_outputs( objf :: AbstractObjective ) = nothing :: Int;
 "Evaluate the objective at unscaled site(s). and increase counter."
 function eval_objf(objf :: AbstractObjective, x :: RVec )
     inc_evals!(objf);
-    eval_objf_at_site(objf,x)
+    eval_handle(objf)(x)
 end
 
-# using Memoization here so that always the same function is returned
+function Broadcast.broadcasted( ::typeof(eval_objf), objf :: AbstractObjective, X :: RVecArr)
+    inc_evals!(objf, length(X))
+    eval_handle(objf).(X)
+end
+
+# Helpers to retrieve function handles that increase the eval count:
+# … using Memoization here so that always the same function is returned
 # this should vastly speed up automatic differentiation 
 @memoize function _eval_handle(objf :: AbstractObjective)
     x -> eval_objf(objf, x)
@@ -77,7 +80,7 @@ end
 
 # generic combine function for abstract objectives
 function combine( objf1 :: T, objf2 :: T ) where{T<:AbstractObjective}
-    new_fn = combine( _eval_handle(objf1), _eval_handle( objf2 ) );
+    new_fn = combine( eval_handle( objf1 ), eval_handle( objf2 ) );
     n_out = num_outputs( objf1 ) + num_outputs( objf2 );
     new_config = combine( model_cfg(objf1), model_cfg(objf2) )
     return _wrap_func( T, new_fn, new_config, num_vars(objf1), n_out );

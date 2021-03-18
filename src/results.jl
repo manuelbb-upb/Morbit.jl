@@ -426,15 +426,18 @@ function _eval_and_store_new_results!(id :: AbstractIterData, res_list :: Vector
     # evaluate at new sites
     # we first collect, so that batch evaluation can be exploited
     unstored_results = [ res for res ∈ res_list if isnothing( get_id( res) ) ];
-    @logmsg loglevel2 "We have to evaluate at $(length(unstored_results)) new sites."
-    new_vals = eval_all_objectives.(mop, [ get_site(res) for res ∈ unstored_results ]);
+    n_new = length(unstored_results);
+    @logmsg loglevel2 "We have to evaluate at $(n_new) new sites."
+    if n_new > 0
+        new_vals = eval_all_objectives.(mop, [ get_site(res) for res ∈ unstored_results ]);
 
-    # add to db and modify results to contain new data
-    for (res,val) ∈ zip( unstored_results, new_vals )
-        change_value!(res, val)
-        new_id = add_result!(DB, res)
+        # add to db and modify results to contain new data
+        for (res,val) ∈ zip( unstored_results, new_vals )
+            change_value!(res, val)
+            new_id = add_result!(DB, res)
+        end
     end
-    
+    nothing
 end
 
 function _point_in_box( x̂ :: RVec, lb :: RVec, ub :: RVec ) :: Bool 

@@ -41,7 +41,12 @@ function MixedMOP( lb :: RVec, ub :: RVec )
         ub = UB,
     )
 end
-#MixedMOP(; lb :: RVec, ub :: RVec ) = MixedMOP( lb, ub );
+
+function MixedMOP(n_vars :: Int) 
+    return MixedMOP(;
+        vars = collect(1:n_vars)
+    );
+end
 
 list_of_objectives( mop :: MixedMOP ) = mop.vector_of_objectives;
 
