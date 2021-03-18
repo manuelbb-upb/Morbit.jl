@@ -69,7 +69,7 @@ Please see the [docs](https://manuelbb-upb.github.io/Morbit.jl/dev).
   direction** (default) or the Pascoletti-Serafini scalarization 
   (see [here](https://www.tu-ilmenau.de/fileadmin/media/mmor/thomann/SIAM_MHT_TE.pdf)).  
   *From prior experiments we know the “directed search” method and the nonlinear conjugate gradient steps to work well, too. 
-  They need re-implementation. Directed search cannot be guaranteed to converge to a critical points and for CG we need the strong Wolfe conditions.*
+  They need re-implementation. Directed search cannot be guaranteed to converge to critical points and for CG we need the strong Wolfe conditions.*
 * Objectives can be defined with parallelism in mind, i.e., they then receive sampling sites in batches when possible.
 
 ## ToDo's

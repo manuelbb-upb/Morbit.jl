@@ -18,10 +18,18 @@ init_res(::Type{<:Result}, args... ) :: Result = nothing;
 struct NoRes <:Result end;
 init_res(NoRes, args... ) = NoRes();
 
+Base.:(==)(::NoRes, ::NoRes) = true;
+
 @with_kw mutable struct Res <: Result
     x :: RVec = Real[];
     y :: RVec = Real[];
     db_id :: NothInt = nothing 
+end
+
+function Base.:(==)(r1 :: Res, r2::Res)
+    return r1.x == r2.x &&
+        r1.y == r2.y &&
+        r1.db_id == r2.db_id
 end
 
 get_site( res :: Res ) = res.x;

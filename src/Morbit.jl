@@ -3,6 +3,8 @@ module Morbit
 export morbit_formatter;
 export MixedMOP, optimize, AlgoConfig, add_objective!, add_vector_objective!;
 export ExactConfig, TaylorConfig, RbfConfig, LagrangeConfig;
+export save_config, save_database, save_iter_data;
+export load_config, load_database, load_iter_data;
 
 # steepest descent
 using LinearAlgebra: norm
@@ -68,6 +70,8 @@ include("objectives.jl");
 include("ConfigImplementations.jl")
 include("descent.jl")
 
+include("saving.jl")
+
 function _budget_okay( mop :: AbstractMOP, ac :: AbstractConfig ) :: Bool
     for objf ∈ list_of_objectives(mop)
         if num_evals(objf) >= min( max_evals(objf), max_evals(ac) ) - 1
@@ -130,7 +134,8 @@ end
 ############################################
 function optimize( mop :: AbstractMOP, x⁰ :: RVec, 
     fx⁰ :: RVec = Real[]; algo_config :: AbstractConfig = EmptyConfig(), 
-    populated_db :: Union{AbstractDB,Nothing} = nothing )
+    populated_db :: Union{AbstractDB,Nothing} = nothing # TODO make passing of AbstractIterData possible
+    )
 
     # parse fix configuration parameters
     ν_succ = ν_success( algo_config );
