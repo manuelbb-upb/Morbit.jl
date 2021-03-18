@@ -16,7 +16,45 @@ It has been submitted to the MCA journal.
 This was my first project using Julia and there have been many messy rewrites.
 Nonetheless, the solver should now work sufficiently well to tackle most problems.
 
-For extensive usage information please refer to the [documentation](https://manuelbb-upb.github.io/Morbit.jl/dev).
+## Quick Usage Example
+
+Let's find a critical point for the unconstrained minimization problem with objectives
+```math
+f₁(x) = (x₁ - 1)² + (x₂ - 1)², f₂(x) = (x₁ + 1)² + (x₂ + 1)².
+```
+The critical points coincide with globally Pareto optimal points and lie on the line connecting the individual minima (1,1) and (-1,-1).
+
+Setting up Morbit for this problem is fairly easy:
+```julia
+using Morbit
+
+f1 = x -> sum( (x .- 1 ).^2 )
+f2 = x -> sum( (x .+ 1 ).^2 )
+
+mop = MixedMOP()
+add_objective!(mop, f1, :cheap )
+add_objective!(mop, f2, :cheap )
+
+x0 = [ π; -ℯ ]
+optimize(mop, x0)
+```
+In the above case, both functions are treated as cheap and their gradients are determined using `ForwardDiff`.
+If you wanted to model a objective, say the function `f₂`, using radial basis functions, you could pass a `SurrogateConfig`:
+```julia
+rbf_cfg = RbfConfig(;kernel = :multiquadric)
+add_objective!(mop, f1, rbf_cfg)
+``` 
+
+Box constraints can easily be defined at initialization of the `MixedMOP`:
+```
+lb = fill(-4, 2)
+ub = -lb
+mop_con = MixedMOP(lb, ub)
+```
+
+There are many options to configure both the algorithm behavior and the 
+surrogate modelling techniques.
+Please see the [docs](https://manuelbb-upb.github.io/Morbit.jl/dev).
 
 ## Features
 * Applicable to unconstrained and finitely box-constrained problems with one or more objectives.
