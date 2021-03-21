@@ -169,7 +169,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         # has a database been provided? if yes, prepare
         data_base = populated_db;
         scale!( data_base, mop );
-        apply_internal_sorting( data_base, mop );
+        apply_internal_sorting!( data_base, mop );
     else
         data_base = init_db(use_db(algo_config));
     end

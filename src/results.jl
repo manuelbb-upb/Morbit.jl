@@ -56,19 +56,25 @@ end
 
 Broadcast.broadcastable( db :: AbstractDB ) = Ref( db );
 
-Base.length( db :: AbstractDB ) = length(sites(db)) :: Int;
+# array of all evaluation sites  (for end user, internally use Results)
+get_sites( :: AbstractDB ) = RVec[] :: RVecArr;
+get_values( :: AbstractDB ) = RVec[] :: RVecArr;
+
+Base.length( db :: AbstractDB ) = length(get_sites(db)) :: Int;
 
 init_db( :: Type{<:AbstractDB} ) = nothing :: AbstractDB;
 init_db( :: Nothing ) = nothing :: Nothing;
-
-# array of all evaluation sites  (for end user, internally use Results)
-sites( :: AbstractDB ) = RVec[] :: RVecArr;
-values( :: AbstractDB ) = RVec[] :: RVecArr;
 
 Base.eachindex( db :: AbstractDB ) :: NothIntVec = Int[];
 
 get_value( db :: AbstractDB, id :: NothInt ) :: RVec = Real[];
 get_site( db :: AbstractDB, id :: NothInt ) :: RVec = Real[];
+
+merge( :: AbstractDB, :: AbstractDB ) = nothing;
+merge( :: AbstractDB, :: Nothing ) = nothing;
+
+# ...
+merge(n :: Nothing, d :: AbstractDB ) = merge(d,n)
 
 #=
 function get_result( db :: AbstractDB, id :: NothInt ) :: Tuple{RVec, RVec}
@@ -197,6 +203,9 @@ end
 struct NoDB <: AbstractDB end 
 init_db( :: Type{NoDB} ) = NoDB();
 
+merge( DB :: NoDB, :: NoDB ) = DB;
+merge( DB :: NoDB, :: Nothing ) = DB;
+
 ####### ArrayDB
 @with_kw mutable struct ArrayDB <: AbstractDB
     res :: Dict{Int, Result} = Dict{Int,Result}();
@@ -220,6 +229,20 @@ Base.eachindex(db :: ArrayDB ) = collect(Base.keys(db.res));
 init_db( :: Type{ArrayDB} ) = ArrayDB();
 get_sites( db :: ArrayDB ) :: RVecArr = [ get_site(res) for res ∈ Base.values(db.res) ];
 get_values( db :: ArrayDB ) :: RVecArr = [ get_value(res) for res ∈ Base.values(db.res) ];
+
+merge( DB :: ArrayDB, ::Nothing ) = DB;
+merge( :: NoDB, DB :: ArrayDB ) = DB;
+merge( DB :: ArrayDB , :: NoDB ) = DB;
+function merge( d1 :: ArrayDB, d2 :: ArrayDB )
+    new_db = init_db( ArrayDB );
+    for i = eachindex(d1)
+        add_result!(new_db, get_result(d1, i))
+    end
+    for i = eachindex(d2)
+        add_result!(new_db, get_result(d2, i))
+    end
+    return new_db
+end
 
 function stamp_xᵗ_index!(db :: ArrayDB, i :: NothInt )::Nothing 
     push!( db.iterate_indices, convert(Int, i))
@@ -294,6 +317,7 @@ get_stepsize_array(db :: ArrayDB) = db.stepsize_array;
 get_ω_array(db :: ArrayDB) = db.ω_array;
 get_num_critical_loops_array(db :: ArrayDB) = db.num_critical_loops;
 get_model_meta_array(db :: ArrayDB) = db.model_meta_array;
+
 
 ############################################
 

@@ -3,7 +3,7 @@
 Broadcast.broadcastable( ac :: AbstractConfig ) = Ref( ac );
 
 max_evals( :: AbstractConfig ) :: Int = typemax(Int);
-max_iter( :: AbstractConfig ) :: Int = 10;
+max_iter( :: AbstractConfig ) :: Int = 50;
 
 ε_crit( ::AbstractConfig )::Real=1e-3;
 γ_crit( ::AbstractConfig)::Real=.501;

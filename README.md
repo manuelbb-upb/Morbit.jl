@@ -16,6 +16,10 @@ It has been submitted to the MCA journal.
 This was my first project using Julia and there have been many messy rewrites.
 Nonetheless, the solver should now work sufficiently well to tackle most problems.
 
+This problem was founded by the European Region Development Fund.
+![Efre EU Logo](https://www.efre.nrw.de/fileadmin/Logos/EU-Fo__rderhinweis__EFRE_/EFRE_Foerderhinweis_englisch_farbig.jpg | width=45%)
+![EFRE NRW Logo](https://www.efre.nrw.de/fileadmin/Logos/Programm_EFRE.NRW/Ziel2NRW_RGB_1809_jpg.jpg | width=45%)
+
 ## Quick Usage Example
 
 Let's find a critical point for the unconstrained minimization problem with objectives

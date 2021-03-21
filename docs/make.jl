@@ -18,6 +18,9 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
+        "Examples" => [
+            "Two Parabolas" => "example_two_parabolas.md",
+        ]
     ],
 )
 
