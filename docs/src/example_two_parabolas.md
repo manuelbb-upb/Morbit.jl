@@ -194,4 +194,6 @@ scatter!( Tuple.(values(start_fin_points));
 save("two_parabolas_different_starting_points.png", fig) # hide 
 nothing # hide
 ```
+
+In the plot, the green points show the starting points and the lightblue circles show the final iterates:
 ![Two Parabolas - Different Starting Points](two_parabolas_different_starting_points.png)

@@ -50,6 +50,7 @@ jobs:
           julia --project=docs -e '
             using Pkg
             Pkg.develop(url="https://github.com/manuelbb-upb/DynamicPolynomials.jl.git")
+            Pkg.develop(url="https://github.com/manuelbb-upb/MultiObjectiveProblems.jl")
             Pkg.develop(PackageSpec(path=pwd()))
             Pkg.instantiate()'
       - run: |

@@ -15,7 +15,7 @@ It has been submitted to the MCA journal.
 This was my first project using Julia and there have been many messy rewrites.
 Nonetheless, the solver should now work sufficiently well to tackle most problems.
 
-This problem was founded by the European Region Development Fund.
+This project was founded by the European Region Development Fund.
 
 ```@raw html
 <img src="https://www.efre.nrw.de/fileadmin/Logos/EU-Fo__rderhinweis__EFRE_/EFRE_Foerderhinweis_englisch_farbig.jpg" width="45%"/>
