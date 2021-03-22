@@ -17,9 +17,8 @@ using MultiObjectiveProblems
 
 Import other dependencies:
 ```@example zdt
-using Morbit
-using MultiObjectiveProblems
 using AbstractPlotting, CairoMakie
+using Morbit
 ```
 
 Retrieve test problem and define a `MixedMOP`
@@ -27,11 +26,9 @@ Retrieve test problem and define a `MixedMOP`
 test_problem = ZDT3(2);
 box = constraints(test_problem);
 
-I = get_ideal_point(test_problem);
 objectives = get_objectives(test_problem)
 x₀ = get_random_point(test_problem)
 
-ac = AlgoConfig(; descent_method = :ps, reference_point = I )
 mop = MixedMOP( box.lb, box.ub );
 objf_cfg = ExactConfig()
 for objf ∈ objectives
@@ -42,6 +39,9 @@ end
 ## Run
 Run optimization and plot:
 ```@example zdt
+I = get_ideal_point(test_problem)
+ac = AlgoConfig(; descent_method = :ps, reference_point = I )
+
 x, fx, id = optimize( mop, x₀; algo_config = ac);
 
 pset = get_pareto_set(test_problem)
