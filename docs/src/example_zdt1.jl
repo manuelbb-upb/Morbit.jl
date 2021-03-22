@@ -1,8 +1,16 @@
+using Pkg 
+Pkg.activate(tempname())
+Pkg.develop(url="https://github.com/manuelbb-upb/MultiObjectiveProblems.jl")
+using MultiObjectiveProblems
+#%%
+
 using Morbit
 using MultiObjectiveProblems
 using AbstractPlotting, CairoMakie
 
-test_problem = ZDT2(2);
+#%%
+
+test_problem = ZDT3(2);
 box = constraints(test_problem);
 I = get_ideal_point(test_problem);
 

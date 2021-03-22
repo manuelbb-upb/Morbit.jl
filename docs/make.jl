@@ -20,6 +20,7 @@ makedocs(;
         "Home" => "index.md",
         "Examples" => [
             "Two Parabolas" => "example_two_parabolas.md",
+            "ZDT3" => "example_zdt.md"
         ]
     ],
 )
