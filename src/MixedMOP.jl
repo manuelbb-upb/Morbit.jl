@@ -93,17 +93,18 @@ end
 
 MOI.get( mop :: MixedMOP, :: MOI.NumberOfVariables ) = length(mop.vars) :: Int;
 MOI.get( mop :: MixedMOP, :: MOI.ListOfVariableIndices) = MOI.VariableIndex.(mop.vars);
-#=
-function MOI.get( mop :: MixedMOP, :: MOI.ListOfConstraints ) 
+
+function MOI.get( mop :: MixedMOP, :: MOI.ListOfConstraints ) :: Vector{Tuple}
     constraints = [];
     for (i, var_int) ∈ enumerate(mop.vars) 
-        if haskey( mop.lb, var ) && haskey( mop.ub, var )
+        if haskey( mop.lb, var_int ) && haskey( mop.ub, var_int ) &&
+            !isinf(mop.lb[var_int]) && !isinf(mop.ub[var_int]) 
+            # TODO: what to do with half-open intervals?
             push!( constraints, ( MOI.SingleVariable, MOI.Interval ))
         end
     end
-    return constraints[];
+    return constraints;
 end
-=#
 
 function MOI.add_variables( mop :: MixedMOP, N :: Int )
     new_vars = [length(mop.vars) + i for i = 1 : N];

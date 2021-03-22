@@ -1,14 +1,16 @@
 using Morbit
 using MultiObjectiveProblems
+using AbstractPlotting, CairoMakie
 
 test_problem = ZDT2(2);
 box = constraints(test_problem);
-I = get_ideal_point(test_problem) .- [0; 100];
+I = get_ideal_point(test_problem);
 
 objectives = get_objectives(test_problem)
 x₀ = get_random_point(test_problem)
 
-ac = AlgoConfig( descent_method = :ps, reference_point = I )
+ac = AlgoConfig( descent_method = :ds, )
+#reference_point = I )
 mop = MixedMOP( box.lb, box.ub );
 objf_cfg = ExactConfig()
 for objf ∈ objectives

@@ -19,7 +19,7 @@ MOI.add_variables( :: AbstractMOP ) = nothing :: Vector{MOI.VariableIndex}
 
 MOI.get( :: AbstractMOP, :: MOI.NumberOfVariables ) = -1;
 MOI.get( :: AbstractMOP, :: MOI.ListOfVariableIndices) = -1;
-#MOI.get( :: AbstractMOP, :: MOI.ListOfConstraints ) = nothing :: Vector{Tuple{F,S}} where {F,S};
+MOI.get( :: AbstractMOP, :: MOI.ListOfConstraints )::Vector{Tuple} = nothing ;
 
 MOI.supports_constraint( ::AbstractMOP, ::Type{MOI.SingleVariable}, ::Type{MOI.Interval}) = nothing ::Bool;
 MOI.add_constraint(::AbstractMOP, func::F, set::S) where {F,S} = nothing :: MOI.ConstraintIndex{F,S} 

@@ -6,8 +6,8 @@ export ExactConfig, TaylorConfig, RbfConfig, LagrangeConfig;
 export save_config, save_database, save_iter_data;
 export load_config, load_database, load_iter_data;
 
-# steepest descent
-using LinearAlgebra: norm
+# steepest descent and directed search
+using LinearAlgebra: norm, pinv
 import JuMP;
 import OSQP;
 

@@ -114,20 +114,19 @@ function compute_descent_step(::Val{:ps}, algo_config :: AbstractConfig,
     @logmsg loglevel3 "Calculating Pascoletti-Serafini descent."
     x = xᵗ(id);
     fx = fxᵗ(id);
-    FX = reverse_internal_sorting(fx,mop)
     n_vars = num_vars(mop);
     n_out = num_objectives(mop);
     
     r = begin 
         if !isempty( reference_direction(algo_config) )
-            dir = reference_direction(algo_config)
+            dir = apply_internal_sorting( reference_direction(algo_config), mop )
             if all( dir .<= 0 )
                 dir *= -1
             end
         elseif !isempty( reference_point(algo_config))
-            dir = FX .- reference_point(algo_config)
+            dir = fx .- apply_internal_sorting(reference_point(algo_config), mop)
         else
-            dir = FX .- _local_ideal_point(mop, algo_config, id, sc)
+            dir = fx .- _local_ideal_point(mop, algo_config, id, sc)
         end
         dir
     end
@@ -262,3 +261,83 @@ function _local_ideal_point(mop :: AbstractMOP, algo_config :: AbstractConfig,
     return ȳ;
 end
 
+
+# Directed Search
+
+function compute_descent_step(::Val{:directed_search}, algo_config :: AbstractConfig,
+    mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
+    pascoletti_serafini(Val(ds), algo_config, mop, id, sc )
+end
+
+function compute_descent_step(::Val{:ds}, algo_config :: AbstractConfig,
+    mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
+    @logmsg loglevel3 "Calculating Pascoletti-Serafini descent."
+    x = xᵗ(id);
+    fx = fxᵗ(id);
+    n_vars = num_vars(mop);
+    n_out = num_objectives(mop);
+    
+    # very similar to PS, but inverted sign(s)
+    r = begin 
+        if !isempty( reference_direction(algo_config) )
+            dir = apply_internal_sorting( reference_direction(algo_config), mop )
+            if all( dir .>= 0 )
+                dir *= -1
+            end
+        elseif !isempty( reference_point(algo_config))
+            dir = apply_internal_sorting(reference_point(algo_config), mop) .- fx
+        else
+            dir = _local_ideal_point(mop, algo_config, id, sc) .- fx
+        end
+        dir
+    end
+
+    @logmsg loglevel4 "Local image direction is $(_prettify(r))"
+
+    if any( r .>= 0 )
+        return 0, copy(x), eval_models(sc, x), 0
+    end
+
+    lb, ub = full_bounds_internal( mop );    
+    mx = eval_models( sc, x );
+    ∇m = get_jacobian(sc, x);
+
+    ∇m⁺ = pinv( ∇m )
+    CONSTRAINED = !isempty(MOI.get(mop,MOI.ListOfConstraints()))
+    if !CONSTRAINED
+        dir = ∇m⁺*r;
+    else
+        dir_prob = JuMP.Model(OSQP.Optimizer);
+        JuMP.set_silent(dir_prob)
+        
+        # TODO are parameters sensible?
+        JuMP.set_optimizer_attribute(dir_prob,"eps_rel",1e-5)
+        JuMP.set_optimizer_attribute(dir_prob, "polish", true)
+
+        # slightly adapted version of directed search (allow only non-anscent directions)
+        JuMP.@variable(dir_prob, d[1:n_vars] )
+        JuMP.@objective(dir_prob, Min, sum(( ∇m * d .- r ).^2) )
+        JuMP.@constraint(dir_prob, norm_constraint, -1.0 .<= d .<= 1.0)
+        JuMP.@constraint(dir_prob, descent, ∇m*d .<= 0)
+        JuMP.@constraint(dir_prob, global_constraint, lb .<= x .+ d .<= ub )
+
+        JuMP.optimize!(dir_prob)
+        dir = JuMP.value.(d)
+    end
+    ω = - maximum(∇m * dir);
+
+    # scale direction for backtracking as in paper
+    norm_d = norm(dir,Inf);
+    if norm_d > 0
+        d_normed = dir ./ norm_d;
+        σ = intersect_bounds( mop, x, Δᵗ(id), d_normed; return_vals = :pos )
+        # Note: For scalar Δ the above should equal 
+        # `σ = norm(d,Inf) < 1 || Δ <= 1 ? min( d, norm(d,Inf) ) : Δ`
+        @assert σ >= 0
+
+        x₊, mx₊, step = _backtrack( x, d_normed, σ, ω, sc, strict_backtracking(algo_config) );
+        return ω, x₊, mx₊, norm(step, Inf)
+    else
+        return ω, copy(x), eval_models( sc, x ), 0
+    end
+end

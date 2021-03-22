@@ -102,7 +102,7 @@ use_db( ::EmptyConfig ) = ArrayDB;
     γ_shrink :: Real = γ_shrink(empty_config);
     γ_shrink_much::Real = γ_shrink_much(empty_config);
     
-    @assert descent_method ∈ [:steepest_descent, :ps, :pascoletti_serafini]
+    @assert descent_method ∈ [:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search]
 end
 
 max_evals( ac :: AlgoConfig ) = ac.max_evals;
