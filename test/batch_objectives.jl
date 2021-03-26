@@ -1,5 +1,5 @@
-using Morbit
-using Test
+#using Morbit
+#using Test
 
 @testset "batch_objectives" begin
 global counter_1 = 0;
