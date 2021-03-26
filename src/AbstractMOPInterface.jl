@@ -27,7 +27,7 @@ MOI.add_constraint(::AbstractMOP, func::F, set::S) where {F,S} = nothing :: MOI.
 # DERIVED methods 
 num_vars( mop :: AbstractMOP ) = MOI.get( mop, MOI.NumberOfVariables() );
 
-@memoize function _width( lb :: RVec, ub :: RVec ) :: RVec
+@memoize ThreadSafeDict function _width( lb :: RVec, ub :: RVec ) :: RVec
     w = ub .- lb
     w[ isinf.(w) ] .= 1
     return w
@@ -230,7 +230,7 @@ function ( sgf ::TransformerFn)( X :: RVecArr )
     return [ _transform_unscale( x, lb, ub ) for x ∈ X ]
 end
 
-@memoize function _get_transformer_fn( mop :: AbstractMOP)
+@memoize ThreadSafeDict function _get_transformer_fn( mop :: AbstractMOP)
     TransformerFn(mop)
 end
 
@@ -339,7 +339,8 @@ function max_evals!( mop :: AbstractMOP, M :: Int64 )
     end
 end
 
-@memoize function internal_output_indices_of_type( mop :: AbstractMOP, T::Type{<:SurrogateConfig} )
+#=
+@memoize ThreadSafeDict function internal_output_indices_of_type( mop :: AbstractMOP, T::Type{<:SurrogateConfig} )
     indices = Int[];
     offset = 1;
     for ( objf_index, objf ) ∈ enumerate( mop.vector_of_objectives )
@@ -350,6 +351,7 @@ end
     end
     return indices
 end
+=#
 #=
 @doc "Set field `non_exact_indices` of argument `mop::MixedMOP`."
 function set_non_exact_indices!( mop :: MixedMOP )

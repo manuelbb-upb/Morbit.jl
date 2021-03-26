@@ -38,26 +38,50 @@ db_indices( rbf :: RbfModel, i :: Int ) = convert( Vector{NothInt}, get_id.( rbf
 db_indices( rbf :: RbfModel ) = vcat( [ db_indices(rbf, i) for i ∈ Base.keys(rbf.tdata) ]... );
 tdata_results(rbf :: RbfModel ) = vcat( (rbf.tdata[i] for i ∈ keys(rbf.tdata) )... );
 
+"""
+    RbfConfig(; kwarg1 = val1, … )
+
+Configuration type for local RBF surrogate models.
+
+To choose a kernel, use the kwarg `kernel` and a value of either 
+`:cubic` (default), `:multiquadric`, `:exp` or `:thin_plate_spline`.
+The kwarg `shape_parameter` takes a constant number or a string 
+that defines a calculation on `Δ`, e.g, "Δ/10".
+
+To see other configuration parameters use `fieldnames(Morbit.RbfConfig)`.
+They have individual docstrings attached.
+"""
 @with_kw mutable struct RbfConfig <: SurrogateConfig
+    "(default `:cubic`) RBF kernel (Symbol), either `:cubic`, `:multiquadric`, `:exp` or `:thin_plate_spline`."
     kernel :: Symbol = :cubic;
+    "(default `1`) RBF shape paremeter, either a number or a string containing `Δ`."
     shape_parameter :: Union{AbstractString, Real} = 1;
+    "(default `1`) Degree of polynomial attached to RBF. `-1` means no polynomial."
     polynomial_degree :: Int64 = 1;
 
+    "(default `2`) Local enlargment factor of trust region for sampling."
     θ_enlarge_1 :: Real = 2;
-    θ_enlarge_2 :: Real = 5;  # reset
+    "(default `5`) Maximum enlargment factor of maximum trust region for sampling."
+    θ_enlarge_2 :: Real = 2;  # reset
+    "(default `1/(2*θ_enlarge_1)` Sampling parameter to generate Λ-poised set. The higher, the more poised."
     θ_pivot :: Real = 1 / (2 * θ_enlarge_1);
+    "(default `1e-7`) Parameter for 2nd sampling algorithm to ensure boundedness of Cholesky factors."
     θ_pivot_cholesky :: Real = 1e-7;
 
+    "(default `false`) Require models to be fully linear in each iteration."
     require_linear :: Bool = false;
 
+    "(default `-1`) Maximum number of training sites. `-1` is reset to `2n+1`."
     max_model_points :: Int64 = -1; # is probably reset in the algorithm
+    "(default `false`) Sample new sites to always use the maximum number of points."
     use_max_points :: Bool = false;
 
+    "(default `:orthogonal`) Algorithm to use for finding affinely independent set."
     sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
+    "(default `:standard_rand`) Algorithm to use if additional points are required."
     sampling_algorithm2 :: Symbol = :standard_rand
 
-    constrained :: Bool = false;    # restrict sampling of new sites
-
+    "(default `typemax(Int64)`) Maximum number of objective evaluations."
     max_evals :: Int64 = typemax(Int64);
 
     @assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
@@ -147,7 +171,7 @@ function update_model( rbf :: RbfModel, objf :: AbstractObjective, rmeta:: RbfMe
     add_new_sites!(rbf, cfg, mop, id; max_new = n_new);
 
     if length(rbf.tdata[3]) < n_new 
-        return rebuild_model( rbf, objf, rmeta, id, mop, ac);
+        return rebuild_model( rbf, objf, rmeta, mop, id, ac);
     end
     
     rbf.fully_linear = isempty(rbf.tdata[2]) && length(rbf.tdata[1]) + length(rbf.tdata[3]) == n_vars
@@ -202,10 +226,11 @@ function improve_model( rbf:: RbfModel, objf::AbstractObjective, rmeta :: RbfMet
     return rbf, rmeta;
 end
 
-function rebuild_model( rbf :: RbfConfig, objf :: AbstractObjective, rmeta :: RbfMeta, 
+function rebuild_model( rbf :: RbfModel, objf :: AbstractObjective, rmeta :: RbfMeta, 
         mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig ) :: Tuple{RbfModel, RbfMeta}
     @logmsg loglevel3 "Rebuild model along coordinates..."
 
+    cfg = model_cfg(objf);
     x = xᵗ(id);
     n_vars = length(x);
     Δ = Δᵗ(id);

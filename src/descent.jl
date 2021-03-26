@@ -9,28 +9,26 @@ end
 function _steepest_descent( x :: RVec, ∇F :: RMat, lb :: RVec, ub :: RVec )
         
     n = length(x);
-
-    opt_problem = JuMP.Model( OSQP.Optimizer );
-    JuMP.set_silent(opt_problem);
-
-    JuMP.set_optimizer_attribute( opt_problem, "eps_rel", 1e-5 );
-    JuMP.set_optimizer_attribute( opt_problem, "polish", true );
-
-    JuMP.@variable(opt_problem, α)  # criticality measure with flipped sign
-    JuMP.@objective(opt_problem, Min, α)
-
-    JuMP.@variable(opt_problem, d[1:n]) # steepest descent direction 
-    
-    JuMP.@constraint(opt_problem, descent_constraints, ∇F*d .<= α)
-    JuMP.@constraint(opt_problem, norm_constraints, -1 .<= d .<= 1 );
-    JuMP.@constraint(opt_problem, global_scaled_var_bounds, lb .<= x .+ d .<= ub);
-
     try 
+        opt_problem = JuMP.Model( OSQP.Optimizer );
+        JuMP.set_silent(opt_problem);
+
+        JuMP.set_optimizer_attribute( opt_problem, "eps_rel", 1e-5 );
+        JuMP.set_optimizer_attribute( opt_problem, "polish", true );
+
+        JuMP.@variable(opt_problem, α)  # criticality measure with flipped sign
+        JuMP.@objective(opt_problem, Min, α)
+
+        JuMP.@variable(opt_problem, d[1:n]) # steepest descent direction 
+        
+        JuMP.@constraint(opt_problem, descent_constraints, ∇F*d .<= α)
+        JuMP.@constraint(opt_problem, norm_constraints, -1 .<= d .<= 1 );
+        JuMP.@constraint(opt_problem, global_scaled_var_bounds, lb .<= x .+ d .<= ub);
+
         JuMP.optimize!(opt_problem)
         return JuMP.value.(d), -JuMP.value(α)
     catch e
         println(e)
-        catch_backtrace()
         @warn("Could not optimize steepest descent subproblem.\n")
         return zeros(n), -Inf
     end
@@ -154,12 +152,12 @@ function compute_descent_step(::Val{:ps}, algo_config :: AbstractConfig,
         MAX_EVALS_local = MAX_EVALS - MAX_EVALS_global;
         τₗ, χ_minₗ, retₗ = _ps_optimization(sc,mop,polish_algo,lb,ub,
             MAX_EVALS_local,χ_min,mx,r,n_vars,n_out);
-        if !(retₗ == :FAILURE || isinf(τₗ) || isnan(τₗ))
+        if !(retₗ == :FAILURE || isinf(τₗ) || isnan(τₗ) || any(isnan.(χ_minₗ)) )
             τ, χ_min, ret = τₗ, χ_minₗ, retₗ
         end
     end
 
-    if ret == :FAILURE
+    if (ret == :FAILURE || isinf(τ) || isnan(τ) || any(isnan.(χ_min)) )
         return 0, copy(x), eval_models(sc, x), 0
     else
         ω = abs( τ );
@@ -190,6 +188,7 @@ function _ps_optimization( sc :: SurrogateContainer, mop :: AbstractMOP,
     @logmsg loglevel4 "Starting PS optimization."
     τ, χ_min, ret = NLopt.optimize(opt, χ0 );
     @logmsg loglevel4 "Finished with $(ret) after $(opt.numevals) model evals."
+    
     return τ, χ_min, ret 
 end
 

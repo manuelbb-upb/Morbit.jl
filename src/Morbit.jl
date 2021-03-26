@@ -17,7 +17,8 @@ import NLopt;
 using Parameters: @with_kw, @unpack, @pack!
 using MathOptInterface;
 const MOI = MathOptInterface;
-using Memoize: @memoize, memoize_cache;
+using Memoization: @memoize ThreadSafeDict;
+using ThreadSafeDicts;
 import UUIDs;
 
 import FiniteDiff#erences
@@ -299,7 +300,8 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
 
         mx = eval_models(sc, x);
         fx₊ = eval_all_objectives(mop, x₊);
-        
+        #@show fx .- fx₊
+        #@show mx .- mx₊
         if strict_acceptance_test( algo_config )
             ρ = minimum( (fx .- fx₊) ./ (mx .- mx₊) )
         else

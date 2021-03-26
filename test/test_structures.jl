@@ -9,7 +9,7 @@ src_path = joinpath( @__DIR__, "..", "src");
 using Parameters: @with_kw
 using MathOptInterface;
 const MOI = MathOptInterface;
-using Memoize: @memoize, memoize_cache;
+using Memoize: @memoize ThreadSafeDict, memoize_cache;
 import UUIDs;
 
 import FiniteDiff#erences

@@ -40,7 +40,7 @@ end
     algo1_max_evals :: Union{Nothing,Int} = nothing;    # nothing = automatic
     algo2_max_evals :: Union{Nothing,Int} = nothing;
 
-    algo1_solver :: Symbol = :GN_AGS
+    algo1_solver :: Symbol = :LD_MMA
     algo2_solver :: Symbol = algo1_solver;
 
     max_evals :: Int64 = typemax(Int64);
@@ -72,7 +72,7 @@ function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective,
     lm = LagrangeModel(; 
         n_vars = num_vars(objf),
         n_out = num_outputs(objf),
-        out_indices = output_indices( objf, mop),
+        out_indices = copy(output_indices( objf, mop)),
         basis = _canonical_basis( num_vars( mop ), cfg.degree ),
     );
     # prepare initial basis of polynomial space 
@@ -123,7 +123,7 @@ function _update_model_optimized( lm :: LagrangeModel, objf :: AbstractObjective
     return lm, lmeta;
 end 
 
-@memoize function _get_unit_basis( n_vars :: Int, cfg :: LagrangeConfig ) :: Vector{LagrangePoly}
+@memoize ThreadSafeDict function _get_unit_basis( n_vars :: Int, cfg :: LagrangeConfig ) :: Vector{LagrangePoly}
     return _get_unit_basis( Val(!isnothing( cfg.save_path ) ) , n_vars, cfg ) 
 end
 
@@ -143,9 +143,10 @@ function _get_unit_basis( use_saved :: Val{true}, n_vars :: Int, cfg :: Lagrange
     if load_successful
         # check if the sites are any goodif length( unit_sites[1] ) != n_vars || 
         length( unit_sites ) != binomial( n_vars + cfg.degree, n_vars )
-        any( any( ( s .< 0 ) .| ( s .> 1 ) ) for s ∈ unit_sites )
-        @warn "Loaded sites not suited for interpolation."
-        load_successful = false;
+        if any( any( ( s .< 0 ) .| ( s .> 1 ) ) for s ∈ unit_sites )
+            @warn "Loaded sites not suited for interpolation."
+            load_successful = false;
+        end
     end
 
     if !load_successful
@@ -229,13 +230,15 @@ function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: 
     @logmsg loglevel3 "Building LagrangeModel with indices $(output_indices(objf, mop))."
     cfg = model_cfg(objf);
     if cfg.optimized_sampling
+        @info "optimized"
         lm,lmeta = _update_model_optimized(lm,objf,lmeta,mop,id,algo_config; ensure_fully_linear);
     else
         lm,lmeta = _update_model_unoptimized(lm,objf,lmeta,mop,id,algo_config; ensure_fully_linear);
     end
+    
     # TODO remove this
     #=
-    oi = output_indices(objf, mop);
+    oi = lm.out_indices #output_indices( objf, mop )
     for lp in lm.basis 
         try
             @assert eval_poly( lp, get_site(lp.res) ) ≈ 1
@@ -265,9 +268,8 @@ function improve_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta ::
     return lm, lmeta
 end
 
-
 function eval_models( lm :: LagrangeModel, x̂ :: RVec, ℓ :: Int ) :: Real
-    sum( get_value(lp.res)[ ℓ ] * eval_poly(lp.p, x̂) for lp ∈ lm.basis)    
+    sum( get_value(lp.res)[lm.out_indices[ ℓ ]] * eval_poly(lp.p, x̂) for lp ∈ lm.basis)    
 end
 
 function eval_models( lm :: LagrangeModel, x̂ :: RVec ) :: RVec
@@ -275,19 +277,19 @@ function eval_models( lm :: LagrangeModel, x̂ :: RVec ) :: RVec
 end
 
 function get_gradient( lm :: LagrangeModel, x̂ :: RVec, ℓ :: Int ) :: RVec
-    sum( get_value(lp.res)[ℓ] * eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis )
+    sum( get_value(lp.res)[lm.out_indices[ ℓ ]] * eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis )
 end
 
 function get_jacobian( lm :: LagrangeModel, x̂ :: RVec ) :: RMat
     grad_evals = [ eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis ];
     return Matrix(transpose( hcat(
-        [ sum( get_value(lm.basis[i].res)[ ℓ ] * grad_evals[i] 
+        [ sum( get_value(lm.basis[i].res)[ lm.out_indices[ ℓ ] ] * grad_evals[i] 
             for i = eachindex(grad_evals) )               
                 for ℓ = 1 : lm.n_out ]... 
     )));
 end
 
-#@memoize
+#@memoize ThreadSafeDict
 function _unit_basis( n_vars :: Int, degree :: Int ;
         solver1 :: Symbol, solver2 :: Symbol, max_evals1 :: Union{Nothing,Int}, 
         max_evals2 :: Union{Nothing,Int}, Λ :: Real ) :: Vector{LagrangePoly}
@@ -486,7 +488,10 @@ end
 @doc "Factorial of a multinomial."
 _multifactorial( arr :: Vector{Int} ) =  prod( factorial(α) for α in arr )
 
-@memoize function _canonical_basis( n_vars :: Int, degree :: Int ) :: Vector{LagrangePoly}
+# @memoize ThreadSafeDict
+# TODO memoization caused a lot of trouble here in parallel usage.
+# if important: use ThreadSafeDicts and Memoization.jl
+function _canonical_basis( n_vars :: Int, degree :: Int ) :: Vector{LagrangePoly}
     basis = LagrangePoly[];
     @polyvar χ[1:n_vars]
     for d = 0 : degree
