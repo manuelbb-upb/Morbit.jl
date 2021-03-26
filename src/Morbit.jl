@@ -17,7 +17,7 @@ import NLopt;
 using Parameters: @with_kw, @unpack, @pack!
 using MathOptInterface;
 const MOI = MathOptInterface;
-using Memoization: @memoize ThreadSafeDict;
+using Memoization: @memoize;
 using ThreadSafeDicts;
 import UUIDs;
 
