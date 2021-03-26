@@ -128,7 +128,7 @@ end
 end
 
 function _get_unit_basis( use_saved :: Val{true}, n_vars :: Int, cfg :: LagrangeConfig )
-    proceed = true;
+    load_successful = true;
     unit_sites = [];
     lock(cfg.io_lock) 
     try 
@@ -137,29 +137,31 @@ function _get_unit_basis( use_saved :: Val{true}, n_vars :: Int, cfg :: Lagrange
     catch
         stacktrace( catch_backtrace() )
         @warn "Could not load files from file. Calculating a poised set."
-        proceed = false;
+        load_successful = false;
     end
-    unlock(cfg.io_lock);
     
-    if proceed
-        if length( unit_sites[1] ) != n_vars || 
-            length( unit_sites ) != binomial( n_vars + cfg.degree, n_vars )
-            any( any( ( s .< 0 ) .| ( s .> 1 ) ) for s ∈ unit_sites )
-            @warn "Loaded sites not suited for interpolation."
-            proceed = false;
+    if load_successful
+        # check if the sites are any goodif length( unit_sites[1] ) != n_vars || 
+        length( unit_sites ) != binomial( n_vars + cfg.degree, n_vars )
+        any( any( ( s .< 0 ) .| ( s .> 1 ) ) for s ∈ unit_sites )
+        @warn "Loaded sites not suited for interpolation."
+        load_successful = false;
+    end
+
+    if !load_successful
+        unit_basis = _get_unit_basis( Val(false), n_vars, cfg )
+    else 
+        @logmsg loglevel4 "Loaded sites from $(cfg.save_path)"
+        unit_basis = copy( _canonical_basis( n_vars, cfg.degree ) );
+        for (i,x) ∈ enumerate(unit_sites)
+            unit_basis[i].res = init_res( Res, x );
+            _normalize!(unit_basis[i]);
+            _orthogonalize!(unit_basis, i);
         end
     end
 
-    if !proceed
-        return _get_unit_basis( Val(false), n_vars, cfg )
-    end
-    @logmsg loglevel4 "Loaded sites from $(cfg.save_path)"
-    unit_basis = copy( _canonical_basis( n_vars, cfg.degree ) );
-    for (i,x) ∈ enumerate(unit_sites)
-        unit_basis[i].res = init_res( Res, x );
-        _normalize!(unit_basis[i]);
-        _orthogonalize!(unit_basis, i);
-    end
+    unlock(cfg.io_lock)
+        
     return unit_basis;
 end
 
@@ -170,7 +172,8 @@ function _get_unit_basis( use_saved :: Val{false}, n_vars :: Int, cfg :: Lagrang
         Λ = cfg.Λ
     );
     if !isnothing( cfg.save_path )
-        lock(cfg.io_lock) 
+        #lock(cfg.io_lock) 
+        # better wrap the outer call in io_lock for parallelization
         try 
             unit_sites = [ get_site(ub.res) for ub ∈ unit_basis ];
             save(cfg.save_path, Dict( "sites" => unit_sites ) );
@@ -178,7 +181,7 @@ function _get_unit_basis( use_saved :: Val{false}, n_vars :: Int, cfg :: Lagrang
             stacktrace( catch_backtrace() )
             @warn "Could not save unit sites."
         end
-        unlock(cfg.io_lock);
+        #unlock(cfg.io_lock);
     end
     return unit_basis;
 end
