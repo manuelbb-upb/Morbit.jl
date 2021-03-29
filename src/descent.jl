@@ -149,7 +149,13 @@ function compute_descent_step(::Val{:ps}, algo_config :: AbstractConfig,
 
     if !isnothing(polish_algo)
         @logmsg loglevel4 "Local polishing enabled."
-        MAX_EVALS_local = MAX_EVALS - MAX_EVALS_global;
+        MAX_EVALS_local =  let cfg_polish_evals = max_ps_polish_evals(algo_config);
+            if cfg_polish_evals < 0
+                MAX_EVALS - MAX_EVALS_global
+            else
+                cfg_polish_evals
+            end
+        end
         τₗ, χ_minₗ, retₗ = _ps_optimization(sc,mop,polish_algo,lb,ub,
             MAX_EVALS_local,χ_min,mx,r,n_vars,n_out);
         if !(retₗ == :FAILURE || isinf(τₗ) || isnan(τₗ) || any(isnan.(χ_minₗ)) )

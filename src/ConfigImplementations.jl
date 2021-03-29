@@ -20,7 +20,7 @@ count_nonlinear_iterations( :: AbstractConfig )::Bool=true;
 
 Δ_crit(::AbstractConfig)::Union{RVec,Real} = 1e-3;
 Δₗ(ac::AbstractConfig)::Union{RVec, Real} = Δ_crit(ac) .* 1e-3;
-stepsize_crit(ac::AbstractConfig)::Union{RVec,Real}= Δ_crit(ac) .* 1e-4;
+stepsize_crit(ac::AbstractConfig)::Union{RVec,Real}= Δ_crit(ac) .* 1e-3;
 stepsize_min(::AbstractConfig)::Union{RVec,Real} = eps(Float64) * 10;
 
 descent_method( :: AbstractConfig )::Symbol = :steepest_descent # or :ps
@@ -33,6 +33,7 @@ strict_backtracking( :: AbstractConfig )::Bool = true;
 reference_point(::AbstractConfig) :: RVec = Real[];
 reference_direction(::AbstractConfig) :: RVec = Real[];
 max_ps_problem_evals(::AbstractConfig)::Int = -1;
+max_ps_polish_evals(::AbstractConfig)::Int = -1;
 max_ideal_point_problem_evals(::AbstractConfig) :: Int = -1;
 ps_algo(::AbstractConfig)::Symbol= :GN_ISRES; #valid NLopt algorithm, e.g. GN_ISRES or GN_AGS (last only works for n<=10)
 ideal_point_algo(::AbstractConfig)::Symbol=:GN_AGS;
@@ -85,6 +86,7 @@ use_db( ::EmptyConfig ) = ArrayDB;
     reference_point :: RVec = reference_point(empty_config);
     max_ideal_point_problem_evals :: Int = max_ideal_point_problem_evals(empty_config);
     max_ps_problem_evals :: Int = max_ps_problem_evals(empty_config);
+    max_ps_polish_evals :: Int = max_ps_polish_evals(empty_config);
     ps_algo :: Symbol = ps_algo(empty_config);
     ideal_point_algo :: Symbol = ideal_point_algo(empty_config);
     ps_polish_algo :: Union{Symbol,Nothing} = ps_polish_algo(empty_config);
@@ -126,6 +128,7 @@ reference_direction(ac :: AlgoConfig ) = ac.reference_direction;
 reference_point(ac :: AlgoConfig ) = ac.reference_point;
 max_ideal_point_problem_evals(ac :: AlgoConfig) :: Int = ac.max_ideal_point_problem_evals;
 max_ps_problem_evals(ac::AlgoConfig)::Int = ac.max_ps_problem_evals;
+max_ps_polish_evals(ac::AlgoConfig)::Int = ac.max_ps_polish_evals;
 ps_algo(ac::AlgoConfig)::Symbol=ac.ps_algo
 ideal_point_algo(ac::AlgoConfig)::Symbol=ac.ideal_point_algo
 ps_polish_algo(ac::AlgoConfig)::Union{Nothing,Symbol}=ac.ps_polish_algo;

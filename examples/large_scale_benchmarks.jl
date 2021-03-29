@@ -54,7 +54,7 @@ features = Dict(
     "method" => [:steepest_descent, :ps],
     "model" => ["cubic", "TP1", "LP1", "LP2"],
     "problem_str" => ["ZDT1", "ZDT2", "ZDT3", "DTLZ1", "DTLZ6"],
-    "n_vars" => collect(2:15),
+    "n_vars" => collect(2:10),
 );
 num_runs = args["runs-per-setting"];
 
@@ -161,7 +161,7 @@ function get_model_config(; kwargs...)
             io_lock = lagrange_lock,
         )
     end
-    cfg.max_evals = n_vars^2 * 1000;
+    cfg.max_evals = n_vars * 1000;
     return cfg;
 end
 
@@ -181,7 +181,9 @@ end
 
 function get_algo_config( test_problem; kwargs...)
     model = kwargs[:model]
+    n_vars = kwargs[:n_vars]
     ac = AlgoConfig(;
+        ε_crit = .1,
         max_iter = 100,
         Δ_0 = .1,
         Δ_max = .5,
@@ -193,7 +195,9 @@ function get_algo_config( test_problem; kwargs...)
         strict_backtracking = true,
         reference_point = get_ideal_point( test_problem ) .- 1,
         ps_algo = :GN_ISRES,
-        #ps_polish_algo = nothing,
+        max_ps_problem_evals = 50 * (n_vars + 1),
+        max_ps_polish_evals = 150 * (n_vars + 1),
+        ps_polish_algo = :LD_MMA,
     )
 end
 
