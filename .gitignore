@@ -7,3 +7,4 @@
 *.jld2
 /test/Manifest.toml
 /docs/Manifest.toml
+examples/Manifest.toml

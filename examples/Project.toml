@@ -1,0 +1,13 @@
+[deps]
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+DynamicPolynomials = "7b658bbf-878b-49b6-b8a5-7e75a9be2423"
+FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+HaltonSequences = "13907d55-377f-55d6-a9d6-25ac19e11b95"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+Morbit = "88936782-c8cd-4a0f-b259-ffb12bfd2869"
+MultiObjectiveProblems = "ad069600-9bf0-4bd3-b060-bd43ee6ba39c"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"

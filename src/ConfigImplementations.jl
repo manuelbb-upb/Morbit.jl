@@ -34,7 +34,7 @@ reference_point(::AbstractConfig) :: RVec = Real[];
 reference_direction(::AbstractConfig) :: RVec = Real[];
 max_ps_problem_evals(::AbstractConfig)::Int = -1;
 max_ideal_point_problem_evals(::AbstractConfig) :: Int = -1;
-ps_algo(::AbstractConfig)::Symbol= :GN_AGS; #valid NLopt algorithm, e.g. GN_ISRES or GN_AGS
+ps_algo(::AbstractConfig)::Symbol= :GN_ISRES; #valid NLopt algorithm, e.g. GN_ISRES or GN_AGS (last only works for n<=10)
 ideal_point_algo(::AbstractConfig)::Symbol=:GN_AGS;
 "Specify local algorithm to polish Pascoletti-Serafini solution. Uses 1/4 of maximum allowed evals."
 ps_polish_algo(::AbstractConfig)::Union{Nothing,Symbol}=:LD_MMA
