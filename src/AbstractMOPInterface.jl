@@ -253,7 +253,7 @@ function _add_objective!( mop :: AbstractMOP, T :: Type{<:AbstractObjective},
         if combinable( objf, other_objf )
             other_output_indices = pop_objf!( mop, other_objf );
             out_indices = [other_output_indices; out_indices];
-            objf = combine(objf, other_objf);
+            objf = combine(other_objf, objf);
             break;
         end
     end
