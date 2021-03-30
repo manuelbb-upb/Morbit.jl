@@ -54,7 +54,7 @@ features = Dict(
     "method" => [:steepest_descent, :ps],
     "model" => ["cubic", "TP1", "LP1", "LP2"],
     "problem_str" => ["ZDT1", "ZDT2", "ZDT3", "DTLZ1", "DTLZ6"],
-    "n_vars" => collect(2:10),
+    "n_vars" => collect(2:15),
 );
 num_runs = args["runs-per-setting"];
 
@@ -193,11 +193,12 @@ function get_algo_config( test_problem; kwargs...)
         descent_method = kwargs[:method],
         strict_acceptance_test = true,
         strict_backtracking = true,
-        reference_point = get_ideal_point( test_problem ) .- 1,
+        #reference_point = get_ideal_point( test_problem ) .- 1,
         ps_algo = :GN_ISRES,
         max_ps_problem_evals = 50 * (n_vars + 1),
         max_ps_polish_evals = 150 * (n_vars + 1),
         ps_polish_algo = :LD_MMA,
+        max_ideal_point_problem_evals = 100 * (n_vars + 1),
     )
 end
 

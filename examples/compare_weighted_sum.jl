@@ -27,14 +27,16 @@ res_file = joinpath(
 results = load_results( res_file )
 
 #%%
-n_vars = 8;
+n_vars = 15;
 problem = ZDT2
 test_prob = problem(n_vars);
-method = "steepest_descent"
-model = "ps"
+method = "ps"
+model = "TP1"
+
 box_constraints = constraints(test_prob);
 f1, f2 = get_objectives(test_prob);
 LB = box_constraints.lb; UB = box_constraints.ub;
+
 X0 = unique(results[ results.n_vars .== n_vars ,:x0])
 max_evals = Int( ceil( mean(
     results[ 

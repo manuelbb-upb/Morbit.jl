@@ -18,9 +18,12 @@ include("plot_helpers/loading_saving.jl")
 #%% settings 
 res_file = joinpath(
     ENV["HOME"], "MORBIT_BENCHMARKS", 
-    "results_WoJEMTIw_3600x8_29_Mar_2021__18_13_49.jld2"
+#    "results_WoJEMTIw_3600x8_29_Mar_2021__18_13_49.jld2"
+    "results_XIHJrRkp_4480x8_30_Mar_2021__02_22_26.jld2"
 );
-plot_file = joinpath(ENV["HOME"], "Desktop", "PaperPlots", "line_plots_evals_by_vars_all_models.png")
+plot_file = joinpath(ENV["HOME"], "Desktop", "PaperPlots",
+ "line_plots_evals_by_vars_all_models.png"
+)
 
 #%% Unique values
 results = load_results( res_file )
@@ -104,7 +107,7 @@ legend.labelsize = 22;
 
 # style axes 
 ax = content(content(fig[1,1])[1,1]);
-ylims!(ax, [0.0, 200]);
+ylims!(ax, [0.0, 600]);
 ax.xlabel[] = "№ of decision variables";
 ax.ylabel[] = "avg. № of evals";
 ax.xlabelsize[] = ax.ylabelsize[] = 28;

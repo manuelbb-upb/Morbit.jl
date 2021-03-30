@@ -36,7 +36,7 @@ max_ps_problem_evals(::AbstractConfig)::Int = -1;
 max_ps_polish_evals(::AbstractConfig)::Int = -1;
 max_ideal_point_problem_evals(::AbstractConfig) :: Int = -1;
 ps_algo(::AbstractConfig)::Symbol= :GN_ISRES; #valid NLopt algorithm, e.g. GN_ISRES or GN_AGS (last only works for n<=10)
-ideal_point_algo(::AbstractConfig)::Symbol=:GN_AGS;
+ideal_point_algo(::AbstractConfig)::Symbol=:GN_ISRES;
 "Specify local algorithm to polish Pascoletti-Serafini solution. Uses 1/4 of maximum allowed evals."
 ps_polish_algo(::AbstractConfig)::Union{Nothing,Symbol}=:LD_MMA
 
