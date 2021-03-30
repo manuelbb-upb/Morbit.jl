@@ -19,7 +19,7 @@ include("plot_helpers/loading_saving.jl")
 n_vars = 10;
 num_runs = 10;
 problem = ZDT2
-max_evals = 100
+max_evals = 10*n_vars
 
 # retrieve test problem
 test_prob = problem(n_vars);
@@ -71,7 +71,8 @@ FX_sd = []
 for x0 ∈ X0
     res = _morbit_run(ac_sd, x0) 
     push!( X_sd, res[1])
-    push!( FX_sd, res[2])
+    #push!( FX_sd, res[2])
+    push!(FX_sd, [f1(res[1]);f2(res[1])])
 end
 
 #%% NLopt run 
@@ -112,15 +113,15 @@ scatter!(Tuple.(FX_sd); color = upb_lightblue, marker = :diamond, label = "SD")
 scatter!(Tuple.(FX_ps); color = upb_cyan, marker = :cross, label = "PS")
 scatter!(Tuple.(FX_nlopt); color = upb_orange, marker = :rect, label = "WS")
 
-ax.title[] = "Solution distribution ($(string(problem)), $(n_vars) variables)"
+ax.title[] = "Solutions ($(string(problem)), $(n_vars) vars, $(max_evals) evals)"
 ax.xlabel[] = "f₁"
 ax.ylabel[] = "f₂"
 leg = fig[1, 2] = Legend(fig[1,1], ax;
     framevisible = false, labelsize = 15 )
-fig
 
 plot_file = joinpath(ENV["HOME"], "Desktop", "PaperPlots",
  "compare_ws_morbit_$(string(problem))_$(n_vars).png"
 )
 
 saveplot(plot_file, fig)
+fig

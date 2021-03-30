@@ -25,6 +25,8 @@ plot_file = joinpath(ENV["HOME"], "Desktop", "PaperPlots",
  "line_plots_evals_by_vars_all_models.png"
 )
 
+SIZE = (1450, 550)
+
 #%% Unique values
 results = load_results( res_file )
 all_methods = unique( results[!,:method] )
@@ -123,5 +125,84 @@ title = fig[0,:] = Label(
     textsize = 30.0
 );
 
-saveplot(plot_file,fig)
+#saveplot(plot_file,fig)
 fig
+
+#%% Plot 2
+filtered_data2 = filtered_data[ filtered_data.method .== "steepest_descent", : ]
+filtered_data2[ isinf.(filtered_data2[:,:ω]), :ω ] .= 0.0
+
+dim = 10;
+prefix = "a"
+dim_data = filtered_data2[ filtered_data2.n_vars .== dim, : ]
+plot_data_ω = (
+    data( dim_data ) * 
+    mapping( :model => categorical, :ω ) *
+    visual( BoxPlot; markersize = 2.5 )
+);
+
+fig2 = Figure(resolution = (740, 420));
+AlgebraOfGraphics.draw!(fig2, plot_data_ω)
+
+# move to right side 
+fig2[1,2] = contents(fig2[1,1])
+
+plot_data_n = (
+    data( dim_data ) * 
+    mapping( :model => categorical, :n_evals ) *
+    visual( BoxPlot; markersize = 2.5 )
+);
+
+AlgebraOfGraphics.draw!(fig2, plot_data_n)
+
+ax1 = content(fig2[1,1][1,1])
+ax2 = content(fig2[1,2][1,1])
+
+ax1.ylabel[] = " № of evaluations"
+
+# move y axis of 2nd plot to right
+ax2.yaxisposition[] = :right 
+ax2.yticklabelalign[] = (:left, :center)
+
+ax1.xticks[] = ax2.xticks[] = LinearTicks( length(models) + 1 )
+ax2.xtickformat[] = ax1.xtickformat[] = xs -> [String(models[i]) for i=eachindex(xs)]
+
+title = fig2[0,:] = Label(fig2.scene, "($(prefix)) № of Evals & Criticality ($(dim) Vars)", textsize = 24)
+
+#savefunc("box_plots_dim_5_evals_omega.png", fig2);
+fig2 
+
+#%% Plot 3
+
+#%%
+g = groupby(filtered_data2, [:n_vars,:model]);
+omg = unique(combine(g, :ω => (ω -> 100*sum(ω .< 0.1)/length(ω) ) => :solved));
+dat = data(omg);
+LINECOLORS = [upb_orange, upb_blue, upb_cassis, upb_lightblue, upb_lightgray ];
+
+fig3 = Figure(resolution = SIZE );
+
+plot_data = (
+    dat * 
+    visual( color = LINECOLORS ) *
+    mapping(
+        :n_vars,
+        :solved
+    ) *
+    mapping(dodge = :model => categorical, color = :model => categorical ) *
+    visual(BarPlot)
+);
+
+AlgebraOfGraphics.draw!(fig3, plot_data);
+
+ax = content(fig3[1,1][1,1]);
+ylims!(ax,[60.0,102]);
+#xlims!(ax,[2,15]);
+ax.xticks[] = all_n_vars;
+ax.title[] = "Percentage of Solved Problems (ω < 0.1)."
+ax.titlesize[] = 30f0;
+ax.ylabel[] = "% of solved problems"
+ax.xlabel[] = "№ of decision variables"
+ax.xlabelsize[] = ax.ylabelsize[] = 24.0;
+
+fig3

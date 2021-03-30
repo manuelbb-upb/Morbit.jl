@@ -183,22 +183,21 @@ function get_algo_config( test_problem; kwargs...)
     model = kwargs[:model]
     n_vars = kwargs[:n_vars]
     ac = AlgoConfig(;
-        ε_crit = .1,
+        ε_crit = .01,
         max_iter = 100,
         Δ_0 = .1,
         Δ_max = .5,
         Δ_critical = 1e-3,
         stepsize_min = 1e-16,
-        max_critical_loops = model == "TP1" ? 0 : 2,
+        max_critical_loops = model == "TP1" ? 0 : 3,
         descent_method = kwargs[:method],
         strict_acceptance_test = true,
         strict_backtracking = true,
-        #reference_point = get_ideal_point( test_problem ) .- 1,
+        reference_point = get_ideal_point( test_problem ) .- 1,
         ps_algo = :GN_ISRES,
         max_ps_problem_evals = 50 * (n_vars + 1),
-        max_ps_polish_evals = 150 * (n_vars + 1),
+        max_ps_polish_evals = 100 * (n_vars + 1),
         ps_polish_algo = :LD_MMA,
-        max_ideal_point_problem_evals = 100 * (n_vars + 1),
     )
 end
 
