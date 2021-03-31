@@ -19,16 +19,24 @@ include("plot_helpers/loading_saving.jl")
 res_file = joinpath(
     ENV["HOME"], "MORBIT_BENCHMARKS", 
 #    "results_WoJEMTIw_3600x8_29_Mar_2021__18_13_49.jld2"
-    "results_XIHJrRkp_4480x8_30_Mar_2021__02_22_26.jld2"
+#   "results_XIHJrRkp_4480x8_30_Mar_2021__02_22_26.jld2"
+#   "results_QHvrOuJQ_6720x8_30_Mar_2021__19_14_54.jld2",
+"results_XwSD7zMO_960x8_31_Mar_2021__20_32_36.jld2"
 );
-plot_file = joinpath(ENV["HOME"], "Desktop", "PaperPlots",
- "line_plots_evals_by_vars_all_models.png"
-)
 
 SIZE = (1450, 550)
 
 #%% Unique values
 results = load_results( res_file )
+
+res_file_ws = string(splitext(res_file)[1], "_WS", ".jld2")
+if isfile(res_file_ws)
+    results_ws = load( res_file_ws )["results"]
+    results_ws[:, :model] .= "WS"
+    results_ws[:, :method] .= "COBYLA"
+    results = vcat( results, results_ws )
+end
+
 all_methods = unique( results[!,:method] )
 all_models = unique( results[!, :model] )
 all_n_vars = unique( results[!, :n_vars ] )
@@ -36,7 +44,7 @@ all_n_vars = unique( results[!, :n_vars ] )
 #%% PLOT 1 - Average Number of Evaluations per Run by Decision Space Dimension 
 
 methods = sort(all_methods);
-models = sort(["cubic", "TP1", "LP1", "LP2"])
+models = sort(all_models);
 
 filtered_data = results[ 
     ( (res_method -> res_method ∈ methods).(results.method) ) .& 
@@ -54,58 +62,49 @@ combined = unique(
 );
 #%%
 
-LINECOLORS = [upb_orange, upb_blue, upb_cassis, upb_lightblue ];
-LINESTYLES = [ nothing, :dash ];
-MARKERS = [:circle, :star5];
-
-fig = Figure(resolution = (1500, 550));
+#ls = Dict( "ps" => nothing, "steepest_descent" => :dashdot, "COBYLA" => :dash )
+#transform!( combined, :method => ByRow( x -> ls[x] ) => :ls) 
 
 plot_data = (
     data( combined ) *
-    visual( color = LINECOLORS ) *
-    visual( linewidth = 2 ) *
+    visual( color = wong_array ) *
+    visual( markercolor = wong_array ) *
+    visual( linestyle = [:dash, nothing, :dashdot]) *
+    visual( linewidth = 3 ) *
+    #visual( linestyle = ls ) *
     mapping( 
         color = :model => categorical,
+        markercolor = :model => categorical,
+        linestyle = :method => categorical, 
     ) *
     mapping(
         :n_vars,
-        :avg_evals
-    ) 
-) * (
-    visual( linestyle = LINESTYLES ) *
-    mapping(linestyle = :method => categorical ) * 
-    visual(Lines) + 
-    visual( marker = MARKERS ) *
-    mapping(marker = :method => categorical) * visual(Scatter) 
+        :avg_evals,
+    ) *    
+    visual(ScatterLines, markersize = 10)
 );
 
+#%%
+fig = Figure(resolution = (1500, 550));
 AlgebraOfGraphics.draw!(fig, plot_data)
 
 # styling
 # delete legend 
-delete!(content(fig.layout[1,2]))
+legend = content(fig[1,2])
 
-# symbols for colors 
-color_elems = [ PolyElement( color = C, strokecolor = :transparent) for C ∈ LINECOLORS ]
-style_elems = [ 
-    [
-    LineElement( linestyle = LINESTYLES[i], color = :black, strokewidth = 2.0, linepoints = Point2f0[ (0,.5), (2.0, .5)] ),
-    MarkerElement( marker = MARKERS[i], strokecolor = :black, color = :black, markerpoints = [Point2f0(1, .5),])
-    ] 
-    for i = eachindex( methods) 
-];
+legend.elements[:titletexts][1].text[] = "Model"
+legend.elements[:titletexts][2].text[] = "Method"
 
-legend = fig[1,2] = Legend(
-    fig.scene,
-    [color_elems, style_elems ],
-    [String.(models), String.(methods)],
-    ["Model", "Method"]
-);
+for elem ∈ legend.elements[:entrytexts][2]
+    if elem.text[] == "steepest_descent"
+        elem.text[] = "sd"
+    end
+end
 
-legend.patchsize[] = (35,20)
-legend.patchlabelgap = 45;
-legend.titlesize = 26;
-legend.labelsize = 22;
+legend.patchsize[] = (40,20)
+legend.patchlabelgap[] = 10;
+legend.titlesize[] = 26;
+legend.labelsize[] = 22;
 
 # style axes 
 ax = content(content(fig[1,1])[1,1]);
@@ -125,15 +124,21 @@ title = fig[0,:] = Label(
     textsize = 30.0
 );
 
+plot_file = joinpath(ENV["HOME"], "Desktop", "PaperPlots",
+ "line_plots_evals_by_vars_all_models.png"
+)
 #saveplot(plot_file,fig)
 fig
 
 #%% Plot 2
+#=
 filtered_data2 = filtered_data[ filtered_data.method .== "steepest_descent", : ]
+    #(filtered_data.model .!= "ws") , : ]
+
 filtered_data2[ isinf.(filtered_data2[:,:ω]), :ω ] .= 0.0
 
-dim = 10;
-prefix = "a"
+dim = 2;
+prefix = "b"
 dim_data = filtered_data2[ filtered_data2.n_vars .== dim, : ]
 plot_data_ω = (
     data( dim_data ) * 
@@ -149,7 +154,8 @@ fig2[1,2] = contents(fig2[1,1])
 
 plot_data_n = (
     data( dim_data ) * 
-    mapping( :model => categorical, :n_evals ) *
+    mapping( :model , :n_evals ) *
+    mapping( ticks = :model => categorical ) *
     visual( BoxPlot; markersize = 2.5 )
 );
 
@@ -164,27 +170,82 @@ ax1.ylabel[] = " № of evaluations"
 ax2.yaxisposition[] = :right 
 ax2.yticklabelalign[] = (:left, :center)
 
-ax1.xticks[] = ax2.xticks[] = LinearTicks( length(models) + 1 )
-ax2.xtickformat[] = ax1.xtickformat[] = xs -> [String(models[i]) for i=eachindex(xs)]
+ax1.xticks[] = ax2.xticks[] = LinearTicks( length(unique(dim_data.model)) + 1 )
+#ax2.xtickformat[] = ax1.xtickformat[] = xs -> [String(models[i]) for i=eachindex(xs)]
 
 title = fig2[0,:] = Label(fig2.scene, "($(prefix)) № of Evals & Criticality ($(dim) Vars)", textsize = 24)
 
-#savefunc("box_plots_dim_5_evals_omega.png", fig2);
+plot_file2 = joinpath(ENV["HOME"], "Desktop", "PaperPlots",
+ "omega_criticality_$(prefix)_$(dim).png"
+)
+saveplot(plot_file2, fig2);
 fig2 
-
-#%% Plot 3
+=#
 
 #%%
-g = groupby(filtered_data2, [:n_vars,:model]);
-omg = unique(combine(g, :ω => (ω -> 100*sum(ω .< 0.1)/length(ω) ) => :solved));
+dim = 5
+prefix = "a"
+function eval_crit_boxplots(dim, prefix)
+
+    fig25 = Figure(resolution = (740, 420));
+
+    ax11 = fig25[1,1] = Axis(fig25)
+
+    filtered_data[ isinf.(filtered_data.ω) , :ω] .= 0
+    dim_data = filtered_data[ filtered_data.n_vars .== dim, : ]
+
+    N = length(models)
+
+    for (i,mod) ∈ enumerate(models)
+        y = dim_data[ dim_data.model .== mod , :n_evals ]
+        if !isempty(y)
+            boxplot!(ax11, i .* ones(length(y)), y, markersize = 3)
+        end
+    end
+
+    ax11.xticks[] = collect(1:N)
+    ax11.xtickformat[] = i -> models[Int.(i)]
+    ax11.ylabel[] = "№ of evaluations"
+
+    ax12 = fig25[1,2] = Axis(fig25) 
+
+    N = length(models)
+    for (i,mod) ∈ enumerate(models)
+        @show y = dim_data[ dim_data.model .== mod , :ω ]
+        if !isempty(y)
+            boxplot!(ax12, i .* ones(length(y)), y, markersize = 3,
+            show_outliers = false
+            )
+        end
+    end
+
+    ax12.xticks[] = collect(1:N)
+    ax12.xtickformat[] = i -> models[Int.(i)]
+    ax12.yaxisposition[] = :right
+    ax12.ylabel[] = "ω (no outliers)"
+
+    fig25[0,:] = Label(fig25, "($(prefix)) № of Evals & Criticality ($(dim) Vars)", textsize = 24)
+
+        
+    plot_file2 = joinpath(ENV["HOME"], "Desktop", "PaperPlots",
+    "omega_criticality_$(prefix)_$(dim).png"
+    )
+    saveplot(plot_file2, fig25);
+    fig25
+end
+eval_crit_boxplots(5, "a")
+
+#%% Plot3
+ω_threshold = .1;
+g = groupby(filtered_data, [:n_vars,:model]);
+omg = unique(combine(g, :ω => (ω -> 100*sum(ω .< ω_threshold)/length(ω) ) => :solved));
 dat = data(omg);
-LINECOLORS = [upb_orange, upb_blue, upb_cassis, upb_lightblue, upb_lightgray ];
 
 fig3 = Figure(resolution = SIZE );
 
 plot_data = (
     dat * 
-    visual( color = LINECOLORS ) *
+    visual( color = wong_array ) *
     mapping(
         :n_vars,
         :solved
@@ -196,13 +257,66 @@ plot_data = (
 AlgebraOfGraphics.draw!(fig3, plot_data);
 
 ax = content(fig3[1,1][1,1]);
-ylims!(ax,[60.0,102]);
+
 #xlims!(ax,[2,15]);
 ax.xticks[] = all_n_vars;
-ax.title[] = "Percentage of Solved Problems (ω < 0.1)."
+ax.title[] = "Percentage of Solved Problems (ω < $(ω_threshold))."
 ax.titlesize[] = 30f0;
 ax.ylabel[] = "% of solved problems"
 ax.xlabel[] = "№ of decision variables"
 ax.xlabelsize[] = ax.ylabelsize[] = 24.0;
 
+# Solved problem percentages
+sol_gr = groupby( filtered_data, [:n_vars,:problem_str])
+sol_pr = unique(combine( sol_gr, :ω => (ω -> 100*sum(ω .< ω_threshold)/length(ω) ) => :solved))
+
+all_problems = unique( sol_pr.problem_str )
+GRAYS = ([RGB(i) for i = LinRange(0,.9, length(all_problems))])
+
+dat = data(sol_pr)
+plot_data = (
+    dat * 
+    visual( color = GRAYS, markercolor = GRAYS ) *
+    mapping(
+        :n_vars,
+        :solved
+    ) *
+    (
+        mapping( color = :problem_str => categorical, 
+        markercolor = :problem_str => categorical )
+    ) *
+    visual( ScatterLines,
+        linewidth = 2,
+        markersize = 8,
+        strokewidth = 2,
+    )
+);
+AlgebraOfGraphics.draw!(fig3, plot_data)
+
+ax1 = contents(fig3[1,1][1,1])[1]
+ax2 = contents(fig3[1,1][1,1])[2]
+
+# move legends
+leg1, leg2 = contents(fig3[1,2])
+leg_sub = GridLayout()
+leg_sub[1,1] = leg1
+leg_sub[2,1] = leg2
+delete!.(contents(fig3[1,2]))
+fig3[1,2] = leg_sub
+leg1.elements[:titletexts][1].text[] = "Model"
+leg2.elements[:titletexts][1].text[] = "Problem"
+leg2.patchsize[] = (40, 20)
+
+hidespines!(ax2)
+hidedecorations!(ax2)
+linkaxes!(ax1, ax2)
+
+lower_y = .95 * min( minimum( omg.solved ), minimum( sol_pr.solved ) );
+upper_y = 1.01 *max( maximum( omg.solved ), maximum( sol_pr.solved) );
+ylims!(ax1,[lower_y,upper_y]);
+
+plot_file3 = joinpath(ENV["HOME"], "Desktop", "PaperPlots",
+ "percentage_of_solved_problems.png"
+)
+saveplot(plot_file3, fig3);
 fig3

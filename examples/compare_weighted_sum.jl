@@ -18,8 +18,8 @@ include("plot_helpers/loading_saving.jl")
 
 n_vars = 10;
 num_runs = 10;
-problem = ZDT2
-max_evals = 10*n_vars
+problem = ZDT1;
+max_evals = 3*n_vars
 
 # retrieve test problem
 test_prob = problem(n_vars);
@@ -66,13 +66,10 @@ function _nlopt_run( x0 )
 end
 
 #%% First Morbit run (steepest_descent)
-X_sd = []
 FX_sd = []
 for x0 ∈ X0
-    res = _morbit_run(ac_sd, x0) 
-    push!( X_sd, res[1])
-    #push!( FX_sd, res[2])
-    push!(FX_sd, [f1(res[1]);f2(res[1])])
+    _, fx = _morbit_run(ac_sd, x0) 
+    push!(FX_sd, fx)
 end
 
 #%% NLopt run 
@@ -109,9 +106,9 @@ fig, ax, _ = lines(Tuple.(pfp); linewidth = 1.5,
 F0 = [[f1(x);f2(x)] for x ∈ X0]
 # add results from Morbit
 scatter!(Tuple.(F0); color = upb_blue, marker =:circle, label = "f(x₀)" )
-scatter!(Tuple.(FX_sd); color = upb_lightblue, marker = :diamond, label = "SD")
-scatter!(Tuple.(FX_ps); color = upb_cyan, marker = :cross, label = "PS")
 scatter!(Tuple.(FX_nlopt); color = upb_orange, marker = :rect, label = "WS")
+scatter!(Tuple.(FX_sd); color = upb_lightblue, marker = :diamond, label = "SD")
+scatter!(Tuple.(FX_ps); color = upb_cassis, marker = :cross, label = "PS")
 
 ax.title[] = "Solutions ($(string(problem)), $(n_vars) vars, $(max_evals) evals)"
 ax.xlabel[] = "f₁"

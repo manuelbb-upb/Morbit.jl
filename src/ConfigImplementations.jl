@@ -2,12 +2,9 @@
 # AbstractConfig
 Broadcast.broadcastable( ac :: AbstractConfig ) = Ref( ac );
 
-max_evals( :: AbstractConfig ) :: Int = typemax(Int);
-max_iter( :: AbstractConfig ) :: Int = 50;
-
 ε_crit( ::AbstractConfig )::Real=1e-3;
-γ_crit( ::AbstractConfig)::Real=.501;
-max_critical_loops( :: AbstractConfig )::Int = 10;
+γ_crit( ::AbstractConfig)::Real=.501;   # shrinking in critical loop
+max_critical_loops( :: AbstractConfig )::Int = 5;
 
 use_db( :: AbstractConfig )::Union{ Type{<:AbstractDB}, Nothing } = nothing;
 
@@ -18,10 +15,30 @@ count_nonlinear_iterations( :: AbstractConfig )::Bool=true;
 # radius upper bound(s)
 Δᵘ(::AbstractConfig)::Union{RVec, Real} = 0.5;
 
-Δ_crit(::AbstractConfig)::Union{RVec,Real} = 1e-3;
-Δₗ(ac::AbstractConfig)::Union{RVec, Real} = Δ_crit(ac) .* 1e-3;
-stepsize_crit(ac::AbstractConfig)::Union{RVec,Real}= Δ_crit(ac) .* 1e-3;
-stepsize_min(::AbstractConfig)::Union{RVec,Real} = eps(Float64) * 10;
+# STOPPING 
+# restrict number of evaluations and iterations
+max_evals( :: AbstractConfig ) :: Int = typemax(Int);
+max_iter( :: AbstractConfig ) :: Int = 50;
+
+# relative stopping 
+# stop if ||Δf|| ≤ ε ||f||
+f_tol_rel( :: AbstractConfig ) ::Union{RVec,Real} = 1e-8;
+# stop if ||Δx|| ≤ ε ||x||
+x_tol_rel( :: AbstractConfig ) ::Union{RVec,Real} = 1e-8;
+
+# absolute stopping
+f_tol_abs( :: AbstractConfig ) ::Union{RVec,Real}  = -1;
+x_tol_abs( :: AbstractConfig ) ::Union{RVec,Real}  = -1;
+
+# stop if ω ≤ ω_tol_rel && Δ .≤ Δ_tol_rel
+ω_tol_rel( :: AbstractConfig ) :: Real = 1e-3;
+Δ_tol_rel( :: AbstractConfig ) :: Union{RVec,Real} = 1e-2;
+
+# stop if ω <= ω_tol_abs 
+ω_tol_abs(ac :: AbstractConfig ) :: Real = -1;
+
+# stop if Δ .<= Δ_tol_abs 
+Δ_tol_abs(ac :: AbstractConfig ) ::Union{RVec,Real} = 1e-6;
 
 descent_method( :: AbstractConfig )::Symbol = :steepest_descent # or :ps
 
@@ -67,14 +84,37 @@ use_db( ::EmptyConfig ) = ArrayDB;
     γ_crit::Real = γ_crit(empty_config);
     max_critical_loops :: Int = max_critical_loops(empty_config);
     ε_crit :: Real = ε_crit(empty_config);
+
     count_nonlinear_iterations :: Bool = count_nonlinear_iterations( empty_config );
     Δ_0 :: Union{Real, RVec} = Δ⁰(empty_config);
     Δ_max :: Union{Real, RVec } = Δᵘ(empty_config);
+        
+    # relative stopping 
+    # stop if ||Δf|| ≤ ε ||f||
+    f_tol_rel::Union{RVec,Real} = f_tol_rel( empty_config );
+    # stop if ||Δx|| ≤ ε ||x||
+    x_tol_rel ::Union{RVec,Real} = x_tol_rel(empty_config);
+
+    # absolute stopping
+    f_tol_abs ::Union{RVec,Real}  = f_tol_abs(empty_config)
+    x_tol_abs ::Union{RVec,Real}  = x_tol_abs(empty_config);
+
+    # stop if ω ≤ ω_tol_rel && Δ .≤ Δ_tol_rel
+    ω_tol_rel :: Real = ω_tol_rel(empty_config);
+    Δ_tol_rel ::Union{RVec,Real} = Δ_tol_rel(empty_config);
+
+    # stop if ω <= ω_tol_abs 
+    ω_tol_abs :: Real = ω_tol_abs(empty_config);
+
+    # stop if Δ .<= Δ_tol_abs 
+    Δ_tol_abs ::Union{RVec,Real} = Δ_tol_abs(empty_config);
     
+    #=
     Δ_min :: Union{Real, RVec} = Δₗ( empty_config );
     Δ_critical :: Union{Real, RVec } = Δ_crit( empty_config );
     stepsize_critical :: Union{Real,RVec} = stepsize_crit( empty_config );
     stepsize_min :: Union{Real,RVec} = stepsize_min(empty_config);
+    =#
 
     descent_method :: Symbol = descent_method(empty_config);
     
@@ -107,19 +147,45 @@ use_db( ::EmptyConfig ) = ArrayDB;
     @assert descent_method ∈ [:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search]
 end
 
+
+# restrict number of evaluations and iterations
 max_evals( ac :: AlgoConfig ) = ac.max_evals;
 max_iter( ac :: AlgoConfig ) = ac.max_iter;
+
+# relative stopping 
+# stop if ||Δf|| ≤ ε ||f||
+f_tol_rel( ac :: AlgoConfig ) ::Union{RVec,Real} = ac.f_tol_rel;
+# stop if ||Δx|| ≤ ε ||x||
+x_tol_rel( ac :: AlgoConfig ) ::Union{RVec,Real} = ac.x_tol_rel;
+
+# absolute stopping
+f_tol_abs( ac :: AlgoConfig ) ::Union{RVec,Real}  = ac.f_tol_abs;
+x_tol_abs( ac :: AlgoConfig ) ::Union{RVec,Real}  = ac.x_tol_abs;
+
+# stop if ω ≤ ω_tol_rel && Δ .≤ Δ_tol_rel
+ω_tol_rel( ac :: AlgoConfig ) :: Real = ac.ω_tol_rel;
+Δ_tol_rel( ac :: AlgoConfig ) :: Union{RVec,Real} = ac.Δ_tol_rel;
+
+# stop if ω <= ω_tol_abs 
+ω_tol_abs( ac :: AlgoConfig ) :: Real = ac.ω_tol_abs;
+
+# stop if Δ .<= Δ_tol_abs 
+Δ_tol_abs( ac :: AlgoConfig ) ::Union{RVec,Real} = ac.Δ_tol_abs;
+
+
 max_critical_loops(ac::AlgoConfig)::Int=ac.max_critical_loops;
 count_nonlinear_iterations(ac :: AlgoConfig) = ac.count_nonlinear_iterations;
 Δ⁰( ac :: AlgoConfig ) = ac.Δ_0;
 Δᵘ( ac :: AlgoConfig ) = ac.Δ_max;
 
+#=
 Δₗ( ac :: AlgoConfig ) = ac.Δ_min;
 Δ_crit( ac :: AlgoConfig ) = ac.Δ_critical;
 stepsize_crit( ac :: AlgoConfig ) = ac.stepsize_critical;
 stepsize_min(ac::AlgoConfig) = ac.stepsize_min;
-use_db( ac :: AlgoConfig ) = ac.db;
+=#
 
+use_db( ac :: AlgoConfig ) = ac.db;
 descent_method( ac :: AlgoConfig ) = ac.descent_method;
 
 strict_backtracking( ac :: AlgoConfig ) = ac.strict_backtracking;
@@ -146,4 +212,4 @@ radius_update_method( ac :: AlgoConfig )::Symbol = ac.radius_update_method;
 γ_shrink_much(ac :: AlgoConfig)::Real = ac.γ_shrink_much;
 
 γ_crit(ac::AlgoConfig) = ac.γ_crit;
-ε_crit(ac::AlgoConfig) = ac.ε_crit;
+ω_min(ac::AlgoConfig) = ac.ω_min;

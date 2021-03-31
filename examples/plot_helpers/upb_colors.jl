@@ -19,3 +19,17 @@ upb_cyan_str= "RGB(24, 176, 226)"
 upb_orange_str= "RGB(242, 149, 18)"
 upb_cassis_str= "RGB(169, 57, 131)"
 upb_lightblue_str= "RGB(0, 127, 185)"
+
+wong_black = RGB( 0, 0, 0)
+wong_orange = RGB( 230/255, 159/255, 0)
+wong_sky_blue = RGB( 85/255, 180/255, 233/255 )
+wong_bluish_green = RGB( 0, 158/255, 115/255 )
+wong_yellow = RGB( 240/255, 228/255, 66/255 )
+wong_blue = RGB( 0, 114/255, 178/255 )
+wong_vermillion = RGB( 213/255, 94/255, 0 )
+wong_reddish_purple = RGB( 204/255, 121/255, 167/255 )
+
+wong_array = [
+    wong_black, wong_orange, wong_sky_blue, wong_bluish_green,
+    wong_yellow, wong_blue, wong_vermillion, wong_reddish_purple
+]

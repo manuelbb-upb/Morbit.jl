@@ -82,19 +82,70 @@ function _budget_okay( mop :: AbstractMOP, ac :: AbstractConfig ) :: Bool
     return true
 end
 
-"True if stepsize or radius too small."
-function _rel_tol_test_decision_space( Δ :: Union{Real,RVec}, steplength :: Real, ac :: AbstractConfig) :: Bool 
-    ret_val =  all(Δ .<= Δₗ(ac)) || all(steplength .< stepsize_min(ac )) || 
-        all( Δ .<= Δ_crit(ac) ) && all( steplength .<= stepsize_crit(ac) );
-    if ret_val
-        @logmsg loglevel1 """\n
-                Radius or stepsize too small.
-                Δ = $(Δ), stepsize = $(steplength).
-                Δ_min = $(Δₗ(ac)), Δ_crit = $(Δ_crit(ac)).
-                stepsize_min = $(stepsize_min(ac)), stepsize_crit = $(stepsize_crit(ac)).
-            """
+function f_tol_rel_test( fx :: RVec, fx⁺ :: RVec, ac :: AbstractConfig ) :: Bool
+    tol = f_tol_rel(ac)
+    if isa(tol, Real)
+        ret = norm( fx .- fx⁺, Inf ) <= tol * norm( fx, Inf )
+    else
+        ret = all( abs.( fx .- fx⁺ ) .<= tol .* fx )
     end
-    return ret_val
+    ret && @logmsg loglevel1 "Relative (objective) stopping criterion fulfilled."
+    ret
+end
+
+function x_tol_rel_test( x :: RVec, x⁺ :: RVec, ac :: AbstractConfig ) :: Bool
+    tol = x_tol_rel(ac)
+    if isa(tol, Real)
+        ret = norm( x .- x⁺, Inf ) <= tol * norm( x, Inf )
+    else
+        ret = all( abs.( x .- x⁺ ) .<= tol )
+    end
+    ret && @logmsg loglevel1 "Relative (decision) stopping criterion fulfilled."
+    ret
+end
+
+function f_tol_abs_test( fx :: RVec, fx⁺ :: RVec, ac :: AbstractConfig ) :: Bool
+    tol = f_tol_abs(ac)
+    if isa(tol, Real)
+        ret = norm( fx .- fx⁺, Inf ) <= tol 
+    else
+        ret = all( abs.( fx .- fx⁺ ) .<= tol )
+    end
+    ret && @logmsg loglevel1 "Absolute (objective) stopping criterion fulfilled."
+    ret
+end
+
+function x_tol_abs_test( x :: RVec, x⁺ :: RVec, ac :: AbstractConfig ) :: Bool
+    tol = x_tol_abs(ac)
+    if isa(tol, Real)
+        ret =  norm( x .- x⁺, Inf ) <= tol 
+    else
+        ret = all( abs.( x .- x⁺ ) .<= tol )
+    end
+    ret && @logmsg loglevel1 "Absolute (decision) stopping criterion fulfilled."
+    ret
+end
+
+function ω_Δ_rel_test( ω :: Real, Δ :: Union{RVec, Real}, ac :: AbstractConfig )
+    ω_tol = ω_tol_rel( ac )
+    Δ_tol = Δ_tol_rel( ac )
+    ret = ω <= ω_tol && all( Δ .<= Δ_tol )
+    ret && @logmsg loglevel1 "Realtive criticality stopping criterion fulfilled."
+    ret
+end
+
+function Δ_abs_test( Δ :: Union{RVec, Real}, ac :: AbstractConfig )
+    tol = Δ_tol_abs( ac )
+    ret = all( Δ .<= tol )
+    ret && @logmsg loglevel1 "Absolute radius stopping criterion fulfilled."
+    ret
+end
+
+function ω_abs_test( ω :: Real, ac :: AbstractConfig )
+    tol = ω_tol_abs( ac )
+    ret = ω .<= tol
+    ret && @logmsg loglevel1 "Absolute criticality stopping criterion fulfilled."
+    ret
 end
 
 function shrink_radius( ac :: AbstractConfig, Δ :: Real, steplength :: Real) :: Real
@@ -205,12 +256,11 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
             @logmsg loglevel1 "Stopping. Computational budget is exhausted."
             break;
         end
-        
-        # relative stopping (decision space)
-        if _rel_tol_test_decision_space( Δ, steplength, algo_config)
+
+        if Δ_abs_test( Δ, algo_config )
             break;
         end
-
+        
         # set iteration counter
         if it_stat != MODELIMPROVING || count_nonlinear_iterations(algo_config) 
             n_iterations += 1
@@ -242,6 +292,11 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         # calculate descent step and criticality value
         ω, x₊, mx₊, steplength = compute_descent_step( algo_config, mop, iter_data, sc )
         @logmsg loglevel1 "Criticality is ω = $(ω)."
+        
+        # stop at the end of the this loop run?
+        if ω_Δ_rel_test(ω, Δ, algo_config) || ω_abs_test( ω, algo_config )
+            break;
+        end
 
         # Criticallity test
         _fully_linear = fully_linear(sc)
@@ -279,8 +334,10 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
                 # TODO make backtracking optional and don't do here
                 ω, x₊, mx₊, steplength = compute_descent_step(algo_config,mop,iter_data,sc);
 
-                if _rel_tol_test_decision_space( Δᵗ(iter_data), steplength, algo_config)
-                    @goto EXIT_MAIN 
+                if Δ_abs_test( Δ, algo_config ) || 
+                    ω_Δ_rel_test(ω, Δ, algo_config) || ω_abs_test( ω, algo_config )
+                    
+                    @goto EXIT_MAIN
                 end
 
                 if !fully_linear(sc)
@@ -300,8 +357,7 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
 
         mx = eval_models(sc, x);
         fx₊ = eval_all_objectives(mop, x₊);
-        #@show fx .- fx₊
-        #@show mx .- mx₊
+        
         if strict_acceptance_test( algo_config )
             ρ = minimum( (fx .- fx₊) ./ (mx .- mx₊) )
         else
@@ -318,8 +374,8 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
         $(strict_acceptance_test(algo_config) ? "All" : "One") of the components must decrease.
         Thus, ρ is $ρ.
         """
-        #@assert all( mx .>= mx₊ )
 
+        # update trust region radius
         ρ = isnan(ρ) ? -Inf : ρ;
         Δ = Δᵗ(iter_data);  # if it was changed in criticality test
         if ρ >= ν_succ
@@ -373,6 +429,13 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
                 "model_meta" => [ deepcopy(sw.meta) for sw ∈ sc.surrogates ]            
             )
         );
+        
+        if x_tol_rel_test( x, x₊, algo_config  ) ||
+            x_tol_abs_test( x, x₊, algo_config ) ||
+            f_tol_rel_test( fx, fx₊, algo_config  ) ||
+            f_tol_abs_test( fx, fx₊, algo_config )
+            break;
+        end        
     end
 
     ret_x = unscale(xᵗ(iter_data),mop);

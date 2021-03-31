@@ -91,7 +91,8 @@ function compute_descent_step(::Val{:steepest_descent}, algo_config :: AbstractC
         σ = intersect_bounds( mop, x, Δᵗ(id), d_normed; return_vals = :pos )
         # Note: For scalar Δ the above should equal 
         # `σ = norm(d,Inf) < 1 || Δ <= 1 ? min( d, norm(d,Inf) ) : Δ`
-        @assert σ >= 0
+        # @assert σ >= 0
+        σ = max( σ, 0 )
 
         x₊, mx₊, step = _backtrack( x, d_normed, σ, ω, sc, strict_backtracking(algo_config) );
         return ω, x₊, mx₊, norm(step, Inf)
