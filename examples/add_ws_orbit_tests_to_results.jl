@@ -18,7 +18,8 @@ include("plot_helpers/loading_saving.jl")
 #%% load results
 res_file = joinpath(
     ENV["HOME"], "MORBIT_BENCHMARKS", 
-    "results_XIHJrRkp_4480x8_30_Mar_2021__02_22_26.jld2"
+    #"results_XIHJrRkp_4480x8_30_Mar_2021__02_22_26.jld2"
+    "results_32sZVhKT_6720x8_31_Mar_2021__23_47_11.jld2"
 );
 prev_res = load_results( res_file )
 
@@ -95,7 +96,7 @@ function perform_morbit_run(; kwargs...)
         strict_backtracking = true,
     )
 
-    cfg = RbfConfig(max_evals = 1000 * n_vars)
+    cfg = RbfConfig(;max_evals = 1000 * n_vars, max_model_points = 2 * n_vars + 1)
     mop = MixedMOP(LB, UB)
     add_objective!(mop, x -> sum(f(x) for f ∈ objfs), cfg)
 

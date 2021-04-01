@@ -18,7 +18,8 @@ include("plot_helpers/loading_saving.jl")
 #%% load results
 res_file = joinpath(
     ENV["HOME"], "MORBIT_BENCHMARKS", 
-    "results_XIHJrRkp_4480x8_30_Mar_2021__02_22_26.jld2"
+    #"results_XIHJrRkp_4480x8_30_Mar_2021__02_22_26.jld2"
+    "results_32sZVhKT_6720x8_31_Mar_2021__23_47_11.jld2"
 );
 prev_res = load_results( res_file )
 
@@ -88,6 +89,7 @@ function perform_nlopt_run(; kwargs...)
     opt.upper_bounds = UB;
     opt.maxeval = 1000*n_vars;
     opt.xtol_rel = 1e-2;
+    opt.ftol_rel = 1e-2;
     opt.min_objective = function( x, g )
         return sum(f(x) for f ∈ objfs)
     end
