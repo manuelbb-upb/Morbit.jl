@@ -1,7 +1,7 @@
 name = "Morbit"
 uuid = "88936782-c8cd-4a0f-b259-ffb12bfd2869"
 authors = ["manuelbb <manuelbb@mail.uni-paderborn.de> and contributors"]
-version = "2.1.1"
+version = "2.1.2"
 
 [deps]
 ColorSchemes = "35d6a980-a343-548e-a6ea-1d62b119f2f4"

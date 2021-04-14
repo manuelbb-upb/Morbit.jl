@@ -20,6 +20,7 @@ end
 function MixedMOP( lb :: RVec, ub :: RVec )
     @assert length(lb) == length(ub);
     @assert all( lb .<= ub );
+    @assert length(lb) > 0;     # for unconstrained problems, we need the number of variables
 
     LB = Dict{Int,Real}();
     for (var_int, b) ∈ enumerate(lb)
