@@ -155,8 +155,12 @@ xlims!(ax, (minimum(all_n_vars) - .2, maximum(all_n_vars) + .2 ))
 ax.xlabel[] = "№ of decision variables";
 ax.ylabel[] = "avg. № of evals";
 ax.xlabelsize[] = ax.ylabelsize[] = 28;
-fig
 
+fig_out = joinpath(ENV["HOME"], "Desktop", "PaperPlots",
+    "lines_avg_evals_n_vars_.png"
+    )
+saveplot(fig_out, fig)
+fig
 #%% Box Plots
 filtered_data[ (filtered_data.model .== "WS") .& (filtered_data.method .== "COBYLA"), :model ] .= "WS_C"
 filtered_data[ (filtered_data.model .== "WS") .& (filtered_data.method .== "ORBIT"), :model ] .= "WS_O"
