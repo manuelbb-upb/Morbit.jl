@@ -51,7 +51,7 @@ end
 
 list_of_objectives( mop :: MixedMOP ) = mop.vector_of_objectives;
 
-@memoize IdDict function _output_indices( 
+@memoize ThreadSafeDict function _output_indices( 
     objf :: AbstractObjective, mop :: MixedMOP, hash :: UUIDs.UUID )
     return mop.objf_output_mapping[ objf ];
 end
@@ -128,7 +128,7 @@ end
 
 # TODO support half-open intervals
 
-@memoize IdDict function _full_lb( mop :: MixedMOP, hash :: UUIDs.UUID ) 
+@memoize ThreadSafeDict function _full_lb( mop :: MixedMOP, hash :: UUIDs.UUID ) 
     [ haskey(mop.lb, var_int) ? mop.lb[var_int] : -Inf for var_int ∈ mop.vars ]
 end
 
@@ -136,7 +136,7 @@ function full_lower_bounds( mop :: MixedMOP )
     _full_lb( mop, mop.var_state )
 end
 
-@memoize IdDict function _full_ub( mop :: MixedMOP, hash :: UUIDs.UUID ) 
+@memoize ThreadSafeDict function _full_ub( mop :: MixedMOP, hash :: UUIDs.UUID ) 
     [ haskey(mop.ub, var_int) ? mop.ub[var_int] : Inf for var_int ∈ mop.vars ]
 end
 
@@ -145,11 +145,11 @@ function full_upper_bounds( mop :: MixedMOP )
 end
 
 # overwrite these derived methods for efficacy 
-@memoize IdDict function _full_lb_internal(mop :: MixedMOP, hash :: UUIDs.UUID )
+@memoize ThreadSafeDict function _full_lb_internal(mop :: MixedMOP, hash :: UUIDs.UUID )
     [ isinf(l) ? l : 0.0 for l ∈ full_lower_bounds(mop) ];
 end 
 
-@memoize IdDict function _full_ub_internal(mop :: MixedMOP, hash :: UUIDs.UUID )
+@memoize ThreadSafeDict function _full_ub_internal(mop :: MixedMOP, hash :: UUIDs.UUID )
     [ isinf(u) ? u : 1.0 for u ∈ full_upper_bounds(mop) ];
 end
 
@@ -159,7 +159,7 @@ full_upper_bounds_internal( mop :: MixedMOP ) = _full_ub_internal( mop , mop.var
 # Evaluating and sorting objectives
 
 # overwrite to exploit memoization
-@memoize IdDict function _output_indices( mop :: MixedMOP, hash :: UUIDs.UUID )
+@memoize ThreadSafeDict function _output_indices( mop :: MixedMOP, hash :: UUIDs.UUID )
     all_outputs = Int[];
     for objf ∈ list_of_objectives( mop )
         push!( all_outputs, output_indices( objf, mop )...);
@@ -171,7 +171,7 @@ function output_indices( mop :: MixedMOP )
     return _output_indices(mop, mop.objf_state )
 end
 
-@memoize IdDict function _reverse_internal_sorting_indices( mop :: MixedMOP, hash :: UUIDs.UUID )
+@memoize ThreadSafeDict function _reverse_internal_sorting_indices( mop :: MixedMOP, hash :: UUIDs.UUID )
     internal_indices = output_indices(mop);
     return sortperm( internal_indices );
 end

@@ -123,7 +123,7 @@ function _update_model_optimized( lm :: LagrangeModel, objf :: AbstractObjective
     return lm, lmeta;
 end 
 
-@memoize IdDict function _get_unit_basis( n_vars :: Int, cfg :: LagrangeConfig ) :: Vector{LagrangePoly}
+@memoize ThreadSafeDict function _get_unit_basis( n_vars :: Int, cfg :: LagrangeConfig ) :: Vector{LagrangePoly}
     return _get_unit_basis( Val(!isnothing( cfg.save_path ) ) , n_vars, cfg ) 
 end
 
@@ -289,7 +289,7 @@ function get_jacobian( lm :: LagrangeModel, x̂ :: RVec ) :: RMat
     )));
 end
 
-#@memoize IdDict
+#@memoize
 function _unit_basis( n_vars :: Int, degree :: Int ;
         solver1 :: Symbol, solver2 :: Symbol, max_evals1 :: Union{Nothing,Int}, 
         max_evals2 :: Union{Nothing,Int}, Λ :: Real ) :: Vector{LagrangePoly}
@@ -488,7 +488,7 @@ end
 @doc "Factorial of a multinomial."
 _multifactorial( arr :: Vector{Int} ) =  prod( factorial(α) for α in arr )
 
-# @memoize IdDict
+# @memoize
 # TODO memoization caused a lot of trouble here in parallel usage.
 # if important: use IdDicts and Memoization.jl
 function _canonical_basis( n_vars :: Int, degree :: Int ) :: Vector{LagrangePoly}

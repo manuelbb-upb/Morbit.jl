@@ -46,11 +46,11 @@ end
 # Helpers to retrieve function handles that increase the eval count:
 # … using Memoization here so that always the same function is returned
 # this should vastly speed up automatic differentiation 
-@memoize IdDict function _eval_handle(objf :: AbstractObjective)
+@memoize ThreadSafeDict function _eval_handle(objf :: AbstractObjective)
     x -> eval_objf(objf, x)
 end
 
-@memoize IdDict function _eval_handle( objf :: AbstractObjective, ℓ :: Int)
+@memoize ThreadSafeDict function _eval_handle( objf :: AbstractObjective, ℓ :: Int)
     return x -> eval_objf( objf, x)[ℓ]
 end
     
