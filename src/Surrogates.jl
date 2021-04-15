@@ -17,7 +17,7 @@ end
 end
 
 num_outputs( sw :: SurrogateWrapper ) :: Int = num_outputs(sw.objf);
-@memoize ThreadSafeDict function _num_outputs( sc :: SurrogateContainer, hash :: UUIDs.UUID) :: Int
+@memoize IdDict function _num_outputs( sc :: SurrogateContainer, hash :: UUIDs.UUID) :: Int
     return sum( num_outputs(sw) for sw ∈ sc.surrogates )
 end
 num_outputs( sc :: SurrogateContainer ) :: Int = _num_outputs( sc, sc.state );
@@ -25,7 +25,7 @@ function fully_linear( sc :: SurrogateContainer )
     return all( fully_linear(sw.model) for sw ∈ sc.surrogates )
 end
 
-@memoize ThreadSafeDict function _get_surrogate_from_output_index( sc :: SurrogateContainer, ℓ :: Int, 
+@memoize IdDict function _get_surrogate_from_output_index( sc :: SurrogateContainer, ℓ :: Int, 
     mop :: AbstractMOP, hash :: UUIDs.UUID ) :: Union{Nothing,Tuple{SurrogateWrapper,Int}}
     for sw ∈ sc.surrogates
         objf_out_indices = output_indices( sw.objf, mop );
