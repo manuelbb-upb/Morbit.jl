@@ -19,7 +19,7 @@ using MathOptInterface;
 const MOI = MathOptInterface;
 
 #using ThreadSafeDicts, Memoization
-const ThreadSafeDicts = IdDict;
+const ThreadSafeDict = IdDict;
 using Memoization;
 
 import UUIDs;
