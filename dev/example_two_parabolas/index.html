@@ -8,7 +8,7 @@
     \end{bmatrix}.\]</p><p>It is unconstrained if the feasible set is <span>$X = ℝ^2$</span>. The individual minima <span>$[1,1]$</span> and <span>$[-1,-1]$</span> are such that (in the unconstrained case) the global Pareto Set is </p><p class="math-container">\[\mathcal{P}_{S} = \{ \mathbf{x} ∈ ℝ^2 : x₁ = x₂, \, -1 \le x₁, x₂ \le 1  \}.\]</p><h2 id="Solve-using-Exact-Functions"><a class="docs-heading-anchor" href="#Solve-using-Exact-Functions">Solve using Exact Functions</a><a id="Solve-using-Exact-Functions-1"></a><a class="docs-heading-anchor-permalink" href="#Solve-using-Exact-Functions" title="Permalink"></a></h2><p>The gradients are easily calculated as </p><p class="math-container">\[\nabla f_1 (\mathbf x) = 2 \begin{bmatrix}
 x_1 -1 \\ x_2 - 1 \end{bmatrix}, \;
 \nabla f_2 (\mathbf x) = 2 \begin{bmatrix}
-x_1 +1 \\ x_2 + 1 \end{bmatrix}, \;\]</p><p>We can provide them to the solver to find a critical point:</p><pre><code class="language-julia">using Morbit
+x_1 +1 \\ x_2 + 1 \end{bmatrix}, \;\]</p><p>We can provide them to the solver to find a critical point:</p><pre><code class="language-">using Morbit
 
 f₁ = x -&gt; sum( (x .- 1).^2 )
 f₂ = x -&gt; sum( (x .+ 1).^2 )
@@ -23,54 +23,55 @@ add_objective!(mop, f₂, ∇f₂ )
 x₀ = [ -π ;  2.71828 ]
 
 ac = AlgoConfig(max_iter = 20)
-x, fx, id = optimize( mop, x₀; algo_config = ac )
-x</code></pre><pre class="documenter-example-output">2-element Vector{Float64}:
- -0.2072376482827694
- -0.21607500532832352</pre><p>Hopefully, <code>x</code> is critical.</p><h3 id="Plotting-Iteration-Sites"><a class="docs-heading-anchor" href="#Plotting-Iteration-Sites">Plotting Iteration Sites</a><a id="Plotting-Iteration-Sites-1"></a><a class="docs-heading-anchor-permalink" href="#Plotting-Iteration-Sites" title="Permalink"></a></h3><p>We can retrieve iteration data from <code>id</code> and the database <code>Morbit.db(id)</code>.</p><pre><code class="language-julia">db = Morbit.db(id);
+x, fx, id = optimize( mop, x₀; algo_config = ac ) 
+x</code></pre><p>Hopefully, <code>x</code> is critical.</p><h3 id="Plotting-Iteration-Sites"><a class="docs-heading-anchor" href="#Plotting-Iteration-Sites">Plotting Iteration Sites</a><a id="Plotting-Iteration-Sites-1"></a><a class="docs-heading-anchor-permalink" href="#Plotting-Iteration-Sites" title="Permalink"></a></h3><p>We can retrieve iteration data from <code>id</code> and the database <code>Morbit.db(id)</code>.</p><pre><code class="language-">db = Morbit.db(id);
 
 # let&#39;s retrieve the iteration sites for plotting:
 # (conversion to Tuples for easy plotting)
-it_sites = Tuple.(Morbit.get_iterate_sites(db))</code></pre><p>Let&#39;s plot the Pareto Set and the iteration sites:</p><pre><code class="language-julia">using AbstractPlotting, CairoMakie
+it_sites = Tuple.(Morbit.get_iterate_sites(db))
+nothing # hide</code></pre><p>Let&#39;s plot the Pareto Set and the iteration sites:</p><pre><code class="language-">using AbstractPlotting, CairoMakie
 
 # Pareto Set ≙ line from (-1,-1) to (1,1)
 fig, ax, _ = lines( [(-1,-1),(1,1)]; color = :blue, linewidth = 2,
     figure = (resolution=(600, 650),),
     axis = (aspect = 1, title = &quot;Pareto Set and Iterates.&quot;) )
+ax.xgridvisible[] = false # hide
+ax.ygridvisible[] = false # hide
 # Plot the iteration sites:
 lines!(it_sites)
-scatter!(it_sites;
-    color = LinRange(0, 1, length(it_sites)),
+scatter!(it_sites; 
+    color = LinRange(0, 1, length(it_sites)), 
     colormap = :winter
 )
 
-# Plot function contours
+# Plot function contours 
 Y = X = LinRange(-4, 4, 100)
 Z₁ = [ f₁([x;y]) for x ∈ X, y ∈ X ]
 Z₂ = [ f₂([x;y]) for x ∈ X, y ∈ X ]
 levels = [ i.^2 for i = LinRange(.1, 6, 6) ]
 contour!(X,Y,Z₁; colormap = :greens, levels = levels, linewidth = .5 )
-contour!(X,Y,Z₂; colormap = :heat, levels = levels, linewidth = .5 )</code></pre><p><img src="../two_parabolas_cheap.png" alt="Two Parabolas (cheap): Pareto Set and Iterates"/></p><h2 id="Solving-using-RBF-Surrogates"><a class="docs-heading-anchor" href="#Solving-using-RBF-Surrogates">Solving using RBF Surrogates</a><a id="Solving-using-RBF-Surrogates-1"></a><a class="docs-heading-anchor-permalink" href="#Solving-using-RBF-Surrogates" title="Permalink"></a></h2><p>Suppose now that we do not have access to the objective gradients and that the objectives also take some time to evaluate. In this situation, we could try to model them using surrogate models. To use radial basis function models, pass an <code>RbfConfig</code> when specifying the objective:</p><pre><code class="language-julia">mop_rbf = MixedMOP()
+contour!(X,Y,Z₂; colormap = :heat, levels = levels, linewidth = .5 )
+save(&quot;two_parabolas_cheap.png&quot;, fig) # hide
+nothing # hide</code></pre><p><img src="two_parabolas_cheap.png" alt="Two Parabolas (cheap): Pareto Set and Iterates"/></p><h2 id="Solving-using-RBF-Surrogates"><a class="docs-heading-anchor" href="#Solving-using-RBF-Surrogates">Solving using RBF Surrogates</a><a id="Solving-using-RBF-Surrogates-1"></a><a class="docs-heading-anchor-permalink" href="#Solving-using-RBF-Surrogates" title="Permalink"></a></h2><p>Suppose now that we do not have access to the objective gradients and that the objectives also take some time to evaluate. In this situation, we could try to model them using surrogate models. To use radial basis function models, pass an <code>RbfConfig</code> when specifying the objective:</p><pre><code class="language-">mop_rbf = MixedMOP()
 
 # define the RBF surrogates
-rbf_cfg = RbfConfig(
-    kernel = :multiquadric,
-    shape_parameter = &quot;20/Δ&quot;
+rbf_cfg = RbfConfig( 
+    kernel = :multiquadric, 
+    shape_parameter = &quot;20/Δ&quot; 
 )
 # add objective functions to `mop_rbf`
 add_objective!(mop_rbf, f₁, rbf_cfg )
 add_objective!(mop_rbf, f₂, rbf_cfg )
 
 # only perform 10 iterations
-x, fx, id = optimize( mop, x₀; algo_config = ac )
-x</code></pre><pre class="documenter-example-output">2-element Vector{Float64}:
- -0.2072376482827694
- -0.21607500532832352</pre><p>The iteration site are the orange circles: <img src="../two_parabolas_cheap_and_rbf.png" alt="Two Parabolas (cheap and RBF): Pareto Set and Iterates"/></p><h2 id="Different-Starting-Points-and-Recycling-Data"><a class="docs-heading-anchor" href="#Different-Starting-Points-and-Recycling-Data">Different Starting Points and Recycling Data</a><a id="Different-Starting-Points-and-Recycling-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Different-Starting-Points-and-Recycling-Data" title="Permalink"></a></h2><p>The method could converge to different points depending on the starting point.  We can pass the evaluation data from previous runs to facilitate the construction of surrogate models:</p><pre><code class="language-julia"># Suppose, `X` is a list of different points in ℝ²
+x, fx, id = optimize( mop, x₀; algo_config = ac ) 
+x</code></pre><p>The iteration site are the orange circles: <img src="two_parabolas_cheap_and_rbf.png" alt="Two Parabolas (cheap and RBF): Pareto Set and Iterates"/></p><h2 id="Different-Starting-Points-and-Recycling-Data"><a class="docs-heading-anchor" href="#Different-Starting-Points-and-Recycling-Data">Different Starting Points and Recycling Data</a><a id="Different-Starting-Points-and-Recycling-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Different-Starting-Points-and-Recycling-Data" title="Permalink"></a></h2><p>The method could converge to different points depending on the starting point.  We can pass the evaluation data from previous runs to facilitate the construction of surrogate models:</p><pre><code class="language-"># Suppose, `X` is a list of different points in ℝ²
 
 # dict to hold starting and end points
 start_fin_points = Dict();
 
 # perform several runs:
-db₀ = nothing
+db₀ = nothing 
 for x₀ ∈ X
     global db₀
     x_fin, fx_fin, id = optimize( mop_rbf, x₀; algo_config = ac, populated_db = db₀ )
@@ -83,10 +84,11 @@ for (k,v) in start_fin_points
     lines!( [ Tuple(k), Tuple(v) ] )
 end
 
-scatter!( Tuple.(keys(start_fin_points));
+scatter!( Tuple.(keys(start_fin_points)); 
     color = :green
 )
-scatter!( Tuple.(values(start_fin_points));
+scatter!( Tuple.(values(start_fin_points)); 
     color = :lightblue
 )
-save(&quot;two_parabolas_different_starting_points.png&quot;, fig) # hide</code></pre><p>In the plot, the green points show the starting points and the lightblue circles show the final iterates: <img src="../two_parabolas_different_starting_points.png" alt="Two Parabolas - Different Starting Points"/></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../example_zdt/">ZDT3 »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> on <span class="colophon-date" title="Thursday 15 April 2021 07:36">Thursday 15 April 2021</span>. Using Julia version 1.6.0.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+save(&quot;two_parabolas_different_starting_points.png&quot;, fig) # hide 
+nothing # hide</code></pre><p>In the plot, the green points show the starting points and the lightblue circles show the final iterates: <img src="two_parabolas_different_starting_points.png" alt="Two Parabolas - Different Starting Points"/></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../example_zdt/">ZDT3 »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> on <span class="colophon-date" title="Thursday 15 April 2021 07:58">Thursday 15 April 2021</span>. Using Julia version 1.6.0.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
