@@ -18,8 +18,6 @@ using Parameters: @with_kw, @unpack, @pack!
 using MathOptInterface;
 const MOI = MathOptInterface;
 
-#using ThreadSafeDicts, Memoization
-const ThreadSafeDict = IdDict;
 using Memoization;
 
 import UUIDs;
