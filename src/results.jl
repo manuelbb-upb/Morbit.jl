@@ -318,7 +318,6 @@ get_ω_array(db :: ArrayDB) = db.ω_array;
 get_num_critical_loops_array(db :: ArrayDB) = db.num_critical_loops;
 get_model_meta_array(db :: ArrayDB) = db.model_meta_array;
 
-
 ############################################
 
 Broadcast.broadcastable( id :: AbstractIterData ) = Ref( id );
@@ -327,12 +326,24 @@ Broadcast.broadcastable( id :: AbstractIterData ) = Ref( id );
 # AbstractIterData
 
 # current iterate and values
-xᵗ( :: AbstractIterData ) = nothing :: RVec;
-fxᵗ( :: AbstractIterData ) = nothing :: RVec;
+xᵗ( :: AbstractIterData ) :: RVec = nothing ;
+fxᵗ( :: AbstractIterData ) :: RVec = nothing ;
 # trust region radius
-Δᵗ( :: AbstractIterData ) = nothing :: Union{Real, RVec};
+Δᵗ( :: AbstractIterData ) :: Union{Real, RVec} = nothing ;
 
-db( :: AbstractIterData ) = nothing :: Union{AbstractDB,Nothing};
+db( :: AbstractIterData ) :: Union{AbstractDB, Nothing } = nothing;
+
+num_iterations( :: AbstractIterData ) :: Int = 0;
+num_model_improvements( :: AbstractIterData ) :: Int = 0;
+
+inc_iterations!( :: AbstractIterData, N :: Int = 1 ) :: Nothing = nothing ;
+inc_model_improvements!( :: AbstractIterData, N :: Int = 1 ) :: Nothing = nothing;
+
+set_iterations!( :: AbstractIterData, N :: Int = 0 ) :: Nothing = nothing ;
+set_model_improvements!( :: AbstractIterData, N :: Int = 0 ) :: Nothing = nothing ;
+
+it_stat( :: AbstractIterData ) :: ITER_TYPE = SUCCESSFULL;
+it_stat!( :: AbstractIterData, :: ITER_TYPE ) :: Nothing = nothing;
 
 function xᵗ_index( :: AbstractIterData ) :: NothInt XInt(nothing) end;
 function xᵗ_index!( :: AbstractIterData, :: Int ) :: Nothing nothing end;
@@ -352,13 +363,12 @@ end
 
 # generic initializer
 init_iter_data( ::Type{<:AbstractIterData}, x :: RVec, fx :: RVec, Δ :: Union{Real, RVec}, 
-    db :: Union{AbstractDB,Nothing}) = nothing :: AbstractIterData;
+    db :: Union{AbstractDB,Nothing}) :: AbstractIterData = nothing ;
 
 function set_next_iterate!( id :: AbstractIterData, x̂ :: RVec, 
-    ŷ :: RVec, Δ :: Union{Real, RVec} ) :: NothInt
+    ŷ :: RVec ) :: NothInt
     xᵗ!(id, x̂);
     fxᵗ!(id, ŷ);
-    Δᵗ!(id, Δ);
 
     x_index = add_result!(db(id), init_res( Res, x̂, ŷ, nothing));
     xᵗ_index!( id, x_index );
@@ -366,9 +376,7 @@ function set_next_iterate!( id :: AbstractIterData, x̂ :: RVec,
     return x_index 
 end
 
-function keep_current_iterate!( id :: AbstractIterData, x̂ :: RVec, ŷ :: RVec,
-      Δ :: Union{Real, RVec}) :: NothInt
-    Δᵗ!(id, Δ);
+function keep_current_iterate!( id :: AbstractIterData, x̂ :: RVec, ŷ :: RVec ) :: NothInt
     return add_result!(db(id),init_res( Res, x̂, ŷ, nothing) );    
 end
 
@@ -379,12 +387,44 @@ end
     Δ :: Union{Nothing,Real} = nothing;
     db :: Union{Nothing,AbstractDB} = nothing;    
     x_index :: NothInt = XInt(nothing);
+    num_iterations :: Int = 0;
+    num_model_improvements :: Int = 0;
+    it_stat :: ITER_TYPE = SUCCESSFULL;
 end
 
 xᵗ( id :: IterData ) = id.x :: Union{RVec, Nothing};
 fxᵗ( id :: IterData ) = id.fx :: Union{RVec, Nothing};
 Δᵗ( id :: IterData ) = id.Δ :: Union{Real, Nothing};
 db( id :: IterData ) = id.db :: Union{AbstractDB, Nothing};
+
+num_iterations( id :: IterData ) :: Int = id.num_iterations;
+num_model_improvements( id :: IterData ) :: Int = id.num_model_improvements;
+
+function inc_iterations!( id :: IterData, N :: Int = 1 ) :: Nothing
+    id.num_iterations += N;
+    nothing
+end
+
+function inc_model_improvements!( id :: IterData, N :: Int = 1 ) :: Nothing
+    id.num_model_improvements += N ;
+    nothing
+end
+
+function set_iterations!( id :: IterData, N :: Int = 0 ) :: Nothing
+    id.num_iterations = N;
+    nothing
+end
+
+function set_model_improvements!( id :: IterData, N :: Int = 0 ) :: Nothing
+    id.num_model_improvements = 0 ;
+    nothing
+end
+
+it_stat( id :: IterData ) :: ITER_TYPE = id.it_stat;
+function it_stat!( id :: IterData, t :: ITER_TYPE ) :: Nothing 
+    id.it_stat = t 
+    nothing
+end
 
 # setters
 function xᵗ!( id :: IterData, x̂ :: RVec ) :: Nothing 
