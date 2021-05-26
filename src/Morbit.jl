@@ -191,6 +191,11 @@ Perform initialization of the data passed to `optimize` function.
 """
 function initialize_data( mop :: AbstractMOP, x⁰::RVec, fx⁰ :: RVec; 
     algo_config :: AbstractConfig = EmptyConfig(), populated_db :: Union{AbstractDB, Nothing} = nothing )
+    
+    if num_objectives(mop) == 0
+        error("`mop` has no objectives!")
+    end
+        
     # TODO warn here 
     reset_evals!( mop );
     # for backwards-compatibility with unconstrained problems:
@@ -200,7 +205,8 @@ function initialize_data( mop :: AbstractMOP, x⁰::RVec, fx⁰ :: RVec;
 
     # initialize first iteration site
     @assert !isempty( x⁰ );
-    x = scale( x⁰, mop );
+    T = promote_type( Float32, eltype(x⁰) )
+    x = scale( T.(x⁰), mop );
     
     # initalize first objective vector 
     if isempty( fx⁰ )
@@ -440,7 +446,7 @@ end
 
 function finalize_iter_data!( iter_data :: AbstractIterData, mop :: AbstractMOP )
     if !isnothing( db(iter_data) )
-        unscale!( db(iter_data) , mop);
+        unscale!( db(iter_data), mop);
         reverse_internal_sorting!( db(iter_data), mop);
     end
     nothing
