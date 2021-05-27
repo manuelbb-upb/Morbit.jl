@@ -21,6 +21,19 @@ This project was founded by the European Region Development Fund.
 <img alt="EFRE Logo EU" src="https://www.efre.nrw.de/fileadmin/Logos/EU-Fo__rderhinweis__EFRE_/EFRE_Foerderhinweis_englisch_farbig.jpg" width=45% />
 <img alt="EFRE Logo NRW" src="https://www.efre.nrw.de/fileadmin/Logos/Programm_EFRE.NRW/Ziel2NRW_RGB_1809_jpg.jpg" width=45% />
 
+## Installation 
+This package is not registered (yet), so please install via 
+```
+using Pkg
+Pkg.add(; url = "https://github.com/manuelbb-upb/Morbit.jl.git")
+# or, using ssh:
+# Pkg.add(; url = "git@github.comm/manuelbb-upb/Morbit.jl.git" )
+```
+**Use at least version 2.1.7.**
+In version 2.1.6 (and probably some minor releases prior) there is a bug 
+prohibiting early stopping.
+The version used for our paper was not affected.
+
 ## Quick Usage Example
 
 Let's find a critical point for the unconstrained minimization problem with objectives

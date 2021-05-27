@@ -259,11 +259,11 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP,
     # but looks a bit more tidy here
     if !_budget_okay(mop, algo_config)
         @logmsg loglevel1 "Stopping. Computational budget is exhausted."
-        return nothing; # TODO stop codes
+        return true; # TODO stop codes
     end
 
     if Δ_abs_test( Δ, algo_config )
-        return nothing;
+        return true;
     end
     
     # set iteration counter
@@ -300,7 +300,7 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP,
     
     # stop at the end of the this loop run?
     if ω_Δ_rel_test(ω, Δ, algo_config) || ω_abs_test( ω, algo_config )
-        return nothing;
+        return true;
     end
 
     # Criticallity test
@@ -355,7 +355,7 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP,
         "Exiting after $(num_critical_loops) loops with ω = $(ω) and Δ = $(Δᵗ(iter_data))."
         @goto MAIN
         @label EXIT_MAIN 
-        return nothing;
+        return true;
     end# Crit test if 
 
     @label MAIN # re-entry point after criticality test 
@@ -434,8 +434,9 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP,
         x_tol_abs_test( x, x₊, algo_config ) ||
         f_tol_rel_test( fx, fx₊, algo_config  ) ||
         f_tol_abs_test( fx, fx₊, algo_config )
-        return nothing;
+        return true;
     end
+    return false
 end
 
 function get_return_values( iter_data :: AbstractIterData, mop :: AbstractMOP)
@@ -463,7 +464,8 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     MAX_ITER = max_iter(algo_config)
     @logmsg loglevel1 "Entering main optimization loop."
     while num_iterations(iter_data) < MAX_ITER
-        iterate!(iter_data, mop, sc, algo_config)
+        abbort = iterate!(iter_data, mop, sc, algo_config)
+        abbort && break;            
     end# while
 
     ret_x, ret_fx = get_return_values( iter_data, mop )
