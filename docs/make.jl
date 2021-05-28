@@ -1,6 +1,9 @@
+include("make_literate.jl")
+
 using Pkg
+current_env = Base.load_path()[1]
 Pkg.activate(@__DIR__)
-#%%
+
 using Morbit
 using Documenter
 
@@ -28,3 +31,4 @@ makedocs(;
 deploydocs(;
     repo="github.com/manuelbb-upb/Morbit.jl",
 )
+Pkg.activate(current_env)

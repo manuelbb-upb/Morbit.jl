@@ -65,6 +65,9 @@ Base.length( db :: AbstractDB ) = length(get_sites(db)) :: Int;
 init_db( :: Type{<:AbstractDB} ) = nothing :: AbstractDB;
 init_db( :: Nothing ) = nothing :: Nothing;
 
+is_transformed( :: AbstractDB ) :: Bool = false
+set_transformed!( :: AbstractDB, :: Bool ) :: Nothing = nothing
+
 Base.eachindex( db :: AbstractDB ) :: NothIntVec = Int[];
 
 get_value( db :: AbstractDB, id :: NothInt ) :: RVec = Real[];
@@ -152,6 +155,23 @@ function reverse_internal_sorting!( db :: AbstractDB, mop :: AbstractMOP ) :: No
     nothing  
 end
 
+function transform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing 
+    if !is_transformed(db)
+        scale!( db, mop);
+        apply_internal_sorting!( db, mop );
+        set_transformed!(db, true)
+    end
+    nothing
+end
+function untransform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing 
+    if is_transformed(db)
+        unscale!( db, mop);
+        reverse_internal_sorting!( db, mop );
+        set_transformed!(db, false)
+    end
+    nothing
+end
+
 #stamp_xᵗ!( :: AbstractDB, :: RVec )::Nothing = nothing;   # save iterate
 #stamp_fxᵗ!( :: AbstractDB, :: RVec )::Nothing = nothing;  # save iterave values 
 #stamp_xᵗ₊!( :: AbstractDB, :: RVec )::Nothing = nothing;  # save trial point 
@@ -212,10 +232,8 @@ merge( DB :: NoDB, :: Nothing ) = DB;
     max_id = 0;
     x_index :: Int = 0;
 
-    iter_indices :: Vector{Int} = [];
-
-    iterate_indices :: Vector{Int} = [];
-    trial_indices :: Vector{Int} = [];
+    iterate_indices :: Vector{Int} = Int[];
+    trial_indices :: Vector{Int} = Int[];
     iter_states :: Vector{ITER_TYPE} = ITER_TYPE[];
     ρ_array :: RVec = Real[];
     Δ_array :: Vector{<:Union{RVec,Real}} = Union{RVec,Real}[];
@@ -223,12 +241,17 @@ merge( DB :: NoDB, :: Nothing ) = DB;
     ω_array :: RVec = Real[];
     num_critical_loops_array :: Vector{Int} = [];
     model_meta_array :: Vector{T} where T<:Vector{<:SurrogateMeta} = Vector{<:SurrogateMeta}[];
+
+    is_transformed :: Bool = false
 end
 Base.length(db :: ArrayDB) = length(db.res);
 Base.eachindex(db :: ArrayDB ) = collect(Base.keys(db.res));
 init_db( :: Type{ArrayDB} ) = ArrayDB();
 get_sites( db :: ArrayDB ) :: RVecArr = [ get_site(res) for res ∈ Base.values(db.res) ];
 get_values( db :: ArrayDB ) :: RVecArr = [ get_value(res) for res ∈ Base.values(db.res) ];
+
+is_transformed( db :: ArrayDB ) :: Bool = db.is_transformed
+function set_transformed!(db :: ArrayDB, v :: Bool ) db.is_transformed = v; nothing end 
 
 merge( DB :: ArrayDB, ::Nothing ) = DB;
 merge( :: NoDB, DB :: ArrayDB ) = DB;
@@ -349,6 +372,7 @@ function xᵗ_index( :: AbstractIterData ) :: NothInt XInt(nothing) end;
 function xᵗ_index!( :: AbstractIterData, :: Int ) :: Nothing nothing end;
 
 # setters
+# (make sure to store a copy of the input vectors!)
 function xᵗ!( id :: AbstractIterData, x̂ :: RVec ) :: Nothing 
     nothing
 end
@@ -428,35 +452,38 @@ end
 
 # setters
 function xᵗ!( id :: IterData, x̂ :: RVec ) :: Nothing 
-    id.x = x̂;
+    id.x = copy(x̂);
     nothing
 end
 
 function fxᵗ!( id :: IterData, ŷ :: RVec ) :: Nothing 
-    id.fx = ŷ;
+    id.fx = copy(ŷ);
     nothing
 end
 
 function Δᵗ!( id :: IterData, Δ :: Union{Real, RVec} ) :: Nothing
-    id.Δ = Δ;
+    id.Δ = copy(Δ);
     nothing
 end
 
 function xᵗ_index( id:: IterData ) :: NothInt
     id.x_index 
-end;
+end
+
 function xᵗ_index!( id :: IterData, N :: XInt ) :: Nothing 
     id.x_index = N;
     nothing
-end;
+end
+
 function xᵗ_index!( id :: IterData, N :: Nothing ) :: Nothing
     id.x_index = XInt(N);
     nothing
-end;
+end
+
 function xᵗ_index!( id :: IterData, N :: Int ) :: Nothing
     id.x_index = XInt(N);
     nothing
-end;
+end
 
 function init_iter_data( ::Type{IterData}, x :: RVec, fx :: RVec, Δ :: Union{Real, RVec}, 
     db :: Union{AbstractDB,Nothing}) :: IterData
@@ -506,7 +533,7 @@ function _eval_and_store_new_results!(id :: AbstractIterData, res_list :: Vector
         # add to db and modify results to contain new data
         for (res,val) ∈ zip( unstored_results, new_vals )
             change_value!(res, val)
-            new_id = add_result!(DB, res)
+            add_result!(DB, res)
         end
     end
     nothing

@@ -7,6 +7,8 @@ Broadcast.broadcastable( ac :: AbstractConfig ) = Ref( ac );
 max_critical_loops( :: AbstractConfig )::Int = 5;
 
 use_db( :: AbstractConfig )::Union{ Type{<:AbstractDB}, Nothing } = nothing;
+# TODO remove the possibility to have Nothing here 
+# set NoDB as instead
 
 count_nonlinear_iterations( :: AbstractConfig )::Bool=true;
 # initial radius

@@ -11,8 +11,12 @@ function _wrap_func( :: Type{<:AbstractObjective}, fn :: Function,
     nothing
 end
 
-"Return a function that evaluates an objective at a unscaled site."
+"Return a function that evaluates an objective at a **scaled** site."
 eval_handle(::AbstractObjective) :: Function = nothing;
+# NOTE usually, the user provides a function that takes a 
+# vector from the **unscaled** domain, not [0,1]^n.
+# That is why `_add_objective!` (in AbstractMOPInterface.jl)
+# wraps the user provided function handle in a transform function.
 
 num_vars( :: AbstractObjective ) = nothing :: Int;
 
@@ -32,20 +36,20 @@ num_outputs( objf :: AbstractObjective ) = nothing :: Int;
 # DERIVED methods and defaults
 # can_batch( ::AbstractObjective ) = false :: Bool;
 
-"Evaluate the objective at unscaled site(s). and increase counter."
-function eval_objf(objf :: AbstractObjective, x :: RVec )
+"Evaluate the objective at scaled site(s). and increase counter."
+function eval_objf(objf :: AbstractObjective, x̂ :: RVec )
     inc_evals!(objf);
-    eval_handle(objf)(x)
+    eval_handle(objf)(x̂)
 end
 
-function Broadcast.broadcasted( ::typeof(eval_objf), objf :: AbstractObjective, X :: RVecArr)
-    inc_evals!(objf, length(X))
-    eval_handle(objf).(X)
+function Broadcast.broadcasted( ::typeof(eval_objf), objf :: AbstractObjective, X̂ :: RVecArr)
+    inc_evals!(objf, length(X̂))
+    eval_handle(objf).(X̂)
 end
 
 # Helpers to retrieve function handles that increase the eval count:
 # … using Memoization here so that always the same function is returned
-# this should vastly speed up automatic differentiation 
+# this should speed up automatic differentiation 
 @memoize ThreadSafeDict function _eval_handle(objf :: AbstractObjective)
     x -> eval_objf(objf, x)
 end
@@ -53,6 +57,7 @@ end
 @memoize ThreadSafeDict function _eval_handle( objf :: AbstractObjective, ℓ :: Int)
     return x -> eval_objf( objf, x)[ℓ]
 end
+# NOTE _eval_handle increases eval count, eval_handle does **not** increase count
     
 "(Soft) upper bound on the number of function calls. "
 max_evals( objf :: AbstractObjective) = max_evals( model_cfg(objf) );

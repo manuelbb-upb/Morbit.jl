@@ -9,11 +9,14 @@ It is meant to find a **single** Pareto-critical point, not a good covering of t
 
 “Morbit” stands for **M**ultiobjective **O**ptimization by **R**adial **B**asis **F**unction **I**nterpolation **i**n **T**rust-regions. 
 The name was chosen so as to pay honors to the single objective algorithm ORBIT by Wild et. al.  
-There is a [preprint in the arXiv](https://arxiv.org/abs/2102.13444) that explains what is going on inside.
-It has been submitted to the MCA journal.
+
+We have a [paper](https://www.mdpi.com/2297-8747/26/2/31) explaining the algorithm!
 
 This was my first project using Julia and there have been many messy rewrites.
-Nonetheless, the solver should now work sufficiently well to tackle most problems.
+Nonetheless, the solver should now work sufficiently well to tackle most problems. 
+I hope to rewrite the custom types soonish. At the moment they are weakly typed and the performance suffers.
+
+**To get started, see the examples, e.g. [Two Parabolas](@ref).
 
 This project was founded by the European Region Development Fund.
 

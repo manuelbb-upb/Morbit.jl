@@ -6,6 +6,8 @@ export ExactConfig, TaylorConfig, RbfConfig, LagrangeConfig;
 export save_config, save_database, save_iter_data;
 export load_config, load_database, load_iter_data;
 
+using Printf: @sprintf
+
 # steepest descent and directed search
 using LinearAlgebra: norm, pinv
 import JuMP;
@@ -48,7 +50,7 @@ function morbit_formatter(level::LogLevel, _module, group, id, file, line)
     @nospecialize
     if level in keys(printDict)
         color, prefix = printDict[ level ]
-        suffix::String = ""
+        # suffix ::String = ""
         return color, prefix, ""
     else 
         return Logging.default_metafmt( level, _module, group, id, file, line )
@@ -150,6 +152,42 @@ function ω_abs_test( ω :: Real, ac :: AbstractConfig )
     ret
 end
 
+Base.:(+)(s1 :: String, s2 :: String) = string( s1, s2 )
+function _stop_info_str( ac :: AbstractConfig, mop :: Union{AbstractMOP,Nothing} = nothing )
+    ret_str = "Stopping Criteria:\n"
+    if isnothing(mop)
+        ret_str += "No. of objective evaluations ≥ $(max_evals(ac)).\n"
+    else
+        for objf ∈ list_of_objectives(mop)
+            ret_str += "• No. of. evaluations of objective(s) $(output_indices(objf,mop)) ≥ $(min( max_evals(objf), max_evals(ac) )).\n"
+        end
+    end
+    ret_str += "• No. of iterations is ≥ $(max_iter(ac)).\n"
+    ret_str += @sprintf("• ‖ fx - fx⁺ ‖ ≤ %g ⋅ ‖ fx ‖,\n", f_tol_rel(ac) )
+    ret_str += @sprintf("• ‖ x - x⁺ ‖ ≤ %g ⋅ ‖ x ‖,\n", x_tol_rel(ac) )
+    ret_str += @sprintf("• ‖ fx - fx⁺ ‖ ≤ %g,\n", f_tol_abs(ac) )
+    ret_str += @sprintf("• ‖ x - x⁺ ‖ ≤ %g,\n", x_tol_abs(ac) )
+    ret_str += @sprintf("• ω ≤ %g AND Δ ≤ %g,\n", ω_tol_rel(ac), Δ_tol_rel(ac))
+    ret_str += @sprintf("• Δ ≤ %g OR", Δ_tol_abs(ac))
+    ret_str += @sprintf(" ω ≤ %g.", ω_tol_abs(ac))
+end
+
+function _fin_info_str( iter_data :: AbstractIterData, mop :: Union{AbstractMOP, Nothing} = nothing )
+    ret_x, ret_fx = get_return_values( iter_data, mop )
+    return """\n
+        |--------------------------------------------
+        | FINISHED
+        |--------------------------------------------
+        | No. iterations:  $(num_iterations(iter_data)) 
+    """ + (isnothing(mop) ? "" :
+        "    | No. evaluations: $(num_evals(mop))" )+ 
+    """ 
+        | final unscaled vectors:
+        | iterate: $(_prettify(ret_x, 10))
+        | value:   $(_prettify(ret_fx, 10))
+    """
+end
+
 function shrink_radius( ac :: AbstractConfig, Δ :: Real, steplength :: Real) :: Real
     if radius_update_method(ac) == :standard
         return Δ * γ_shrink(ac);
@@ -220,11 +258,12 @@ function initialize_data( mop :: AbstractMOP, x⁰::RVec, fx⁰ :: RVec;
     if !isnothing(populated_db)
         # has a database been provided? if yes, prepare
         data_base = populated_db;
-        scale!( data_base, mop );
-        apply_internal_sorting!( data_base, mop );
+        transform!( data_base, mop );
     else
         data_base = init_db(use_db(algo_config));
+        set_transformed!(data_base, true)
     end
+
     # make sure, x & fx are in database
     start_res = init_res(Res, x, fx );
     ensure_contains_result!(data_base, start_res);
@@ -255,8 +294,12 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP,
     fx = fxᵗ(iter_data);
     Δ = Δᵗ(iter_data);
 
-    # check other stopping conditions (could also be done in head of while-loop,
-    # but looks a bit more tidy here
+    # check some stopping conditions
+    if num_iterations(iter_data) >= max_iter(algo_config)
+        @logmsg loglevel1 "Stopping. Maximum number of iterations reached."
+        return true;
+    end
+
     if !_budget_okay(mop, algo_config)
         @logmsg loglevel1 "Stopping. Computational budget is exhausted."
         return true; # TODO stop codes
@@ -410,7 +453,7 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP,
         trial_point_index = keep_current_iterate!(iter_data, x₊, fx₊);
     end
     @logmsg loglevel1 """\n
-        The trial point was $((it_stat(iter_data)) == SUCCESSFULL || it_stat(iter_data) == ACCEPTABLE) ? "" : "not ")accepted.
+        The trial point was $( (it_stat(iter_data) == SUCCESSFULL) || (it_stat(iter_data) == ACCEPTABLE ) ? "" : "not ")accepted.
         The iteration is $(it_stat(iter_data)).
         Moreover, the radius was updated as below:
         old radius : $(old_Δ)
@@ -442,13 +485,13 @@ end
 function get_return_values( iter_data :: AbstractIterData, mop :: AbstractMOP)
     ret_x = unscale(xᵗ(iter_data),mop);
     ret_fx = reverse_internal_sorting(fxᵗ(iter_data),mop);
+    # TODO make tests for this: are returen values the same before and after `finalize_iter_data!` ?
     return (ret_x, ret_fx)
 end
 
 function finalize_iter_data!( iter_data :: AbstractIterData, mop :: AbstractMOP )
     if !isnothing( db(iter_data) )
-        unscale!( db(iter_data), mop);
-        reverse_internal_sorting!( db(iter_data), mop);
+        untransform!(db(iter_data), mop)
     end
     nothing
 end
@@ -461,9 +504,10 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     
     mop, iter_data, sc = initialize_data( mop, x⁰, fx⁰; algo_config, populated_db )
 
-    MAX_ITER = max_iter(algo_config)
+    @logmsg loglevel1 _stop_info_str( algo_config, mop )
+
     @logmsg loglevel1 "Entering main optimization loop."
-    while num_iterations(iter_data) < MAX_ITER
+    while true
         abbort = iterate!(iter_data, mop, sc, algo_config)
         abbort && break;            
     end# while
@@ -471,17 +515,10 @@ function optimize( mop :: AbstractMOP, x⁰ :: RVec,
     ret_x, ret_fx = get_return_values( iter_data, mop )
     # unscale sites and re-sort values to return to user
     finalize_iter_data!(iter_data, mop)
+
+    # @assert all((ret_x, ret_fx) .== get_return_values( iter_data, mop ))
    
-    @logmsg loglevel1 """\n
-        |--------------------------------------------
-        | FINISHED
-        |--------------------------------------------
-        | No. iterations:  $(num_iterations(iter_data)) 
-        | No. evaluations: $(num_evals(mop))
-        | final unscaled vectors:
-        | iterate: $(_prettify(ret_x, 10))
-        | value:   $(_prettify(ret_fx, 10))
-    """
+    @logmsg loglevel1 _fin_info_str(iter_data, mop)
 
     return ret_x, ret_fx, iter_data
 end# function optimize

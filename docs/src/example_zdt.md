@@ -1,28 +1,34 @@
+```@meta
+EditURL = "<unknown>/examples/example_zdt.jl"
+```
+
 # ZDT3 Problem
 
 ## Setup
 Install the test problem suite:
-```
-using Pkg 
-Pkg.activate(tempname())
-Pkg.develop(url="https://github.com/manuelbb-upb/MultiObjectiveProblems.jl")
-using MultiObjectiveProblems
-```
-```@setup zdt
-using Pkg 
+
+```julia
+using Pkg
 Pkg.activate(tempname())
 Pkg.develop(url="https://github.com/manuelbb-upb/MultiObjectiveProblems.jl")
 using MultiObjectiveProblems
 ```
 
+```@example example_zdt
+using MultiObjectiveProblems; #hide
+nothing #hide
+```
+
 Import other dependencies:
-```@example zdt
-using AbstractPlotting, CairoMakie
+
+```@example example_zdt
+using CairoMakie
 using Morbit
 ```
 
 Retrieve test problem and define a `MixedMOP`
-```@example zdt
+
+```@example example_zdt
 test_problem = ZDT3(2);
 box = constraints(test_problem);
 
@@ -38,7 +44,8 @@ end
 
 ## Run
 Run optimization and plot:
-```@example zdt
+
+```@example example_zdt
 I = get_ideal_point(test_problem)
 ac = AlgoConfig(; descent_method = :ps, reference_point = I )
 
@@ -47,19 +54,22 @@ x, fx, id = optimize( mop, x₀; algo_config = ac);
 pset = get_pareto_set(test_problem)
 PSx,PSy = get_scatter_points(pset, 100)
 
-# scatter Pareto set points in grey
+#  scatter Pareto set points in grey
 fig, ax, _ = scatter( PSx, PSy;
-    figure = (resolution = (600, 650),), 
+    figure = (resolution = (600, 650),),
 )
 
-# set axis limits to whole feasible set
-xlims!(ax, (box.lb[1] .- .2, box.ub[1] .+ .2) ) 
-ylims!(ax, (box.lb[2] .- .2, box.ub[2] .+ .2) ) 
+#  set axis limits to whole feasible set
+xlims!(ax, (box.lb[1] .- .2, box.ub[1] .+ .2) )
+ylims!(ax, (box.lb[2] .- .2, box.ub[2] .+ .2) )
 
-# final iterate in red
+#  final iterate in red
 scatter!(Tuple(x); color = :red)
-save("example_zdt_scatter.png", fig) # hide
-nothing # hide
+
+fig
 ```
 
-![](example_zdt_scatter.png)
+---
+
+*This page was generated using [Literate.jl](https://github.com/fredrikekre/Literate.jl).*
+

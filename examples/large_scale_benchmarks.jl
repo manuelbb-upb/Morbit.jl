@@ -1,5 +1,21 @@
-# Activate benchmark environment to have all dependencies
+# INFORMATION 
+# This file demonstrates how the benchmarks for our paper were done.
+# I have removed most other benchmark and plotting files from the example 
+# folder to keep things clean. There were scripts to retrospectively
+# add and combine results from different runs, which can be avoided 
+# with careful planning.
 
+# I have used `DataFrames.jl` to setup the different problem and model configurations.
+# The folder `benchmark_helpers` contains helpers to work with data frames.
+# Each test run is defined by a set of "features" and "dependent features".
+# Dependent features depend on a subset of other features, e.g, the number of objectives 
+# might depend on the number of decision variables.
+
+# There is some basic parallelization by using a `@threads` for-loop.
+
+# ----------------------------------------------------------
+
+# Activate benchmark environment to have all dependencies
 using Pkg;
 Pkg.activate(@__DIR__)
 
@@ -58,7 +74,7 @@ features = Dict(
 );
 num_runs = args["runs-per-setting"];
 
-# we perform `num_runs` runs for each possible combination of 
+# We perform `num_runs` runs for each possible combination of 
 # feature values. Each run should have a different starting point "x0", but the problems
 # could have different box constraints. Hence the feature "x0" is **dependent** on the 
 # feature "problems"
@@ -118,14 +134,15 @@ if length( args["resume-from"] ) > 0 && isfile( args["resume-from"] )
 end
 
 println("All in all we have to perform $(length(missing_rows)) of $(size(results,1)) tests.")
+
 #%% ---------------------------------------------------------------------------- #
 
 # Now setup the actual tests.
 # To keep things clean we use several getter functions that take 
 # as keyword arguments the features defined above.
 
-# reading the large data files in parallel does often not work
-# hence the lock
+# reading the large data files in parallel does often not work,
+# hence the lock for retrieving precalculated point sets with LagrangeModels
 lagrange_lock = ReentrantLock();
 
 function get_model_config(; kwargs...)
@@ -206,8 +223,7 @@ end
 # here we take arbitrary keyword arguments so that we can pass 
 # whole rows from the result dataframe
 function perform_test(; kwargs... )
-    model = kwargs[:model];
-    problem_str = kwargs[:problem_str];
+    
     x0 = kwargs[:x0];
     
     test_problem = get_test_problem(;kwargs...);
