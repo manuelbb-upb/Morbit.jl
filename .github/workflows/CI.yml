@@ -50,7 +50,7 @@ jobs:
           julia --project=docs -e '
             using Pkg
             Pkg.develop(PackageSpec(path=pwd()))
-            Pkg.add(;url="https://github.com/manuelbb-upb/MultiObjectiveProblems.jl.git")
+            Pkg.develop(;url="https://github.com/manuelbb-upb/MultiObjectiveProblems.jl.git")
             Pkg.instantiate()'
       - run: |
           julia --project=docs -e '
