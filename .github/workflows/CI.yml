@@ -49,7 +49,7 @@ jobs:
       - run: |
           julia --project=docs -e '
             using Pkg
-            Pkg.Registry.add("https://github.com/manuelbb-upb/MO_Registry.git")
+            Pkg.Registry.add(RegistrySpec(url = "https://github.com/JuliaRegistries/General.git"))
             Pkg.develop(PackageSpec(path=pwd()))
             Pkg.instantiate()'
       - run: |
