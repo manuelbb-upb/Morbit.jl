@@ -35,7 +35,7 @@ Memoize = "0.4"
 NLopt = "0.6"
 OSQP = "0.6"
 Parameters = "0.12"
-ThreadSafeDicts = "0.0.2"
+ThreadSafeDicts = "0.0.2, 0.0.3"
 julia = "1.5"
 
 [extras]
