@@ -55,7 +55,7 @@ add_objective!(mop, f₂, ∇f₂ )
 x₀ = [ -π ;  2.71828 ]
 
 #~ set maximum number of iterations 
-ac = AlgoConfig64( max_iter = 20)
+ac = AlgoConfig( max_iter = 20)
 #~ `optimize` will return parameter and result vectors as well 
 #~ as an `Morbit.IterData` object.
 x, fx, id = optimize( mop, x₀; algo_config = ac );
@@ -134,7 +134,7 @@ add_objective!(mop_rbf, f₁, rbf_cfg )
 add_objective!(mop_rbf, f₂, rbf_cfg )
 
 #~ only perform 10 iterations
-ac = AlgoConfig64( max_iter = 10 )
+ac = AlgoConfig( max_iter = 10 )
 x, fx, id = optimize( mop, x₀; algo_config = ac ) 
 x
 
@@ -155,7 +155,7 @@ We can pass the evaluation data from previous runs to facilitate the constructio
 =#
 
 #src Setup the problem anew, to ensure fresh start
-ac = AlgoConfig64( max_iter = 10 ); #hide
+ac = AlgoConfig( max_iter = 10 ); #hide
 mop_rbf = MixedMOP(); #hide
 #~ define the RBF surogates #hide
 rbf_cfg = RbfConfig(  #hide

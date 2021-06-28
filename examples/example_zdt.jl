@@ -36,7 +36,7 @@ end
 # ## Run
 # Run optimization and plot:
 I = get_ideal_point(test_problem)
-ac = AlgoConfig64(; descent_method = :ps, reference_point = I )
+ac = AlgoConfig(; descent_method = :ps, reference_point = I )
 
 x, fx, id = optimize( mop, x₀; algo_config = ac);
 

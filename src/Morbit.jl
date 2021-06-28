@@ -1,7 +1,7 @@
 module Morbit
 
 export morbit_formatter;
-export MixedMOP, optimize, AlgoConfig, add_objective!, add_vector_objective!;
+export MixedMOP, optimize, AlgorithmConfig, add_objective!, add_vector_objective!;
 export ExactConfig, TaylorConfig, RbfConfig, LagrangeConfig;
 export save_config, save_database, save_iter_data;
 export load_config, load_database, load_iter_data;
@@ -260,7 +260,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float16[];
     fx = F.(fx_sorted)
 
     if isnothing( algo_config )
-        ac = EmptyConfig{F}()
+        ac = DefaultConfig{F}()
     else
         ac = algo_config
     end

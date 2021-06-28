@@ -13,7 +13,7 @@
     f1(x) = x[1]^2;
 
     # I) unconstrained
-    opt_settings = AlgoConfig64(
+    opt_settings = AlgoConfig(
         max_iter = 30
     );
     ## 1) treat objective as cheap
@@ -24,7 +24,7 @@
     @test x ≈ [ 0.0 ] atol=1e-2
 
     ## 2) treat objective as expensive
-    opt_settings = AlgoConfig64(
+    opt_settings = AlgoConfig(
         max_iter = 30
     );
     mop = MixedMOP();
@@ -36,7 +36,7 @@
     #II) constrained
 
     ## 1) treat objective as cheap
-    opt_settings = AlgoConfig64(
+    opt_settings = AlgoConfig(
         max_iter = 10
     );
     mop = MixedMOP( [-8.0], [8.0] );
@@ -46,7 +46,7 @@
     @test x ≈ [ 0.0 ] atol=0.1
 
     ## 2) treat objective as expensive
-    opt_settings = AlgoConfig64(
+    opt_settings = AlgoConfig(
         max_iter = 30
     );
     mop = MixedMOP( [-8.0], [8.0] );
@@ -67,7 +67,7 @@ end
 
     # unconstrained, cheap
     @testset "unbound_cheap_cheap" begin
-        opt_settings = AlgoConfig64(
+        opt_settings = AlgoConfig(
             Δ_0= 0.2,
             max_iter = 30,
         );
@@ -81,7 +81,7 @@ end
 
     # unconstrained, expensive
     @testset "unbound_exp_exp" begin
-        opt_settings = AlgoConfig64(
+        opt_settings = AlgoConfig(
             max_iter = 30
         );
         mop = MixedMOP();
@@ -94,7 +94,7 @@ end
 
     # unconstrained, heterogenous
     @testset "unbound_exp_cheap" begin
-        opt_settings = AlgoConfig64(
+        opt_settings = AlgoConfig(
             max_iter = 30
         );
         mop = MixedMOP();
@@ -107,7 +107,7 @@ end
 
     # constrained, cheap
     @testset "bound_cheap_cheap" begin
-        opt_settings = AlgoConfig64(
+        opt_settings = AlgoConfig(
             max_iter = 30
         );
         mop = MixedMOP(lb, ub);
@@ -120,7 +120,7 @@ end
 
     # constrained, expensive
     @testset "bound_exp_exp" begin
-        opt_settings = AlgoConfig64(
+        opt_settings = AlgoConfig(
             max_iter = 50,
         );
         mop = MixedMOP(lb,ub);
@@ -133,7 +133,7 @@ end
 
     # constrained, heterogenous
     @testset "bound_exp_cheap" begin
-        opt_settings = AlgoConfig64(
+        opt_settings = AlgoConfig(
             max_iter = 50,
             Δ_max = .4,
             ε_crit = 0.1,
@@ -158,7 +158,7 @@ end
         lb, ub = lb_ub
         for type ∈ [:cheap, :expensive ]
             for ideal_point ∈ [Float32[], [0.0]]
-                opt_settings = AlgoConfig64(
+                opt_settings = AlgoConfig(
                     max_iter = 20,
                     descent_method = :direct_search,
                     ideal_point = ideal_point,
@@ -185,7 +185,7 @@ end
         for type_tuple ∈ [ (:cheap, :cheap), (:expensive, :expensive), (:expensive, :cheap) ]
             type1, type2 = type_tuple
             for ideal_point ∈ [ [], zeros(2) ]
-                opt_settings = AlgoConfig64(
+                opt_settings = AlgoConfig(
                     max_iter = 50,
                     rbf_kernel = :multiquadric,
                     rbf_shape_parameter = cs -> let Δ = cs.iter_data.Δ; return 1/(10*Δ) end,

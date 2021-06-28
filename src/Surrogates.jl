@@ -168,7 +168,7 @@ end
 #=
 
 function improve!(sc :: SurrogateContainer, non_linear_indices :: Vector{Int64},
-        ac :: AlgoConfig )
+        ac :: AlgorithmConfig )
     for ℓ ∈ non_linear_indices
         model = sc.model_list[ℓ]
         meta = sc.model_meta[ℓ]
@@ -178,7 +178,7 @@ function improve!(sc :: SurrogateContainer, non_linear_indices :: Vector{Int64},
 end
 
 function make_linear!(sc :: SurrogateContainer, non_linear_indices :: Vector{Int64},
-        ac :: AlgoConfig )
+        ac :: AlgorithmConfig )
     has_changed = false
     for ℓ ∈ non_linear_indices
         model = sc.model_list[ℓ]

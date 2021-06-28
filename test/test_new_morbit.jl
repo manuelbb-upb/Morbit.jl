@@ -22,7 +22,7 @@ taylor_cfg = Morbit.TaylorConfig( degree = 2, gradients = :fdm)
 Morbit.add_objective!( p, f1, lag_cfg );
 Morbit.add_objective!( p, f2, lag_cfg );
 
-ac = Morbit.AlgoConfig(  
+ac = Morbit.AlgorithmConfig(  
     db = Morbit.ArrayDB, 
     max_critical_loops = 1,
     strict_backtracking = true,

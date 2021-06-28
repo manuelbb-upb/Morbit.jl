@@ -5,7 +5,7 @@ using Logging
 @testset "Save & Load AbstractConfig" begin
     
     # AbstractConfig 
-    empty_cfg = Morbit.EmptyConfig();
+    empty_cfg = Morbit.DefaultConfig();
     fn1 = string( tempname(), ".jld2" )
     pt1 = save_config( fn1, empty_cfg )
 
@@ -15,7 +15,7 @@ using Logging
     loaded_empty_cfg = load_config( fn1 )
     @test empty_cfg == loaded_empty_cfg
 
-    algo_cfg = AlgoConfig();
+    algo_cfg = AlgorithmConfig();
     fn2 = tempname()
     pt2 = save_config( fn2, algo_cfg )
 
@@ -24,7 +24,7 @@ using Logging
 
     loaded_algo_config = load_config( pt2 )
     CFG_SAME = true
-    for field in fieldnames( AlgoConfig )
+    for field in fieldnames( AlgorithmConfig )
         if getfield( algo_cfg, field ) ≠ getfield( loaded_algo_config, field )
             CFG_SAME = false 
         end
