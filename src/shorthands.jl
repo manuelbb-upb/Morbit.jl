@@ -2,6 +2,8 @@ const RVec = Vector{R} where R<:Real;
 const RVecArr = Vector{<:RVec};
 const RMat = Array{R, 2} where R <: Real;
 
+const Vec = AbstractVector{<:Real}
+
 struct XInt <: Integer 
     val :: Union{Int,Nothing}
 end 

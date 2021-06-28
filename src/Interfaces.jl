@@ -16,7 +16,7 @@ abstract type AbstractMOP <: MOI.ModelLike end;
 
 abstract type AbstractDB end;
 abstract type AbstractIterData end;
-abstract type AbstractConfig end;
+abstract type AbstractConfig{F<:AbstractFloat} end;
 
 abstract type DiffFn end;
 
@@ -29,4 +29,5 @@ get_hessian( :: DiffFn, :: RVec, :: Int ) = nothing :: RMat;
 include("SurrogateModelInterface.jl");
 include("AbstractObjectiveInterface.jl");
 include("AbstractMOPInterface.jl");
+include("AbstractConfigInterface.jl")
 

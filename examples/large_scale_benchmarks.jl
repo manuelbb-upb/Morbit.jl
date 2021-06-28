@@ -200,7 +200,7 @@ function get_algo_config( test_problem; kwargs...)
     model = kwargs[:model]
     n_vars = kwargs[:n_vars]
     
-    AlgoConfig(;
+    AlgoConfig64(;
         max_critical_loops = model == "TP1" ? 0 : 3,
         ε_crit = .01,
         max_iter = 100,

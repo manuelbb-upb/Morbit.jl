@@ -225,34 +225,45 @@ end
 
 """
 Perform initialization of the data passed to `optimize` function.
-    
 """
-function initialize_data( mop :: AbstractMOP, x⁰::RVec, fx⁰ :: RVec; 
-    algo_config :: AbstractConfig = EmptyConfig(), populated_db :: Union{AbstractDB, Nothing} = nothing )
+function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float16[]; 
+    algo_config :: Union{AbstractConfig, Nothing} = nothing, 
+    populated_db :: Union{AbstractDB, Nothing} = nothing )
     
     if num_objectives(mop) == 0
         error("`mop` has no objectives!")
     end
         
-    # TODO warn here 
+    @warn "The evaluation counter of `mop` is reset."
     reset_evals!( mop );
     # for backwards-compatibility with unconstrained problems:
     if num_vars(mop) == 0
-        MOI.add_variables(mop, length(x⁰))
+        MOI.add_variables(mop, length(x0))
     end
 
     # initialize first iteration site
-    @assert !isempty( x⁰ );
-    T = promote_type( Float32, eltype(x⁰) )
-    x = scale( T.(x⁰), mop );
+    @assert !isempty( x0 ) "Please provide a non-empty feasible starting point `x0`."
+    
+    x_scaled = scale( x0, mop );
     
     # initalize first objective vector 
-    if isempty( fx⁰ )
+    if isempty( fx0 )
         # if no starting function value was provided, eval objectives
-        fx = eval_all_objectives( mop, x );
+        fx_sorted = eval_all_objectives( mop, x_scaled );
     else
-        fx = apply_internal_sorting( y, mop );
+        fx_sorted = apply_internal_sorting( fx0, mop );
     end 
+
+    # ensure at least half-precision
+    F = Base.promote_eltype( x_scaled, fx_sorted, Float16 )
+    x = F.(x_scaled)
+    fx = F.(fx_sorted)
+
+    if isnothing( algo_config )
+        ac = EmptyConfig{F}()
+    else
+        ac = algo_config
+    end
 
     # initialize database
     if !isnothing(populated_db)
@@ -260,7 +271,7 @@ function initialize_data( mop :: AbstractMOP, x⁰::RVec, fx⁰ :: RVec;
         data_base = populated_db;
         transform!( data_base, mop );
     else
-        data_base = init_db(use_db(algo_config));
+        data_base = init_db( use_db(ac) );
         set_transformed!(data_base, true)
     end
 
@@ -268,13 +279,13 @@ function initialize_data( mop :: AbstractMOP, x⁰::RVec, fx⁰ :: RVec;
     start_res = init_res(Res, x, fx );
     ensure_contains_result!(data_base, start_res);
 
-    iter_data = init_iter_data(IterData, x, fx, Δ⁰(algo_config), data_base);
+    iter_data = init_iter_data(IterData, x, fx, Δ⁰(ac), data_base);
     xᵗ_index!(iter_data, get_id(start_res));
 
     # initialize surrogate models
-    sc = init_surrogates( mop, iter_data, algo_config );
+    sc = init_surrogates( mop, iter_data, ac );
     
-    return (mop, iter_data, sc)
+    return (mop, ac, iter_data, sc)
 end
 
 function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP, 
@@ -497,18 +508,18 @@ function finalize_iter_data!( iter_data :: AbstractIterData, mop :: AbstractMOP 
 end
 
 ############################################
-function optimize( mop :: AbstractMOP, x⁰ :: RVec, 
-    fx⁰ :: RVec = Real[]; algo_config :: AbstractConfig = EmptyConfig(), 
-    populated_db :: Union{AbstractDB,Nothing} = nothing # TODO make passing of AbstractIterData possible
+function optimize( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float16[];
+    algo_config :: Union{Nothing, AbstractConfig} = nothing, 
+    populated_db :: Union{AbstractDB, Nothing} = nothing # TODO make passing of AbstractIterData possible
     )
     
-    mop, iter_data, sc = initialize_data( mop, x⁰, fx⁰; algo_config, populated_db )
+    mop, ac, iter_data, sc = initialize_data( mop, x0, fx0; algo_config, populated_db )
 
-    @logmsg loglevel1 _stop_info_str( algo_config, mop )
+    @logmsg loglevel1 _stop_info_str( ac, mop )
 
     @logmsg loglevel1 "Entering main optimization loop."
     while true
-        abbort = iterate!(iter_data, mop, sc, algo_config)
+        abbort = iterate!(iter_data, mop, sc, ac)
         abbort && break;            
     end# while
 
