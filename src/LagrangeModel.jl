@@ -5,7 +5,7 @@ using FileIO;
 @with_kw mutable struct LagrangePoly 
     p :: AbstractPolynomialLike 
     grad_poly :: Union{Nothing, Vector{<:AbstractPolynomialLike}} = nothing
-    res :: Result = init_res(Res)  
+    res :: AbstractResult = init_res(Result)  
     # TODO check if `res` is a reference (good) or copy (bad for memory)
     # if the latter, store only values at interpolation sites                                
 end
@@ -51,9 +51,7 @@ function Base.lock(::Nothing) end
 function Base.unlock(::Nothing) end
 
 max_evals( cfg::LagrangeConfig)::Int=cfg.max_evals;
-function max_evals!(cfg::LagrangeConfig, N :: Int)::Nothing
-    cfg.max_evals = N 
-end
+
 fully_linear( lm::LagrangeModel ) :: Bool = lm.fully_linear;
 
 combinable(::LagrangeConfig) ::Bool = true;
@@ -155,7 +153,7 @@ function _get_unit_basis( use_saved :: Val{true}, n_vars :: Int, cfg :: Lagrange
         @logmsg loglevel4 "Loaded sites from $(cfg.save_path)"
         unit_basis = copy( _canonical_basis( n_vars, cfg.degree ) );
         for (i,x) ∈ enumerate(unit_sites)
-            unit_basis[i].res = init_res( Res, x );
+            unit_basis[i].res = init_res( Result, x );
             _normalize!(unit_basis[i]);
             _orthogonalize!(unit_basis, i);
         end
@@ -216,7 +214,7 @@ function _scale_unit_basis( unit_basis :: Vector{LagrangePoly}, lb :: RVec, ub :
             p = subs( up.p, χ => scaling_poly ),
             # we `unscale` the sites from [0,1]^n to correspond to sites in 
             # current trust region
-            res = init_res( Res, _unscale( get_site( up.res ), lb, ub ) )
+            res = init_res( Result, _unscale( get_site( up.res ), lb, ub ) )
         );
         push!(scaled_basis, lp);
     end
@@ -298,13 +296,13 @@ function _unit_basis( n_vars :: Int, degree :: Int ;
 
     basis = _canonical_basis( n_vars, degree );
     
-    candidates = [init_res(Res, lb .+ .5 .* (ub .- lb) ),];
+    candidates = [init_res(Result, lb .+ .5 .* (ub .- lb) ),];
     _make_poised!( basis, lb, ub, candidates; ε_accept = 0, max_solver_evals = max_evals1, solver = solver1 );
     _make_lambda_poised!( basis, lb, ub; Λ = Λ, max_solver_evals = max_evals2, solver = solver2);
     return basis
 end
 
-function _make_poised!( basis :: Vector{LagrangePoly}, lb :: RVec, ub :: RVec, candidates :: Vector{<:Result};
+function _make_poised!( basis :: Vector{LagrangePoly}, lb :: RVec, ub :: RVec, candidates :: Vector{<:AbstractResult};
     ε_accept ::Real, solver :: Symbol, max_solver_evals :: Union{Nothing,Int}, loop_start :: Int = 1 ) :: Nothing
     n_vars = length(lb);
     if isnothing( max_solver_evals)
@@ -329,7 +327,7 @@ function _make_poised!( basis :: Vector{LagrangePoly}, lb :: RVec, ub :: RVec, c
             x₀ = _rand_box_point(lb, ub);
             (_, x, ret) = NLopt.optimize(opt, x₀)
         
-            res = init_res(Res, x);
+            res = init_res(Result, x);
         end
         basis[i].res = res;
         _normalize!(basis[i]);
@@ -410,7 +408,7 @@ function _make_lambda_poised!( basis :: Vector{LagrangePoly}, lb :: RVec, ub :: 
         if iₖ > 0
             # perform a point swap and normalize
             @logmsg loglevel4 " 2.$(iter_counter)) Replacing point at index $(iₖ)."
-            basis[iₖ].res = init_res(Res, xₖ);
+            basis[iₖ].res = init_res(Result, xₖ);
             _normalize!(basis[iₖ])            
             _orthogonalize!(basis, iₖ);
        else

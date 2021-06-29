@@ -1,19 +1,22 @@
 # Implementation of the AbstractObjective interface 
 # (see file `AbstractObjectiveInterface.jl`)
-@with_kw mutable struct VectorObjectiveFunction <: AbstractObjective
+@with_kw mutable struct VectorObjectiveFunction{
+        SC <: SurrogateConfig,
+        FT <: Function
+    } <: AbstractObjective
     n_in :: Int = 0; 
     n_out :: Int = 0;
     n_evals :: Int64 = 0;   # true function evaluations (also counts fdm evaluations)
 
     # max_evals :: Int64 = typemax(Int64);
 
-    model_config :: Union{ Nothing, SurrogateConfig } = nothing;
+    model_config :: SC
 
-    function_handle :: Union{F, Nothing} where{F <: Function}  = nothing
+    function_handle :: FT 
 end
 
 # Required methods (see file `AbstractObjectiveInterface.jl`)
-function _wrap_func( ::Type{VectorObjectiveFunction}, 
+function _wrap_func( ::Type{<:VectorObjectiveFunction}, 
         fn::Function, model_cfg::SurrogateConfig,
         n_vars :: Int, n_out :: Int
     ) :: VectorObjectiveFunction

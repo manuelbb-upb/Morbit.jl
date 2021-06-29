@@ -6,17 +6,13 @@ include("BatchObjectiveFunction.jl");
 
 # MANDATORY METHODS
 "A general constructor."
-function _wrap_func( :: Type{<:AbstractObjective}, fn :: Function, 
-    model_cfg :: SurrogateConfig, n_vars :: Int, n_out :: Int ) :: AbstractObjective
+function _wrap_func( :: T, fn :: Function, model_cfg :: SurrogateConfig, 
+    n_vars :: Int, n_out :: Int ) :: T where {T<:Type{<:AbstractObjective}}
     nothing
 end
 
-"Return a function that evaluates an objective at a **scaled** site."
+"Return a function that evaluates an objective at an **unscaled** site."
 eval_handle(::AbstractObjective) :: Function = nothing;
-# NOTE usually, the user provides a function that takes a 
-# vector from the **unscaled** domain, not [0,1]^n.
-# That is why `_add_objective!` (in AbstractMOPInterface.jl)
-# wraps the user provided function handle in a transform function.
 
 num_vars( :: AbstractObjective ) = nothing :: Int;
 
@@ -34,48 +30,27 @@ combine( ::AbstractObjective, :: AbstractObjective ) = nothing <:AbstractObjecti
 num_outputs( objf :: AbstractObjective ) = nothing :: Int;
 
 # DERIVED methods and defaults
-# can_batch( ::AbstractObjective ) = false :: Bool;
 
-"Evaluate the objective at scaled site(s). and increase counter."
-function eval_objf(objf :: AbstractObjective, x̂ :: RVec )
+"Evaluate the objective at unscaled site `x`. and increase counter."
+function eval_objf(objf :: AbstractObjective, x :: Vec )
     inc_evals!(objf);
-    eval_handle(objf)(x̂)
+    eval_handle(objf)(x)
 end
 
-function Broadcast.broadcasted( ::typeof(eval_objf), objf :: AbstractObjective, X̂ :: RVecArr)
+#=
+function Broadcast.broadcasted( ::typeof(eval_objf), objf :: AbstractObjective, X̂ :: VecVec)
     inc_evals!(objf, length(X̂))
     eval_handle(objf).(X̂)
 end
+=#
 
-# Helpers to retrieve function handles that increase the eval count:
-# … using Memoization here so that always the same function is returned
-# this should speed up automatic differentiation 
-@memoize ThreadSafeDict function _eval_handle(objf :: AbstractObjective)
-    x -> eval_objf(objf, x)
-end
-
-@memoize ThreadSafeDict function _eval_handle( objf :: AbstractObjective, ℓ :: Int)
-    return x -> eval_objf( objf, x)[ℓ]
-end
-# NOTE _eval_handle increases eval count, eval_handle does **not** increase count
-    
 "(Soft) upper bound on the number of function calls. "
 max_evals( objf :: AbstractObjective) = max_evals( model_cfg(objf) );
-"Set upper bound of № evaluations to `N`"
-max_evals!( :: AbstractObjective, N :: Int ) = max_evals!( model_cfg(objf), N );
 
 "Increase evaluation count by `N`"
 function inc_evals!( objf :: AbstractObjective, N :: Int = 1 )
     num_evals!( objf, num_evals(objf) + N )
 end
-
-#=
-"Evaluate the objective at provided site(s)."
-function (objf :: AbstractObjective )(x :: RVec )
-    inc_evals!( objf );
-    return eval_objf( objf, x );
-end
-=#
 
 combinable( objf :: AbstractObjective ) = combinable( model_cfg(objf) );
 function combinable( objf1 :: AbstractObjective, objf2 :: AbstractObjective )
@@ -90,10 +65,3 @@ function combine( objf1 :: T, objf2 :: T ) where{T<:AbstractObjective}
     new_config = combine( model_cfg(objf1), model_cfg(objf2) )
     return _wrap_func( T, new_fn, new_config, num_vars(objf1), n_out );
 end
-
-#= TODO is needed?
-function Broadcast.broadcasted( objf :: AbstractObjective, X :: RVecArr )
-    inc_evals!( objf, length(X) );
-    return eval_objf.( objf, X )
-end
-=#

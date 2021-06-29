@@ -31,162 +31,31 @@ const FD = FiniteDiff#erences
 import ForwardDiff
 const AD = ForwardDiff
 
-import Logging: LogLevel, @logmsg;
-import Logging;
+import Logging: LogLevel, @logmsg
+import Logging
 
-const loglevel1 = LogLevel(-1);
-const loglevel2 = LogLevel(-2);
-const loglevel3 = LogLevel(-3);
-const loglevel4 = LogLevel(-4);
-
-const printDict = Dict( 
-    loglevel1 => (:blue, "Morbit"),
-    loglevel2 => (:cyan, "Morbit "),
-    loglevel3 => (:green, "Morbit  "),
-    loglevel4 => (:green, "Morbit   ")
-)
-
-function morbit_formatter(level::LogLevel, _module, group, id, file, line)
-    @nospecialize
-    if level in keys(printDict)
-        color, prefix = printDict[ level ]
-        # suffix ::String = ""
-        return color, prefix, ""
-    else 
-        return Logging.default_metafmt( level, _module, group, id, file, line )
-    end
-end
+include("custom_logging.jl")
 
 include("shorthands.jl");
-
 include("Interfaces.jl");
-
 include("diff_wrappers.jl");
 
-# implementations
+# implementations (order should not matter)
 include("VectorObjectiveFunction.jl");
 include("MixedMOP.jl");
 
-include("results.jl");  
-include("Surrogates.jl");
-
-include("objectives.jl");
+include("ResultImplementation.jl")
+include("DataBaseImplementation.jl")
+include("IterDataImplementation.jl")
+include("SurrogatesImplementation.jl");
 
 include("ConfigImplementations.jl")
+
+# utilities
+include("adding_objectives.jl");
 include("descent.jl")
-
 include("saving.jl")
-
-function _budget_okay( mop :: AbstractMOP, ac :: AbstractConfig ) :: Bool
-    for objf ∈ list_of_objectives(mop)
-        if num_evals(objf) >= min( max_evals(objf), max_evals(ac) ) - 1
-            return false;
-        end
-    end
-    return true
-end
-
-function f_tol_rel_test( fx :: RVec, fx⁺ :: RVec, ac :: AbstractConfig ) :: Bool
-    tol = f_tol_rel(ac)
-    if isa(tol, Real)
-        ret = norm( fx .- fx⁺, Inf ) <= tol * norm( fx, Inf )
-    else
-        ret = all( abs.( fx .- fx⁺ ) .<= tol .* fx )
-    end
-    ret && @logmsg loglevel1 "Relative (objective) stopping criterion fulfilled."
-    ret
-end
-
-function x_tol_rel_test( x :: RVec, x⁺ :: RVec, ac :: AbstractConfig ) :: Bool
-    tol = x_tol_rel(ac)
-    if isa(tol, Real)
-        ret = norm( x .- x⁺, Inf ) <= tol * norm( x, Inf )
-    else
-        ret = all( abs.( x .- x⁺ ) .<= tol )
-    end
-    ret && @logmsg loglevel1 "Relative (decision) stopping criterion fulfilled."
-    ret
-end
-
-function f_tol_abs_test( fx :: RVec, fx⁺ :: RVec, ac :: AbstractConfig ) :: Bool
-    tol = f_tol_abs(ac)
-    if isa(tol, Real)
-        ret = norm( fx .- fx⁺, Inf ) <= tol 
-    else
-        ret = all( abs.( fx .- fx⁺ ) .<= tol )
-    end
-    ret && @logmsg loglevel1 "Absolute (objective) stopping criterion fulfilled."
-    ret
-end
-
-function x_tol_abs_test( x :: RVec, x⁺ :: RVec, ac :: AbstractConfig ) :: Bool
-    tol = x_tol_abs(ac)
-    if isa(tol, Real)
-        ret =  norm( x .- x⁺, Inf ) <= tol 
-    else
-        ret = all( abs.( x .- x⁺ ) .<= tol )
-    end
-    ret && @logmsg loglevel1 "Absolute (decision) stopping criterion fulfilled."
-    ret
-end
-
-function ω_Δ_rel_test( ω :: Real, Δ :: Union{RVec, Real}, ac :: AbstractConfig )
-    ω_tol = ω_tol_rel( ac )
-    Δ_tol = Δ_tol_rel( ac )
-    ret = ω <= ω_tol && all( Δ .<= Δ_tol )
-    ret && @logmsg loglevel1 "Realtive criticality stopping criterion fulfilled."
-    ret
-end
-
-function Δ_abs_test( Δ :: Union{RVec, Real}, ac :: AbstractConfig )
-    tol = Δ_tol_abs( ac )
-    ret = all( Δ .<= tol )
-    ret && @logmsg loglevel1 "Absolute radius stopping criterion fulfilled."
-    ret
-end
-
-function ω_abs_test( ω :: Real, ac :: AbstractConfig )
-    tol = ω_tol_abs( ac )
-    ret = ω .<= tol
-    ret && @logmsg loglevel1 "Absolute criticality stopping criterion fulfilled."
-    ret
-end
-
-Base.:(+)(s1 :: String, s2 :: String) = string( s1, s2 )
-function _stop_info_str( ac :: AbstractConfig, mop :: Union{AbstractMOP,Nothing} = nothing )
-    ret_str = "Stopping Criteria:\n"
-    if isnothing(mop)
-        ret_str += "No. of objective evaluations ≥ $(max_evals(ac)).\n"
-    else
-        for objf ∈ list_of_objectives(mop)
-            ret_str += "• No. of. evaluations of objective(s) $(output_indices(objf,mop)) ≥ $(min( max_evals(objf), max_evals(ac) )).\n"
-        end
-    end
-    ret_str += "• No. of iterations is ≥ $(max_iter(ac)).\n"
-    ret_str += @sprintf("• ‖ fx - fx⁺ ‖ ≤ %g ⋅ ‖ fx ‖,\n", f_tol_rel(ac) )
-    ret_str += @sprintf("• ‖ x - x⁺ ‖ ≤ %g ⋅ ‖ x ‖,\n", x_tol_rel(ac) )
-    ret_str += @sprintf("• ‖ fx - fx⁺ ‖ ≤ %g,\n", f_tol_abs(ac) )
-    ret_str += @sprintf("• ‖ x - x⁺ ‖ ≤ %g,\n", x_tol_abs(ac) )
-    ret_str += @sprintf("• ω ≤ %g AND Δ ≤ %g,\n", ω_tol_rel(ac), Δ_tol_rel(ac))
-    ret_str += @sprintf("• Δ ≤ %g OR", Δ_tol_abs(ac))
-    ret_str += @sprintf(" ω ≤ %g.", ω_tol_abs(ac))
-end
-
-function _fin_info_str( iter_data :: AbstractIterData, mop :: Union{AbstractMOP, Nothing} = nothing )
-    ret_x, ret_fx = get_return_values( iter_data, mop )
-    return """\n
-        |--------------------------------------------
-        | FINISHED
-        |--------------------------------------------
-        | No. iterations:  $(num_iterations(iter_data)) 
-    """ + (isnothing(mop) ? "" :
-        "    | No. evaluations: $(num_evals(mop))" )+ 
-    """ 
-        | final unscaled vectors:
-        | iterate: $(_prettify(ret_x, 10))
-        | value:   $(_prettify(ret_fx, 10))
-    """
-end
+include("utilities.jl")
 
 function shrink_radius( ac :: AbstractConfig, Δ :: Real, steplength :: Real) :: Real
     if radius_update_method(ac) == :standard
@@ -195,6 +64,7 @@ function shrink_radius( ac :: AbstractConfig, Δ :: Real, steplength :: Real) ::
         return steplength * γ_shrink(ac);
     end
 end
+
 function shrink_radius_much( ac :: AbstractConfig, Δ :: Real, steplength :: Real) :: Real
     if radius_update_method(ac) == :standard
         return Δ * γ_shrink_much(ac);
@@ -202,6 +72,7 @@ function shrink_radius_much( ac :: AbstractConfig, Δ :: Real, steplength :: Rea
         return steplength * γ_shrink_much(ac);
     end
 end
+
 function grow_radius( ac :: AbstractConfig, Δ :: Real, steplength :: Real) :: Real
     if radius_update_method(ac) == :standard
         return min( Δᵘ(ac), γ_grow(ac) * Δ )
@@ -210,18 +81,6 @@ function grow_radius( ac :: AbstractConfig, Δ :: Real, steplength :: Real) :: R
     end
 end
 
-using Printf: @sprintf
-function _prettify( vec :: RVec, len :: Int = 5) :: AbstractString
-    return string(
-        "[",
-        join( 
-            [@sprintf("%.5f",vec[i]) for i = 1 : min(len, length(vec))], 
-            ", "
-        ),
-        length(vec) > len ? ", …" : "",
-        "]"
-    )
-end
 
 """
 Perform initialization of the data passed to `optimize` function.
@@ -276,7 +135,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float16[];
     end
 
     # make sure, x & fx are in database
-    start_res = init_res(Res, x, fx );
+    start_res = init_res(Result, x, fx );
     ensure_contains_result!(data_base, start_res);
 
     iter_data = init_iter_data(IterData, x, fx, Δ⁰(ac), data_base);

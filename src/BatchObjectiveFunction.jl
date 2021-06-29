@@ -1,25 +1,25 @@
 # Custom function to allow for batch evaluation outside of julia
 # or to exploit parallelized objective functions
 # (included from "AbstractObjectiveInterface")
-@with_kw struct BatchObjectiveFunction <: Function
-    function_handle :: Union{Function, Nothing} = nothing
+struct BatchObjectiveFunction{F<:Function} <: Function
+    function_handle :: F
 end
 
 # evaluation of a BatchObjectiveFunction
-function (objf::BatchObjectiveFunction)(x :: RVec)
+function (objf::BatchObjectiveFunction)(x :: Vec)
     vec(objf.function_handle(x))
 end
 
 # overload broadcasting for BatchObjectiveFunction's
 # that are assumed to handle arrays themselves
-function Broadcast.broadcasted( objf::BatchObjectiveFunction, X :: RVecArr)
+function Broadcast.broadcasted( objf::BatchObjectiveFunction, X :: VecVec)
     vec.( objf.function_handle( X ) )
 end
 
 function _new_batch( func1 :: F, func2 :: T ) where{ F <:Function ,T <: Function }
     return BatchObjectiveFunction(
-        function( x :: Union{ RVecArr, RVec } )
-            if isa( x, RVec )
+        function( x :: Union{ VecVec, Vec } )
+            if isa( x, Vec )
                 [ func1(x); func2(x) ]
             else
                 f1 = func1.(x)
@@ -36,7 +36,7 @@ combine( func1 :: BatchObjectiveFunction, func2 :: BatchObjectiveFunction ) = _n
 
 "Get a new function function handle stacking the output of `func1` and `func2`."
 function combine(func1 :: F, func2 :: T ) where{ F <:Function ,T <: Function }
-    return function( x :: Vector{R} ) where{R <: Real}
-        [ func1(x); func2(x) ]
+    return function( x :: Vec )
+        return vcat( func1(x), func2(x) )
     end
 end

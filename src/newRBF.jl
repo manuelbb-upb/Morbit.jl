@@ -15,10 +15,10 @@ using LinearAlgebra: diag # remove
     
     fully_linear :: Bool = false;
 
-    # for gathering training data in form of `Results`
+    # for gathering training data in form of `AbstractResults`
     # dict key is the "construction round" for metadata (plotting)
     # dict values are vectors of training data    
-    tdata :: Dict{Int,Vector{<:Result}} = Dict( i => Result[] for i = 0:4);
+    tdata :: Dict{Int,Vector{<:AbstractResult}} = Dict( i => AbstractResult[] for i = 0:4);
 end
 
 function RbfModel( model :: RBF.RBFModel, n_vars :: Int )
@@ -101,10 +101,6 @@ end
 end
 
 max_evals( cfg :: RbfConfig ) :: Int = cfg.max_evals;
-function max_evals!( cfg :: RbfConfig, N :: Int) :: Nothing
-    cfg.max_evals = N;
-    nothing
-end
 
 fully_linear( rbf :: RbfModel ) :: Bool = rbf.fully_linear;
 
@@ -211,7 +207,7 @@ function improve_model( rbf:: RbfModel, objf::AbstractObjective, rmeta :: RbfMet
         len = intersect_bounds( mop, x, Δ₁, dir; return_vals = :absmax)
         if abs(len) > pivot
             offset = len .* dir;
-            push!(rbf.tdata[3], init_res( Res, x .+ offset));
+            push!(rbf.tdata[3], init_res( Result, x .+ offset));
         
             rbf.Y = hcat( rbf.Y, offset );
             rbf.Z = rbf.Z[:, 2:end];
@@ -252,7 +248,7 @@ function rebuild_model( rbf :: RbfModel, objf :: AbstractObjective, rmeta :: Rbf
         dir[i] = 1;
         len = intersect_bounds( mop, x, Δ₁, dir; return_vals = :absmax)
         offset = len .* dir;
-        push!(rbf.tdata[3], init_res( Res, x .+ offset));
+        push!(rbf.tdata[3], init_res( Result, x .+ offset));
         rbf.Y = hcat( rbf.Y, offset );
         rbf.Z = rbf.Z[:, 2:end];
         if abs(len) <= cfg.θ_pivot * Δ 
@@ -343,7 +339,7 @@ end
 
 """
 Find affinely independent results in database box of radius `Δ` around `x`
-Results are saved in `rbf.tdata[tdata_index]`. 
+AbstractResults are saved in `rbf.tdata[tdata_index]`. 
 Both `rbf.Y` and `rbf.Z` are changed.
 """
 function find_box_independent_points1!( rbf :: RbfModel, cfg :: RbfConfig, id :: AbstractIterData,
@@ -379,7 +375,7 @@ end
 # if we had more than two rounds we would have to pass Y & Z here too
 function _find_box_independent_points( rbf :: RbfModel, 
     id :: AbstractIterData, mop :: AbstractMOP, x :: RVec, Δ :: Union{Real,RVec};
-    θ_pivot = 1e-3, exclude_indices :: Vector{<:NothInt} = NothInt[] ) :: Tuple{Vector{<:Result},RMat,RMat}
+    θ_pivot = 1e-3, exclude_indices :: Vector{<:NothInt} = NothInt[] ) :: Tuple{Vector{<:AbstractResult},RMat,RMat}
 
     lb, ub = local_bounds(mop, x, Δ );
     box_indices = find_points_in_box( id, lb, ub; exclude_indices );
@@ -401,7 +397,7 @@ function _find_box_independent_points( rbf :: RbfModel,
 end
   
 
-function _affinely_independent_points( list_of_results :: Vector{<:Result}, x₀ :: RVec, 
+function _affinely_independent_points( list_of_results :: Vector{<:AbstractResult}, x₀ :: RVec, 
     Y :: RMat = Matrix{Real}(undef, 0, 0), Z :: RMat = Matrix{Real}(undef, 0, 0);
     piv_val :: Real = 1e-3 ) :: Tuple{Vector{<:Int},RMat,RMat}
     return _affinely_independent_points( get_site.(list_of_results), x₀, Y, Z; piv_val )
@@ -481,7 +477,7 @@ function add_new_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP,
             if abs(len) > cfg.θ_pivot * Δ 
                 # pivot big enough, accept new site
                 offset = len .* dir;
-                push!(rbf.tdata[3], init_res( Res, x .+ offset));
+                push!(rbf.tdata[3], init_res( Result, x .+ offset));
                 rbf.Y = hcat( rbf.Y, offset );
                 rbf.Z = rbf.Z[:, 2:end];
             else
@@ -570,7 +566,7 @@ function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP,
                 test_retval = _test_new_cholesky_site( rbf.model, x̂, φ₀, Q, R, Z, L, Lⁱ, Φ, Π, chol_pivot );
                 if !isnothing(test_retval)
                     Q, R, Z, L, Lⁱ, Φ, Π = test_retval;
-                    push!(rbf.tdata[4], init_res(Res, x̂));
+                    push!(rbf.tdata[4], init_res(Result, x̂));
                     push!(rbf.model.training_sites, x̂ ); # so that the _test… works properly
                     N +=1 ; # increase point counter
                 end

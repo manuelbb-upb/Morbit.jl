@@ -4,7 +4,6 @@ Broadcast.broadcastable( sc::SurrogateConfig ) = Ref(sc);
 
 # Methods to be implemented by each type inheriting from SurrogateConfig
 max_evals( :: SurrogateConfig ) = typemax(Int) :: Int;
-max_evals!( :: SurrogateConfig, :: Int ) = 0 :: Nothing; # TODO do we still use this anywhere?
 
 # return data that is stored in iter data in each iteration
 # saveable(::SurrogateMeta) = nothing :: Union{Nothing, <:SurrogateMeta};

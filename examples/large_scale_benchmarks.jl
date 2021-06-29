@@ -127,7 +127,7 @@ add_observation_columns!(results, observations)
 sort!(results, ["n_vars", "method", "model"]);
 
 missing_rows = collect( 1 : size(results,1) );
-# Optional: Resume previous simulation
+# Optional: Resultume previous simulation
 if length( args["resume-from"] ) > 0 && isfile( args["resume-from"] )
     old_results = load_previous_results( args["resume-from"] );
     _, missing_rows = fill_from_partial_results!( results, old_results, features, dependent_features, observations );

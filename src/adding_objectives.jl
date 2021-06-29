@@ -1,3 +1,9 @@
+# Convenient methods for adding objectives to a MixedMOP
+# Intended for use by the enduser.
+# Requires concrete types `MixedMOP` and `VectorObjectiveFunction`.
+# Internally refers to `_add_objective!`
+
+
 # adding objectives to a mixed problem
 @doc "Add a scalar objective to `mop::MixedMOP` modelled according to `model_config`."
 function add_objective!(mop :: MixedMOP, func :: Function,

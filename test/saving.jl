@@ -55,7 +55,7 @@ end
     nonempty_db = Morbit.ArrayDB();
     Morbit.add_result!(nonempty_db,
         Morbit.init_res(
-            Morbit.Res,
+            Morbit.Result,
             rand(2), 
             rand(3)
         )

@@ -38,10 +38,6 @@ end
 struct TaylorMeta <: SurrogateMeta end   # no construction meta data needed
 
 max_evals( cfg :: TaylorConfig ) = cfg.max_evals;
-function max_evals!( cfg :: TaylorConfig  ) :: Nothing 
-    cfg.max_evals = 0;
-    nothing 
-end 
 
 fully_linear( tm :: TaylorModel ) = true;
 combinable( :: TaylorConfig ) = false;      # TODO think about this 

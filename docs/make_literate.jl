@@ -11,6 +11,9 @@ function replace_comments( content )
 end    
 
 example_dir = joinpath(@__DIR__, "..", "examples")
+src_dir = joinpath(@__DIR__, "..", "src")
+
+#%%
 Literate.markdown(
     joinpath( example_dir, "example_two_parabolas.jl"), 
     joinpath( @__DIR__, "src" );    
@@ -25,4 +28,11 @@ Literate.markdown(
     preprocess = replace_comments
     )
 
+#%%
+Literate.markdown(
+    joinpath( src_dir, "custom_logging.jl"), 
+    joinpath( @__DIR__, "src" );    
+    documenter = false,
+    execute = false,
+)
 Pkg.activate(current_env)

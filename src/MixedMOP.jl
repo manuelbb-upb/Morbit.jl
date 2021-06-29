@@ -179,4 +179,3 @@ end
 function reverse_internal_sorting_indices(mop :: MixedMOP) 
     return _reverse_internal_sorting_indices(mop, mop.objf_state);
 end
-

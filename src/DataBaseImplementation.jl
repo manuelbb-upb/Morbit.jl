@@ -1,0 +1,54 @@
+@with_kw mutable struct ArrayDB{
+		F, RT <: AbstractResult{F}, IT <: AbstractIterSaveable } <: AbstractDB{F}
+	
+	res :: Vector{RT} = RT[]
+
+	# counter of entries 
+	num_entries :: Int = 0
+
+	is_transformed :: Bool = false
+	
+	iter_info :: Vector{IT} = IT[]
+
+	@assert length(res) == num_entries "Number of entries does not match `num_entries`."
+end
+
+Base.length( db :: ArrayDB ) = db.num_entries
+
+function init_db( :: T ) where T<:Type{<:ArrayDB}
+	return T()
+end
+
+is_transformed( db :: ArrayDB ) = db.is_transformed
+
+function set_transformed!( db :: ArrayDB, val :: Bool )
+	db.transformed = val 
+	return nothing 
+end
+
+Base.eachindex( db :: ArrayDB ) = Base.eachindex( db.res )
+
+function get_result( db :: ArrayDB, id :: Int)
+	return db.res[id]
+end
+
+function next_id( db :: AbstractDB ) :: Int
+	return db.num_entries + 1
+end
+
+function new_result!( db :: ArrayDB{F,RT,IT}, x :: Vec, y :: Vec ) where{F,RT,IT}
+	new_id = next_id(db)
+	new_result = init_res( RT, x, y, new_id )
+	append!(db.res, new_result)
+	db.num_entries += 1
+	return new_id
+end
+
+function stamp!( db :: ArrayDB{F,RT,IT}, ids :: IT ) :: Nothing where{F,RT,IT}
+	append!(db.iter_info, ids)
+	return nothing
+end
+
+###########################################
+struct MockDB{F<:AbstractFloat} <: AbstractDB{F} end
+init_db( :: T ) where T<:Type{MockDB} = T()

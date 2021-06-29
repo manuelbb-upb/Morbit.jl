@@ -14,20 +14,33 @@ abstract type AbstractObjective <: MOI.AbstractVectorFunction end;
 
 abstract type AbstractMOP <: MOI.ModelLike end;
 
-abstract type AbstractDB end;
-abstract type AbstractIterData end;
+abstract type AbstractDB{F<:AbstractFloat} end;
+
+abstract type AbstractIterData{F<:AbstractFloat} end;
+abstract type AbstractIterSaveable{F<:AbstractFloat} end;
+
 abstract type AbstractConfig{F<:AbstractFloat} end;
 
 abstract type DiffFn end;
 
-abstract type Result end;
+get_gradient( :: DiffFn, :: Vec, :: Int ) :: Vec = nothing
+get_jacobian( :: DiffFn, :: RVec ) :: Mat = nothing
+get_hessian( :: DiffFn, :: RVec, :: Int ) :: Mat = nothing;
 
-get_gradient( :: DiffFn, :: RVec, :: Int ) = nothing :: RVec;
-get_jacobian( :: DiffFn, :: RVec ) = nothing :: RMat;
-get_hessian( :: DiffFn, :: RVec, :: Int ) = nothing :: RMat;
+abstract type AbstractResult{F<:AbstractFloat} end;
+
+# classify the iterations 
+# mainly for user information collection 
+@enum ITER_TYPE begin
+    ACCEPTABLE = 1;     # accept trial point, shrink radius 
+    SUCCESSFULL = 2;    # accept trial point, grow radius 
+    MODELIMPROVING = 3; # reject trial point, keep radius 
+    INACCEPTABLE = 4;   # reject trial point, shrink radius (much)
+end
 
 include("SurrogateModelInterface.jl");
 include("AbstractObjectiveInterface.jl");
 include("AbstractMOPInterface.jl");
 include("AbstractConfigInterface.jl")
-
+include("AbstractResultInterface.jl")
+include("AbstractDBInterface.jl")
