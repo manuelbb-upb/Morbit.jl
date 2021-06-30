@@ -20,15 +20,15 @@ end
 
 # setters
 # (make sure to store a copy of the very first input vectors!)
-function set_x!( :: AbstractIterData, x̂ :: RVec ) :: Nothing 
+function set_x!( :: AbstractIterData, x̂ :: Vec ) :: Nothing 
     nothing
 end
 
-function set_fx!( :: AbstractIterData, ŷ :: RVec ) :: Nothing 
+function set_fx!( :: AbstractIterData, ŷ :: Vec ) :: Nothing 
     nothing
 end
 
-function set_Δ!( id :: AbstractIterData, Δ :: Union{Real, RVec} ) :: Nothing
+function set_Δ!( id :: AbstractIterData, Δ :: NumOrVec ) :: Nothing
     nothing
 end
 
@@ -70,15 +70,15 @@ saveable_type( :: AbstractIterData ) :: Type{<:AbstractIterSavebale} = nothing
 get_saveable( id :: AbstractIterData{F}; kwargs... ):: AbstractIterSaveable = nothing
 
 #=
-function set_next_iterate!( id :: AbstractIterData, x̂ :: RVec, 
-	    ŷ :: RVec ) :: Int
+function set_next_iterate!( id :: AbstractIterData, x̂ :: Vec, 
+	    ŷ :: Vec ) :: Int
     set_x!(id, x̂)
     set_fx!(id, ŷ)
 
 	return set_x_index!( id, x_index );
 end
 
-function keep_current_iterate!( id :: AbstractIterData, x̂ :: RVec, ŷ :: RVec ) :: NothInt
+function keep_current_iterate!( id :: AbstractIterData, x̂ :: Vec, ŷ :: Vec ) :: NothInt
     return new_result!(get_db(id), x̂, ŷ)
 end
 =#

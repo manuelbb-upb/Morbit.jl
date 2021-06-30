@@ -2,20 +2,25 @@
 Broadcast.broadcastable( mop :: AbstractMOP ) = Ref( mop );
 
 # MANDATORY methods
+"Return full vector of lower variable vectors for original problem."
 full_lower_bounds( :: AbstractMOP ) ::Vec = nothing 
+
+"Return full vector of upper variable vectors for original problem."
 full_upper_bounds( :: AbstractMOP ) ::Vec = nothing
 
-list_of_objectives( :: AbstractMOP ) :: Vector{<:AbstractObjective} = nothing 
+"Return a list of `AbstractVectorObjective`s."
+list_of_objectives( :: AbstractMOP ) :: Union{AbstractVector{<:AbstractObjective}, Tuple{Vararg{<:AbstractObjective}}} = nothing 
 
+# only for user editable problems, i.e. <:AbstractMOP{true}
 "Remove an objective function from MOP."
 _del!(::AbstractMOP, ::AbstractObjective) :: Nothing = nothing
-
 "Add an objective function to MOP with specified output indices."
 _add!(::AbstractMOP, ::AbstractObjective, ::Union{Nothing,Vector{Int}}) :: Nothing = nothing
 
 # MOI METHODS 
-MOI.add_variable( :: AbstractMOP ) = nothing :: MOI.VariableIndex
-MOI.add_variables( :: AbstractMOP ) = nothing :: Vector{MOI.VariableIndex}
+# # add only required for AbstractMOP{true}
+MOI.add_variable( :: AbstractMOP ) :: MOI.VariableIndex = nothing 
+MOI.add_variables( :: AbstractMOP ) :: Vector{MOI.VariableIndex} = nothing 
 
 MOI.get( :: AbstractMOP, :: MOI.NumberOfVariables ) = -1;
 MOI.get( :: AbstractMOP, :: MOI.ListOfVariableIndices) = -1;
@@ -62,9 +67,9 @@ function _unscale!( x̂ :: Vec, lb :: Vec, ub :: Vec )
 end
 
 function _unscale( x̂ :: Vec, lb :: Vec, ub :: Vec )
-    χ̂ = copy( x̂ );
-    _unscale!(χ̂, lb, ub);
-    return χ̂;
+    χ̂ = copy(x̂)
+    _unscale!(χ̂, lb, ub)
+    return χ̂
 end
 
 "Scale variables fully constrained to a closed interval to [0,1] internally."
@@ -109,7 +114,7 @@ end
 # TODO use memoization in MixedMOP here
 function output_indices( objf ::AbstractObjective, mop :: AbstractMOP ) 
     return let first_index = _objf_index(objf,mop);
-    collect( first_index : first_index + num_outputs(objf) );
+        collect( first_index : first_index + num_outputs(objf) - 1 );
     end
 end
 
@@ -195,59 +200,62 @@ end
 
 # wrapper to unscale x̂ from internal domain
 # and safeguard against boundary violations
-struct TransformerFn{M <: AbstractMOP} <: Function 
-    mop :: M
+struct TransformerFn{F}
+    lb :: Vector{F}
+    ub :: Vector{F}
+    w :: Vector{F}
+    inf_indices :: Vector{Int}
+    not_inf_indices :: Vector{Int}
+end
+
+function TransformerFn(mop :: AbstractMOP, T :: Type{<:AbstractFloat} = Float32)
+    LB, UB = full_bounds( mop )
+    W = UB - LB
+    I = findall(isinf.(W))
+    NI = setdiff( 1 : length(W), I )
+    W[ I ] .= 1
+
+    F = Base.promote_eltype( T, W )
+    return TransformerFn{F}(LB,UB,W,I,NI)
 end
 
 Base.broadcastable( tfn :: TransformerFn ) = Ref(tfn)
 
-function _transform_unscale( x̂ :: Vec, lb :: Vec, ub :: Vec )
-    x = copy(x̂);
-    _unscale!(x, lb, ub);
-    return min.( max.( lb , x), ub )
-end
-
-@memoize ThreadSafeDict function _width( lb :: Vec, ub :: Vec ) :: Vec
-    w = ub .- lb
-    w[ isinf.(w) ] .= 1
-    return w
-end
-
 using LinearAlgebra: diagm 
 function _jacobian_unscaling( tfn :: TransformerFn, x̂ :: Vec)
     # for our simple bounds scaling the jacobian is diagonal.
-    lb, ub = full_bounds(tfn.mop)
-    w = _width(lb, ub)
-    J = diagm(w)
+    return diagm(tfn.w)
 end
 
 "Unscale the point `x̂` from internal to original domain."
-function (sgf:: TransformerFn)( x̂ :: Vec )
-    lb, ub = full_bounds( sgf.mop );
-    return _transform_unscale( x̂, lb, ub);
+function (tfn:: TransformerFn)( x̂ :: Vec )
+    χ = copy(x̂)
+    I = tfn.not_inf_indices
+    χ[I] .= tfn.lb[I] .+ tfn.w[I] .* χ[I] 
+    return χ
 end
 
 # used in special broadcast to only retrieve bounds once
-function ( sgf ::TransformerFn)( X :: VecVec )
-    lb, ub = full_bounds(sgf.mop);
-    return [ _transform_unscale( x, lb, ub ) for x ∈ X ]
+function ( tfn ::TransformerFn)( X :: VecVec )
+    return [ _unscale( x, tfn.lb, tfn.ub ) for x ∈ X ]
 end
 
-function _add_objective!( mop :: AbstractMOP, T :: Type{<:AbstractObjective},
-    func :: Function, model_cfg :: SurrogateConfig, n_out :: Int = 0, 
-    can_batch :: Bool = false )
+function _add_objective!( mop :: AbstractMOP{true}, T :: Type{<:AbstractObjective},
+    func :: Function, model_cfg :: SurrogateConfig; n_out :: Int = 0, 
+    can_batch :: Bool = false, out_type :: Union{Type{<:Vec},Nothing} = nothing )
 
     # use a transformer to be able to directly evaluate scaled variables 
 
     fx = can_batch ? BatchObjectiveFunction(func) : vec ∘ func;
 
-    objf = _wrap_func( T, fx, model_cfg, num_vars(mop), n_out );
+    inner_objf = _wrap_func( T, fx, model_cfg, num_vars(mop), n_out )
+    objf = isnothing(out_type) ? inner_objf : OutTypeWrapper(inner_objf, out_type)
     
     out_indices = let oi = output_indices(mop);
         max_out = isempty( oi ) ? 1 : maximum( oi ) + 1;
         collect(max_out : max_out + n_out - 1)
     end
-    
+
     for other_objf ∈ list_of_objectives(mop)
         if combinable( objf, other_objf )
             other_output_indices = pop_objf!( mop, other_objf );
@@ -283,19 +291,23 @@ function Broadcast.broadcasted( :: typeof( reverse_internal_sorting ), mop :: Ab
 end
 
 "(Internally) Evaluate all objectives at site `x̂::Vec`. Objective order might differ from order in which they were added."
-function eval_all_objectives( mop :: AbstractMOP, tfn :: TransformerFn, x̂ :: Vec )
+function eval_all_objectives( mop :: AbstractMOP, x̂ :: Vec )
+    reduce(vcat, [ eval_objf( objf, unscale(x̂,mop) ) for objf ∈ list_of_objectives(mop) ] )
+end
+
+function eval_all_objectives( mop :: AbstractMOP, x̂ :: Vec, tfn :: TransformerFn )
     vcat( [ eval_objf( objf, tfn(x̂) ) for objf ∈ list_of_objectives(mop) ]... )
 end
 
-function Broadcast.broadcasted(::typeof(eval_all_objectives), mop :: AbstractMOP, 
-        tfn :: TransformerFn, X :: VecVec )
+function Broadcast.broadcasted(::typeof(eval_all_objectives), mop :: AbstractMOP, X :: VecVec, args... )
     if isempty(X)
         return Vec[]
     else
+        X_unscaled = unscale.(X,mop)
         all_vec_objfs = list_of_objectives(mop);
         b_res = Vector{VecVec}(undef, length(all_vec_objfs));
         for (i,objf) ∈ enumerate(all_vec_objfs)
-            b_res[i] = eval_objf.(objf, X)
+            b_res[i] = eval_objf.(objf, X_unscaled)
         end
 
         # stack the results
@@ -309,14 +321,15 @@ function Broadcast.broadcasted(::typeof(eval_all_objectives), mop :: AbstractMOP
 end
 
 "Evaluate all objectives at site `x̂::Vec` and sort the result according to the order in which objectives were added."
-function eval_and_sort_objectives(mop :: AbstractMOP, tfn :: TransformerFn, x̂ :: Vec)
-    ŷ = eval_all_objectives(mop, tfn, x̂);
+function eval_and_sort_objectives(mop :: AbstractMOP, x̂ :: Vec, tfn)
+    ŷ = eval_all_objectives(mop, x̂, tfn);
     return reverse_internal_sorting( ŷ, mop );
 end
 
 function Broadcast.broadcasted( ::typeof(eval_and_sort_objectives), mop :: AbstractMOP, 
-    tfn :: TransformerFn, X :: VecVec )
-    R = eval_all_objectives.(mop, tfn, X);
+    X :: VecVec, t )
+    tfn = isnothing(t) ? TransformerFn(mop) : t
+    R = eval_all_objectives.(mop, X, tfn);
     reverse_internal_sorting!.(R, mop)
     return R
 end

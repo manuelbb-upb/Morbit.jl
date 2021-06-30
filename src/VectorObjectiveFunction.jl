@@ -43,5 +43,6 @@ num_outputs( objf :: VectorObjectiveFunction ) = objf.n_out;
 
 model_cfg( objf :: VectorObjectiveFunction ) = objf.model_config;
 
+combinable(::Type{<:VectorObjectiveFunction}, ::Type{<:VectorObjectiveFunction}) = true
 eval_handle(objf::VectorObjectiveFunction) = objf.function_handle;
 

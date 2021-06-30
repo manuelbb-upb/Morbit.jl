@@ -1,10 +1,10 @@
-const RVec = Vector{R} where R<:Real;
-const RVecArr = Vector{<:RVec};
-const RMat = Array{R, 2} where R <: Real;
+const RVec = AbstractVector{R} where R<:Real;
+const RVecArr = AbstractVector{<:RVec};
+const RMat = AbstractMatrix{R} where R <: Real;
 
 const Vec = AbstractVector{<:AbstractFloat}
-const VecVec = AbstractVector{<:AbstractFloat}
-const NumOrVec = Union{AbstractFloat, AbstractVector{<:AbstractFloat}}
+const VecVec = AbstractVector{<:Vec}
+const NumOrVec = Union{AbstractFloat, Vec}
 const VecOrNum = NumOrVec
 const Mat = AbstractMatrix{<:AbstractFloat}
 

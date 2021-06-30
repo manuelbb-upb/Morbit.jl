@@ -18,9 +18,9 @@ _init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP, :: Abstrac
 update_model( :: SurrogateModel,:: AbstractObjective, :: SurrogateMeta, :: AbstractMOP, 
 :: AbstractIterData, :: AbstractConfig; kwargs... ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
 
-eval_models( :: SurrogateModel, ::RVec ) = nothing :: RVec
-get_gradient( :: SurrogateModel, ::RVec, :: Int ) = nothing :: RVec
-get_jacobian( :: SurrogateModel, :: RVec ) = nothing :: RMat
+eval_models( :: SurrogateModel, ::Vec ) ::Vec = nothing 
+get_gradient( :: SurrogateModel, ::Vec, :: Int ) :: Vec = nothing
+get_jacobian( :: SurrogateModel, :: Vec ) :: Mat = nothing 
 
 # DEFAULTS
 
@@ -29,7 +29,7 @@ function init_model( objf:: AbstractObjective, args...)
 end
 
 # overwrite, this is inefficient
-eval_models( sm :: SurrogateModel, x̂ :: RVec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
+eval_models( sm :: SurrogateModel, x̂ :: Vec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
 function improve_model( mod :: SurrogateModel, objf:: AbstractObjective, meta :: SurrogateMeta,
     mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig;
     ensure_fully_linear) :: Tuple{SurrogateModel,SurrogateMeta}
@@ -46,4 +46,4 @@ function Base.:(==)( cfg1 :: T, cfg2 :: F ) where {T <: SurrogateConfig, F<:Surr
 end
 
 # only needed if combinable
-combine( :: SurrogateConfig, :: SurrogateConfig  ) = nothing :: SurrogateConfig;
+combine( :: SurrogateConfig, :: SurrogateConfig  ) :: SurrogateConfig = nothing

@@ -108,7 +108,7 @@ combinable( cfg :: RbfConfig ) :: Bool = true;
 
 combine(cfg1 :: RbfConfig, :: RbfConfig) :: RbfConfig = cfg1;
 
-eval_models( rbf :: RbfModel, x̂ :: RVec ) = RBF.output( rbf.model, x̂ );
+eval_models( rbf :: RbfModel, x̂ :: Vec ) = RBF.output( rbf.model, x̂ );
 eval_models( rbf :: RbfModel, x̂ :: RVec, ℓ :: Int ) = RBF.output( rbf.model, ℓ, x̂ );
 get_gradient( rbf :: RbfModel, x̂ :: RVec, ℓ :: Int  ) = RBF.grad( rbf.model, ℓ, x̂ );
 get_jacobian( rbf :: RbfModel, x̂ :: RVec) = RBF.jac( rbf.model, x̂ );

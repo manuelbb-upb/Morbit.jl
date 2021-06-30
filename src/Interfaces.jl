@@ -12,7 +12,8 @@ abstract type SurrogateModel end
 
 abstract type AbstractObjective <: MOI.AbstractVectorFunction end;
 
-abstract type AbstractMOP <: MOI.ModelLike end;
+# T = true if MOP is modifyable
+abstract type AbstractMOP{T} <: MOI.ModelLike end;
 
 abstract type AbstractDB{F<:AbstractFloat} end;
 
@@ -24,8 +25,8 @@ abstract type AbstractConfig{F<:AbstractFloat} end;
 abstract type DiffFn end;
 
 get_gradient( :: DiffFn, :: Vec, :: Int ) :: Vec = nothing
-get_jacobian( :: DiffFn, :: RVec ) :: Mat = nothing
-get_hessian( :: DiffFn, :: RVec, :: Int ) :: Mat = nothing;
+get_jacobian( :: DiffFn, :: Vec ) :: Mat = nothing
+get_hessian( :: DiffFn, :: Vec, :: Int ) :: Mat = nothing;
 
 abstract type AbstractResult{F<:AbstractFloat} end;
 

@@ -14,36 +14,19 @@ struct ExactModel{
     diff_fn :: Union{D,Nothing}
 end
 
-struct ExactConfig{
+@with_kw struct ExactConfig{
         G <: Union{Symbol, Nothing, AbstractVector{<:Function} },
         J <: Union{Nothing, Function}
     } <: SurrogateConfig
 
-    gradients :: G
+    gradients :: G = :autodiff
     # alternative keyword, usage discouraged...
-    jacobian :: J
+    jacobian :: J = nothing
 
-    max_evals :: Int64 
-end
+    max_evals :: Int64 = typemax(Int64)
 
-# outer keyword constructors
-# # default: :autodiff, nothing, typemax(Int)
-function ExactConfig(; gradients :: Symbol = :autodiff, jacobian :: Union{Nothing, Function} = nothing, max_evals :: Int = typemax(Int64))
-    @assert gradients in [:autodiff, :fdm] "`gradients` can take values `autodiff` and `fdm`." 
-    return ExactConfig( gradients, jacobian, max_evals )
-end
-
-function ExactConfig(; gradients :: Function, jacobian :: Union{Nothing, Function} = nothing, max_evals :: Int = typemax(Int64))
-    return ExactConfig([gradients,], jacobian, max_evals)
-end
-
-function ExactConfig(; gradients :: AbstractVector{<:Function}, jacobian :: Union{Nothing, Function} = nothing, max_evals ::Int = typemax(Int64))
-    return ExactConfig(gradients, jacobian, max_evals)
-end
-
-function ExactConfig(; gradients :: Nothing, jacobian :: Union{Nothing, Function}, max_evals = typemax(Int64))
     @assert !(isnothing(gradients) && isnothing(jacobian)) "Provide either `gradients` or `jacobian`."
-    return ExactConfig(gradients, jacobian, max_evals)
+    @assert !(gradients isa Symbol) || gradients in [:autodiff, :fdm ] "`gradients` must be `:autodiff` or `:fdm`"
 end
 
 struct ExactMeta <: SurrogateMeta end   # no construction meta data needed

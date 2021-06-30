@@ -1,12 +1,16 @@
 
 # Implementation of the AbstractMOP interface 
+# Formerly, this was the main problem type used internally.
+# But it is not strongly typed and mutable.
+# For performance, we convert it to a `StaticMOP` when 
+# the user is done.
 # (see file `AbstractMOPInterface.jl`)
 
-@with_kw mutable struct MixedMOP <: AbstractMOP
+@with_kw mutable struct MixedMOP <: AbstractMOP{true}
     vars :: Vector{Int} = [];
 
-    vector_of_objectives :: Vector{ <:AbstractObjective } = AbstractObjective[];
-    objf_output_mapping :: Union{Dict{ <:AbstractObjective, Vector{Int} }, Nothing} = nothing;
+    vector_of_objectives :: Vector{ <:AbstractObjective } = AbstractObjective[]
+    objf_output_mapping :: Dict{Any,Vector{Int}} = Dict{Any,Vector{Int}}()
 
     lb :: Dict{ Int, Real } = Dict{Int,Real}();
     ub :: Dict{ Int, Real } = Dict{Int,Real}();
@@ -17,7 +21,7 @@
 end
 
 # legacy constructors
-function MixedMOP( lb :: RVec, ub :: RVec )
+function MixedMOP( lb :: Vec, ub :: Vec )
     @assert length(lb) == length(ub);
     @assert all( lb .<= ub );
     @assert length(lb) > 0;     # for unconstrained problems, we need the number of variables
@@ -51,13 +55,8 @@ end
 
 list_of_objectives( mop :: MixedMOP ) = mop.vector_of_objectives;
 
-@memoize ThreadSafeDict function _output_indices( 
-    objf :: AbstractObjective, mop :: MixedMOP, hash :: UUIDs.UUID )
-    return mop.objf_output_mapping[ objf ];
-end
-
 function output_indices( objf :: AbstractObjective, mop :: MixedMOP )
-    return _output_indices(objf, mop, mop.objf_state );
+    return mop.objf_output_mapping[ objf ]
 end
 
 function _del!( mop :: MixedMOP, objf :: AbstractObjective )
@@ -66,21 +65,17 @@ function _del!( mop :: MixedMOP, objf :: AbstractObjective )
     nothing 
 end
 
-function _add!( mop :: MixedMOP, objf :: AbstractObjective, output_indices :: Union{Nothing, Vector{Int}} = nothing )
-    if isnothing( output_indices )
-        output_indices = let n_out = num_objectives( mop );
-            collect( num_objectives + 1 : num_objectives + 1 + num_outputs(objf) )
-        end;
+function _add!( mop :: MixedMOP, objf :: AbstractObjective, out_indices :: Union{Nothing, Vector{Int}} = nothing )
+    if isnothing( out_indices )
+        out_indices = let n_out = num_objectives( mop );
+            collect( n_out + 1 : n_out + num_outputs(objf) )
+        end
     end
-    if length(output_indices) != num_outputs(objf)
+    if length(out_indices) != num_outputs(objf)
         error("Number of objective outputs does not match length of output indices!");
     end
     push!(list_of_objectives(mop), objf);
-    if isnothing(mop.objf_output_mapping)
-        mop.objf_output_mapping = Dict( objf => output_indices );
-    else
-        mop.objf_output_mapping[objf] = output_indices;
-    end
+    mop.objf_output_mapping[objf] = out_indices;
     mop.objf_state = UUIDs.uuid4();
     nothing
 end

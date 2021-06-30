@@ -7,15 +7,15 @@
 # adding objectives to a mixed problem
 @doc "Add a scalar objective to `mop::MixedMOP` modelled according to `model_config`."
 function add_objective!(mop :: MixedMOP, func :: Function,
-        model_config :: SurrogateConfig; batch_eval = false )
-    return _add_objective!( mop, VectorObjectiveFunction, func, model_config, 1, batch_eval )
+        model_config :: SurrogateConfig; can_batch = false, out_type = nothing )
+    return _add_objective!( mop, VectorObjectiveFunction, func, model_config; n_out = 1, can_batch, out_type )
 end
 
 # FUNCTIONS TO ADD VECTOR OBJECTIVES TO A MixedMOP
 @doc "Add a vector objective to `mop::MixedMOP` modelled according to `model_config`."
 function add_vector_objective!(mop :: MixedMOP, func :: Function,
-        model_config :: SurrogateConfig; n_out :: Int64, batch_eval = false )
-    return _add_objective!( mop, VectorObjectiveFunction, func, model_config, n_out, batch_eval )
+        model_config :: SurrogateConfig; n_out :: Int64, can_batch = false, out_type = nothing )
+    return _add_objective!( mop, VectorObjectiveFunction, func, model_config, n_out, can_batch )
 end
 
 # OLD FUNCTIONS TO ADD OBJECTIVES TO AN MOP
@@ -24,7 +24,7 @@ end
     add_objective!( mop :: MixedMOP, func :: T where{T <: Function}, type :: Symbol = :expensive, n_out :: Int64 = 1, can_batch :: Bool = false )
 
 Add scalar-valued objective function `func` to `mop` structure.
-`func` must take an `RVec` as its (first) argument, i.e. represent a function ``f: ℝ^n → ℝ``.
+`func` must take an `Vec` as its (first) argument, i.e. represent a function ``f: ℝ^n → ℝ``.
 `type` must either be `:expensive` or `:cheap` to determine whether the function is replaced by a surrogate model or not.
 
 If `type` is `:cheap` and `func` takes 1 argument only then its gradient is calculated by ForwardDiff.
@@ -53,8 +53,8 @@ add_objective!(mop, f1, :cheap)     # gradient will be calculated using ForwardD
 add_objective!(mop, f2, ∇f2 )       # gradient is provided
 ```
 """
-function add_objective!( mop :: MixedMOP, func :: Function, type :: Symbol = :expensive, 
-        n_out :: Int64 = 1, can_batch :: Bool = false )
+function add_objective!( mop :: MixedMOP, func :: Function, type :: Symbol = :expensive; 
+        n_out :: Int64 = 1, can_batch :: Bool = false, out_type = nothing)
     if type == :expensive
         objf_config = RbfConfig();
     elseif type == :cheap
@@ -66,9 +66,9 @@ function add_objective!( mop :: MixedMOP, func :: Function, type :: Symbol = :ex
     end
 
     if n_out > 1
-    	add_vector_objective!( mop, func, objf_config; n_out = n_out, batch_eval = can_batch )
+    	add_vector_objective!( mop, func, objf_config; n_out, can_batch, out_type )
     else
-        add_objective!(mop, func, objf_config; batch_eval = can_batch)
+        add_objective!(mop, func, objf_config; can_batch, out_type)
     end
 end
 
@@ -77,9 +77,9 @@ end
 
 Add scalar-valued objective function `func` and its vector-valued gradient `grad` to `mop` struture.
 """
-function add_objective!( mop :: MixedMOP, func :: Function, grad :: Function)
+function add_objective!( mop :: MixedMOP, func :: Function, grad :: Function; out_type = nothing)
     objf_config = ExactConfig(
-        gradients = grad,
+        gradients = [grad,]
     )
-    add_objective!(mop, func, objf_config)
+    add_objective!(mop, func, objf_config; out_type)
 end

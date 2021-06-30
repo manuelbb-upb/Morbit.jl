@@ -62,8 +62,8 @@ use_db( ::DefaultConfig ) = ArrayDB;
     strict_backtracking :: Bool = strict_backtracking(default_config(F));
     
     # pascoletti_serafini settings
-    reference_point :: RVec = reference_point(default_config(F));
-    reference_direction :: RVec = reference_direction(default_config(F))
+    reference_point :: Vec = reference_point(default_config(F));
+    reference_direction :: Vec = reference_direction(default_config(F))
     max_ps_problem_evals :: Int = max_ps_problem_evals(default_config(F));
     max_ps_polish_evals :: Int = max_ps_polish_evals(default_config(F));
     max_ideal_point_problem_evals :: Int = max_ideal_point_problem_evals(default_config(F));

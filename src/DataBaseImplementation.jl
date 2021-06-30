@@ -32,7 +32,7 @@ function get_result( db :: ArrayDB, id :: Int)
 	return db.res[id]
 end
 
-function next_id( db :: AbstractDB ) :: Int
+function next_id( db :: ArrayDB) :: Int
 	return db.num_entries + 1
 end
 
