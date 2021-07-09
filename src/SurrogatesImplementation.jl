@@ -48,7 +48,7 @@ function init_surrogates( mop :: AbstractMOP, id :: AbstractIterData, ac :: Abst
     sw_array = SurrogateWrapper[]
     for objf ∈ list_of_objectives(mop)
         model, meta = init_model( objf, mop, id, ac );
-        append!( sw_array, SurrogateWrapper(objf,model,meta))
+        push!( sw_array, SurrogateWrapper(objf,model,meta))
     end
     return SurrogateContainer(sw_array)
 end

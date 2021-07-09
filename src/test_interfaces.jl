@@ -1,13 +1,17 @@
 using Morbit 
 M = Morbit 
-
+MOI = M.MOI
 #%%
 mop = M.MixedMOP(2)
-f = x -> rand([Float16,Float32]).(x)
-vo = M._wrap_func( M.VectorObjectiveFunction, f, M.ExactConfig(), 2, 1 )
-vo2 =M._wrap_func( M.VectorObjectiveFunction, f, M.ExactConfig(;gradients = [ x -> 1]), 2, 1 )
+f1 = x -> sum( (x .- 1).^2 )
+f2 = x -> sum( (x .+ 1).^2 )
 
-M._add!(mop, vo)
-M._add!(mop, vo2)
+M.add_objective!(mop, f1, M.ExactConfig())
+M.add_objective!(mop, f2, M.ExactConfig())
 
-smop = M.StaticMOP(mop)
+algo_config = nothing
+populated_db = nothing
+
+x0 = rand(2)
+fx0 = []
+M.initialize_data(mop,x0)

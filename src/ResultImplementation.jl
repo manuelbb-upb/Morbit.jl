@@ -5,6 +5,10 @@
     db_id :: Int = -1
 end
 
+Base.length(::Result) = 1
+Base.iterate(r :: Result) = (r, nothing)
+Base.iterate(::Result, ::Nothing) = nothing
+
 function Base.:(==)(r1 :: Result, r2::Result)
     return (
         r1.x == r2.x &&
@@ -17,8 +21,8 @@ get_site( res :: Result ) = res.x;
 get_value( res :: Result ) = res.y;
 get_id( res :: Result ) = res.db_id;
 
-function init_res( ::T , args... ) :: T where T<:Result
-    return T( args... )
+function init_res( ::Type{<:Result{F}} , x :: Vec, y :: Vec, id :: Int ) where F
+    return Result{F}( x, y, id )
 end
 
 struct NoRes{F} <: AbstractResult{F} end

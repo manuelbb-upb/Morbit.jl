@@ -6,7 +6,7 @@
 	# counter of entries 
 	num_entries :: Int = 0
 
-	is_transformed :: Bool = false
+	transformed :: Bool = false
 	
 	iter_info :: Vector{IT} = IT[]
 
@@ -15,8 +15,9 @@ end
 
 Base.length( db :: ArrayDB ) = db.num_entries
 
-function init_db( :: T ) where T<:Type{<:ArrayDB}
-	return T()
+function init_db(:: Type{<:ArrayDB}, F :: Type{<:AbstractFloat},
+		IT :: Type{<:AbstractIterSaveable} )
+	return ArrayDB{F, Result{F}, IT}()
 end
 
 is_transformed( db :: ArrayDB ) = db.is_transformed
@@ -51,4 +52,4 @@ end
 
 ###########################################
 struct MockDB{F<:AbstractFloat} <: AbstractDB{F} end
-init_db( :: T ) where T<:Type{MockDB} = T()
+init_db( :: MockDB, :: F, args... ) where F = MockDB{F}()

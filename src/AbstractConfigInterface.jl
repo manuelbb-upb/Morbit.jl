@@ -17,9 +17,7 @@ Broadcast.broadcastable( ac :: AbstractConfig ) = Ref( ac );
 max_critical_loops( :: AbstractConfig )::Int = 5;
 
 # is a database used? if yes, what is the type?
-use_db( :: AbstractConfig ) :: Union{ Type{<:AbstractDB}, Nothing } = nothing;
-# TODO remove the possibility to have Nothing here 
-# set NoDB as instead
+use_db( :: AbstractConfig ) :: Bool = true 
 
 # should iterations, where the models are not fully linear, be counted for stopping?
 count_nonlinear_iterations( :: AbstractConfig )::Bool = true;

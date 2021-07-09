@@ -7,7 +7,7 @@ Broadcast.broadcastable( db :: AbstractDB ) = Ref( db );
 Base.length( db :: AbstractDB ) :: Int = length(get_sites(db)) 
 
 "Constructor for empty database of type `T`."
-( init_db( :: T ) :: T ) where {T<:Type{<:AbstractDB}} = nothing 
+init_db( :: Type{<:AbstractDB}, :: Type{<:AbstractFloat}, :: Type{<:AbstractIterSaveable} ) :: AbstractDB = nothing 
 
 "Bool indicating if the database data been transformed."
 is_transformed( :: AbstractDB ) :: Bool = false
@@ -46,10 +46,9 @@ function get_values( db :: AbstractDB  )
 	return [ get_value( get_result( db, id ) ) for id = eachindex( db ) ]
 end
 
-function find_result( db :: AbstractDB, target :: AbstractResult  ) :: Int
+function find_result( db :: AbstractDB, x :: Vec, y :: Vec  ) :: Int
     for id ∈ eachindex(db)
-        res = get_result(db, id)
-        if _equal_vals(target, res)
+        if get_site( db, id ) == x && get_value( db, id ) == y
             return id
         end
     end
@@ -57,9 +56,9 @@ function find_result( db :: AbstractDB, target :: AbstractResult  ) :: Int
 end
 
 function ensure_contains_values!( db :: AbstractDB, x :: Vec, y :: Vec ) :: Int
-    x_pos = find_result(db, res);
+    x_pos = find_result(db, x,y);
     if x_pos < 0
-        x_pos = add_result!(db, x, y);
+        x_pos = new_result!(db, x, y);
     end
     return x_pos
 end

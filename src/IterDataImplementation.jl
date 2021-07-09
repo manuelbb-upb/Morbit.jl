@@ -75,11 +75,11 @@ function init_iter_data( ::T, x :: Vec, fx :: Vec, Δ :: NumOrVec ) where T<:Typ
 end
 
 ####### IterSaveable
-function saveable_type( :: IterData{F} ) :: F where F 
+function saveable_type( :: IterData{F} ) where F 
     return IterSaveable{F}
 end
 
-@with_kw struct IterSaveable{F<:AbstractFloat } <: AbstractIterData{F}
+@with_kw struct IterSaveable{F<:AbstractFloat } <: AbstractIterSaveable{F}
     Δ :: Union{F, Vector{F}}
     x_index :: Int
     num_iterations :: Int
