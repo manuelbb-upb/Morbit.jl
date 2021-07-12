@@ -59,25 +59,25 @@ include("utilities.jl")
 
 function shrink_radius( ac :: AbstractConfig, Δ :: NumOrVec, steplength :: NumOrVec)
     if radius_update_method(ac) == :standard
-        return Δ .* γ_shrink(ac);
+        return Δ .* _gamma_shrink(ac);
     elseif radius_update_method(ac) == :steplength
-        return steplength .* γ_shrink(ac);
+        return steplength .* _gamma_shrink(ac);
     end
 end
 
 function shrink_radius_much( ac :: AbstractConfig, Δ :: NumOrVec, steplength :: NumOrVec) 
     if radius_update_method(ac) == :standard
-        return Δ .* γ_shrink_much(ac);
+        return Δ .* _gamma_shrink_much(ac);
     elseif radius_update_method(ac) == :steplength
-        return steplength .* γ_shrink_much(ac);
+        return steplength .* _gamma_shrink_much(ac);
     end
 end
 
 function grow_radius( ac :: AbstractConfig, Δ :: NumOrVec, steplength :: NumOrVec)
     if radius_update_method(ac) == :standard
-        return min( Δᵘ(ac), γ_grow(ac) .* Δ )
+        return min( Δᵘ(ac), _gamma_grow(ac) .* Δ )
     elseif radius_update_method(ac) == :steplength
-        return min( Δᵘ(ac), ( γ_grow .+ steplength ./ Δ ) .* Δ );
+        return min( Δᵘ(ac), ( _gamma_grow .+ steplength ./ Δ ) .* Δ );
     end
 end
 
@@ -135,7 +135,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: RVec, fx0 :: Vec = Float32[]
     end
 
     # make sure, x & fx are in database
-    start_res = init_res(Result, x, fx );
+    start_res = init_res(Result{F}, x, fx )
     ensure_contains_result!(data_base, start_res);
 
     iter_data = init_iter_data(IterData, x, fx, Δ⁰(ac));
@@ -151,12 +151,12 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP, tfn :: Tra
     sc :: SurrogateContainer, algo_config :: AbstractConfig )
     
     # config params
-    ν_succ = ν_success( algo_config );
-    ν_acc = ν_accept( algo_config );
-    mu = μ( algo_config );
-    beta = β( algo_config );
-    eps_crit = ε_crit( algo_config );
-    gamma_crit = γ_crit( algo_config );
+    ν_succ = _nu_success( algo_config );
+    ν_acc = _nu_accept( algo_config );
+    μ = _mu( algo_config );
+    _beta = _beta( algo_config );
+    _eps_crit = _eps_crit( algo_config );
+    _gamma_crit = _gamma_crit( algo_config );
     count_nonlin = count_nonlinear_iterations( algo_config );
 
     # read iter data to handy variables
@@ -220,7 +220,7 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP, tfn :: Tra
     _fully_linear = fully_linear(sc)
     num_critical_loops = 0;
 
-    if ω <= eps_crit && (!_fully_linear || all(Δ .> mu * ω))
+    if ω <= _eps_crit && (!_fully_linear || all(Δ .> mu * ω))
         @logmsg loglevel1 "Entered Criticallity Test."
         if !_fully_linear
             @logmsg loglevel1 "Ensuring all models to be fully linear."
@@ -245,12 +245,12 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP, tfn :: Tra
             end
             
             # shrink radius
-            Δᵗ!( iter_data, Δᵗ(iter_data) .* gamma_crit );
+            Δᵗ!( iter_data, Δᵗ(iter_data) .* _gamma_crit );
             # make model linear 
             update_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = true );
             # (re)calculate criticality
             # TODO make backtracking optional and don't do here
-            ω, x₊, mx₊, steplength = compute_descent_step(algo_config,mop,iter_data,sc);
+            ω, data = get_criticality
 
             if Δ_abs_test( Δᵗ(iter_data) , algo_config ) || 
                 ω_Δ_rel_test(ω, Δᵗ(iter_data), algo_config) || ω_abs_test( ω, algo_config )
@@ -297,7 +297,7 @@ function iterate!( iter_data :: AbstractIterData, mop :: AbstractMOP, tfn :: Tra
     ρ = isnan(ρ) ? -Inf : ρ;
     old_Δ = copy(Δᵗ(iter_data));  # if it was changed in criticality test
     if ρ >= ν_succ
-        if Δ < beta * ω
+        if Δ < _beta * ω
             Δᵗ!(iter_data, grow_radius(algo_config, Δ, steplength) );
         end
         it_stat!(iter_data, SUCCESSFULL)
