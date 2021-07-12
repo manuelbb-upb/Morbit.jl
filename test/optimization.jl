@@ -136,7 +136,7 @@ end
         opt_settings = AlgoConfig(
             max_iter = 50,
             Δ_max = .4,
-            ε_crit = 0.1,
+            _eps_crit = 0.1,
             strict_acceptance_test = true,
         );
         mop = MixedMOP(lb,ub);

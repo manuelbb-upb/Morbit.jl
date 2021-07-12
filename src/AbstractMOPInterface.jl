@@ -228,7 +228,7 @@ function _jacobian_unscaling( tfn :: TransformerFn, x̂ :: Vec)
 end
 
 "Unscale the point `x̂` from internal to original domain."
-function (tfn:: TransformerFn)( x̂ :: Vec )
+function (tfn:: TransformerFn)( x̂ :: AbstractVector{<:Real} )
     χ = copy(x̂)
     I = tfn.not_inf_indices
     χ[I] .= tfn.lb[I] .+ tfn.w[I] .* χ[I] 
@@ -236,7 +236,7 @@ function (tfn:: TransformerFn)( x̂ :: Vec )
 end
 
 # used in special broadcast to only retrieve bounds once
-function ( tfn ::TransformerFn)( X :: VecVec )
+function ( tfn ::TransformerFn)( X :: AbstractVector{<:AbstractVector} )
     return [ _unscale( x, tfn.lb, tfn.ub ) for x ∈ X ]
 end
 
@@ -282,6 +282,17 @@ end
 
 function apply_internal_sorting( y :: Vec, mop :: AbstractMOP )
     return y[ output_indices(mop) ]
+end
+
+function reverse_internal_sorting!( ŷ :: Vec, mop :: AbstractMOP )
+    reverse_indices = reverse_internal_sorting_indices(mop)
+    ŷ[:] = ŷ[ reverse_indices ]
+    nothing
+end
+
+function apply_internal_sorting( y :: Vec, mop :: AbstractMOP )
+    y[:] = y[ output_indices(mop) ]
+    nothing
 end
 
 # custom broadcast to only retrieve sorting indices once
@@ -340,10 +351,11 @@ function num_evals( mop :: AbstractMOP ) :: Vector{Int}
 end
 
 @doc "Set evaluation counter to 0 for each VectorObjectiveFunction in `m.vector_of_objectives`."
-function reset_evals!(mop :: AbstractMOP)
+function reset_evals!(mop :: AbstractMOP) :: Nothing
     for objf ∈ list_of_objectives( mop )
         num_evals!( objf, 0)
     end
+    return nothing
 end
 
 # use for finite (e.g. local) bounds only

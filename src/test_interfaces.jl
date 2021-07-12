@@ -14,4 +14,4 @@ populated_db = nothing
 
 x0 = rand(2)
 fx0 = []
-M.initialize_data(mop,x0)
+mop, id, db, sc, ac = M.initialize_data(mop,x0)

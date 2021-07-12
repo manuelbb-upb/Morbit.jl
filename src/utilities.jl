@@ -10,8 +10,9 @@
 # * methods for prettier printing/logging
 
 function _budget_okay( mop :: AbstractMOP, ac :: AbstractConfig ) :: Bool
+    max_conf_evals = max_evals( ac )
     for objf ∈ list_of_objectives(mop)
-        if num_evals(objf) >= min( max_evals(objf), max_evals(ac) ) - 1
+        if num_evals(objf) >= min( max_evals(objf), max_conf_evals ) - 1
             return false;
         end
     end
@@ -103,15 +104,25 @@ function _stop_info_str( ac :: AbstractConfig, mop :: Union{AbstractMOP,Nothing}
     ret_str *= @sprintf(" ω ≤ %g.", ω_tol_abs(ac))
 end
 
-function _fin_info_str( iter_data :: AbstractIterData, mop :: Union{AbstractMOP, Nothing} = nothing )
-    ret_x, ret_fx = get_return_values( iter_data, mop )
+function get_return_values(data_base, iter_data, mop )
+    # unscale sites and re-sort values to return to user
+    untransform!(data_base, mop)
+
+	# *afterwards* we can return the result
+	ret_x = get_site( data_base, get_x_index(iter_data) )
+	ret_fx = get_value( data_base, get_x_index(iter_data) )
+    return ret_x, ret_fx 
+end
+
+function _fin_info_str(data_base, iter_data :: AbstractIterData, mop, stopcode = nothing )
+    ret_x, ret_fx = get_return_values( data_base, iter_data, mop )
     return """\n
         |--------------------------------------------
-        | FINISHED
+        | FINISHED ($stopcode)
         |--------------------------------------------
         | No. iterations:  $(num_iterations(iter_data)) 
-    """ + (isnothing(mop) ? "" :
-        "    | No. evaluations: $(num_evals(mop))" )+ 
+    """ * (isnothing(mop) ? "" :
+        "    | No. evaluations: $(num_evals(mop))" ) *
     """ 
         | final unscaled vectors:
         | iterate: $(_prettify(ret_x, 10))

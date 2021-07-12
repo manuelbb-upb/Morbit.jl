@@ -20,7 +20,7 @@ get_Δ( id :: IterData ) = id.Δ
 # setters
 function set_x!( id :: IterData, x̂ :: Vec ) :: Nothing 
     id.x = copy(x̂)
-    return anothing
+    return nothing
 end
 
 function set_fx!( id :: IterData, ŷ :: Vec ) :: Nothing 
@@ -71,7 +71,7 @@ end
 
 function init_iter_data( ::T, x :: Vec, fx :: Vec, Δ :: NumOrVec ) where T<:Type{<:IterData}
     F = Base.promote_eltype(x,fx,Δ)
-    return IterData(; x = F.(x), fx = F.(x), Δ = F.(Δ))
+    return IterData(; x = F.(x), fx = F.(fx), Δ = F.(Δ))
 end
 
 ####### IterSaveable

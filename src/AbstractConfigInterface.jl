@@ -10,9 +10,9 @@ Broadcast.broadcastable( ac :: AbstractConfig ) = Ref( ac );
 
 # Criticality Test parameters 
 # # ω threshold
-ε_crit( :: AbstractConfig{F} ) where F = F(1e-3);
+_eps_crit( :: AbstractConfig{F} ) where F = F(1e-3);
 # # shrinking in critical loop
-γ_crit( ::AbstractConfig{F} ) where F = F(.501);   
+_gamma_crit( ::AbstractConfig{F} ) where F = F(.501);   
 # # maximum number of loops before exiting
 max_critical_loops( :: AbstractConfig )::Int = 5;
 
@@ -54,33 +54,31 @@ max_iter( :: AbstractConfig ) :: Int = 50;
 ( Δ_tol_abs(ac :: AbstractConfig{F} ) ::Union{F, AbstractVector{F}} ) where F = F(1e-6);
 
 # what method to use for the subproblems
-descent_method( :: AbstractConfig )::Symbol = :steepest_descent # or :ps
-
-"Require a descent in all model objective components. 
-Applies only to backtracking descent steps, i.e., :steepest_descent."
-strict_backtracking( :: AbstractConfig )::Bool = true;
-
-# settings for pascoletti_serafini descent (and directed search)
-( reference_point(::AbstractConfig{F}) :: AbstractVector{F} ) where F = F[];
-( reference_direction(::AbstractConfig{F}) :: AbstractVector{F}) where F = F[];
-max_ps_problem_evals(::AbstractConfig)::Int = -1;
-max_ps_polish_evals(::AbstractConfig)::Int = -1;
-max_ideal_point_problem_evals(::AbstractConfig) :: Int = -1;
-ps_algo(::AbstractConfig)::Symbol= :GN_ISRES; #valid NLopt algorithm, e.g. GN_ISRES or GN_AGS (last only works for n<=10)
-ideal_point_algo(::AbstractConfig)::Symbol=:GN_ISRES;
-"Specify local algorithm to polish Pascoletti-Serafini solution. Uses 1/4 of maximum allowed evals."
-ps_polish_algo(::AbstractConfig)::Union{Nothing,Symbol}=:LD_MMA
+descent_method( :: AbstractConfig ) :: Union{AbstractDescentConfig,Symbol} = :steepest
 
 # acceptance test parameters
 strict_acceptance_test( :: AbstractConfig )::Bool = true;
-(ν_success( :: AbstractConfig{F} )::F) where F = F(0.1);
-(ν_accept(::AbstractConfig{F})::F) where F = F(0);
+(_nu_success( :: AbstractConfig{F} )::F) where F = F(0.1);
+(_nu_accept(::AbstractConfig{F})::F) where F = F(0);
 
-(μ(::AbstractConfig{F})::F) where F = F(2e3);
-(β(::AbstractConfig{F})::F) where F = F(1e3);
+(_mu(::AbstractConfig{F})::F) where F = F(2e3);
+(_beta(::AbstractConfig{F})::F) where F = F(1e3);
 
 # Parameters for the radius update
 radius_update_method(::AbstractConfig)::Symbol = :standard;
-( γ_grow(::AbstractConfig{F})::F ) where F = F(2);
-( γ_shrink(::AbstractConfig{F})::F ) where F = F(.75);
-( γ_shrink_much(::AbstractConfig{F})::F )where F= F(.501);
+( _gamma_grow(::AbstractConfig{F})::F ) where F = F(2);
+( _gamma_shrink(::AbstractConfig{F})::F ) where F = F(.75);
+( _gamma_shrink_much(::AbstractConfig{F})::F )where F= F(.501);
+
+#=
+# legacy ( TODO remove? )
+ε_crit( ac :: AbstractConfig ) = _eps_crit( ac )
+_gamma_crit( ac :: AbstractConfig ) = _gamma_crit( ac )
+ν_success( ac :: AbstractConfig ) = _nu_success( ac )  
+ν_accept( ac :: AbstractConfig ) = _nu_accept( ac )
+μ( ac :: AbstractConfig ) = _mu( ac )
+β( ac :: AbstractConfig ) = _beta( ac )
+γ_grow( ac :: AbstractConfig ) = _gamma_grow( ac )
+γ_shrink( ac :: AbstractConfig ) = _gamma_shrink( ac )
+γ_shrink_much( ac :: AbstractConfig ) = _gamma_shrink_much( ac )
+=#

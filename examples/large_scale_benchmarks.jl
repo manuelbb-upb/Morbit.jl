@@ -202,7 +202,7 @@ function get_algo_config( test_problem; kwargs...)
     
     AlgoConfig(;
         max_critical_loops = model == "TP1" ? 0 : 3,
-        ε_crit = .01,
+        _eps_crit = .01,
         max_iter = 100,
         Δ_0 = .1,
         Δ_max = .5,

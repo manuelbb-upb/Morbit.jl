@@ -1,12 +1,60 @@
+# In this file, methods for the descent step calculation are defined.
+# The method `compute_descent_step` takes all the same arguments as `iterate!`
+# • `mop` to have access to constraint information 
+# • `iter_data` for iteration data (x, fx, …)
+# • `data_base` (just in case, e.g. if some simplex gradients have to be done on the fly)
+# • `sc` to evaluate the surrogate model
+# • `algo_config` to have access to `desc_cfg`, an AbstractDescentConfiguration
+#
+# For the individual descent step methods a method with signature 
+# `compute_descent_step( :: typeof{desc_cfg}, :: AbstractMOP, ::AbstractIterData,
+#  ::AbstractDB, sc :: SurrogateContainer )`
+# should be defined, because this is then called internally
+# 
+# Return: a criticality measure, the new trial point (same eltype as x),
+# the new trial point model values and the steplength (inf-norm)
+
+# TODO `compute_descent_step` is the main method and `get_criticality` was introduced as a Helper
+# it makes more sense, to swap their roles and make `compute_descent_step` call `get_criticality` and then proceed.
+
 # methods to compute a local descent step
-function compute_descent_step( algo_config :: AbstractConfig, mop :: AbstractMOP,
-    id :: AbstractIterData, sc :: SurrogateContainer )
-    return compute_descent_step( Val(descent_method(algo_config)), algo_config, mop, id, sc )
+function compute_descent_step( mop :: AbstractMOP, iter_data :: AbstractIterData, 
+    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, args... )
+    return compute_descent_step( descent_method( algo_config ), mop, iter_data, data_base, sc, algo_config, args... )
+end
+
+# methods to only compute criticality …
+function get_criticality( mop :: AbstractMOP, iter_data :: AbstractIterData, 
+    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
+    return get_criticality( descent_method( algo_config ), mop, iter_data, data_base, sc, algo_config )
+end
+
+function get_criticality( args... )
+    ω, data = compute_descent_step( args ... )
+    return ω, data 
+end
+
+# … and then to re-use data in step calculation
+function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, iter_data :: AbstractIterData, 
+    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, data )
+    return (ω, data...)
 end
 
 # STEEPEST DESCENT AND BACKTRACKING
 
-function _steepest_descent( x :: RVec, ∇F :: RMat, lb :: RVec, ub :: RVec )
+@with_kw struct SteepestDescentConfig{F<:AbstractFloat}
+
+    "Require a descent in all model objective components."
+    strict_backtracking :: Bool = true 
+
+    armijo_const_rhs :: F = 1e-6
+    armijo_const_shrink :: F = .5 
+
+    min_stepsize :: F = eps(F)
+end
+
+"Provided `x` and the (surrogate) jacobian `∇F` at `x`, as well as bounds `lb` and `ub`, return steepest multi descent direction."
+function _steepest_descent_direction( x :: AbstractVector{F}, ∇F :: Mat, lb :: Vec, ub :: Vec ) where F <: AbstractFloat
         
     n = length(x);
     try 
@@ -26,20 +74,20 @@ function _steepest_descent( x :: RVec, ∇F :: RMat, lb :: RVec, ub :: RVec )
         JuMP.@constraint(opt_problem, global_scaled_var_bounds, lb .<= x .+ d .<= ub);
 
         JuMP.optimize!(opt_problem)
-        return JuMP.value.(d), -JuMP.value(α)
+        return F.(JuMP.value.(d)), -F(JuMP.value(α))
     catch e
         println(e)
         @warn("Could not optimize steepest descent subproblem.\n")
-        return zeros(n), -Inf
+        return zeros(F, n), -F(Inf)
     end
 end
 
-function _armijo_condition( strict :: Val{true}, Fx, Fx₊, step_size, ω  )
-    return minimum(Fx .- Fx₊) >= step_size * 1e-6 * ω
+function _armijo_condition( strict :: Val{true}, Fx, Fx₊, step_size, ω, const_rhs  )
+    return minimum(Fx .- Fx₊) >= step_size * const_rhs * ω
 end
 
-function _armijo_condition( strict :: Val{false}, Fx, Fx₊, step_size, ω  )
-    return maximum(Fx) - maximum(Fx₊) >= step_size * 1e-6 * ω 
+function _armijo_condition( strict :: Val{false}, Fx, Fx₊, step_size, ω, const_rhs  )
+    return maximum(Fx) - maximum(Fx₊) >= step_size * const_rhs * ω 
 end
 
 @doc """
@@ -47,118 +95,202 @@ Perform a backtracking loop starting at `x` with an initial step of
 `step_size .* dir` and return trial point `x₊`, the surrogate value-vector `m_x₊`
 and the final step `s = x₊ .- x`.
 """
-function _backtrack( x :: RVec, dir :: RVec, step_size :: Real, ω :: Real, 
-    sc :: SurrogateContainer, strict_descent :: Bool)
+function _backtrack( x, dir, ω, sc, cfg )
 
-    MIN_STEPSIZE = eps(Float64);
-    BACKTRACK_FACTOR = Float16(0.8);
-    # values at iterate
+    MIN_STEPSIZE = cfg.min_stepsize
+    strict_backtracking = cfg.strict_backtracking 
+    α = cfg.armijo_const_shrink
+    c = cfg.armijo_const_rhs
+
+    step_size = 1 
+
+    # values at iterate (required for _armijo_condition )
     mx = eval_models(sc, x)
-
     # first trial point and its value vector
     x₊ = x .+ step_size .* dir
     mx₊ = eval_models( sc, x₊ )
 
-    N = 0;
-    while !_armijo_condition( Val(strict_descent), mx, mx₊, step_size, ω )
+    while !_armijo_condition( Val(strict_backtracking), mx, mx₊, step_size, ω, c )
         if step_size <= MIN_STEPSIZE 
             @warn "Could not find a descent by backtracking."
-            break;
+            break
         end 
-        step_size *= BACKTRACK_FACTOR;
-        x₊[:] = x .+ step_size .* dir;
-        mx₊[:] = eval_models( sc, x₊);
-        N += 1;
+        step_size *= α
+        x₊ .= x .+ step_size .* dir
+        mx₊ .= eval_models( sc, x₊ )
     end
 
     step = step_size .* dir;
     return x₊, mx₊, step
 end
 
-function compute_descent_step(::Val{:steepest_descent}, algo_config :: AbstractConfig,
-    mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
-    @logmsg loglevel3 "Calculating steepest descent."
 
-    x = xᵗ(id);
-    ∇m = get_jacobian(sc, x);
-    lb, ub = full_bounds_internal( mop );    
-    d, ω = _steepest_descent( x, ∇m, lb, ub );
+function get_criticality( desc_cfg :: SteepestDescentConfig , mop, iter_data, data_base, sc, algo_config )
+
+    @logmsg loglevel3 "Calculating steepest descent criticality."
+
+    x = get_x( iter_data )
+    ∇m = get_jacobian(sc, x)
+
+    lb, ub = full_bounds_internal( mop )
+
+    # compute steepest descent direction and criticality
+    d, ω = _steepest_descent_direction( x, ∇m, lb, ub )
+    return ω, d
+end
+
+function compute_descent_step( desc_cfg :: SteepestDescentConfig , mop, iter_data, data_base, sc, algo_config, ω, d )
+    @logmsg loglevel4 "Calculating steepest descent."
+
+    x = get_x( iter_data )
+    Δ = get_Δ( iter_data )
 
     # scale direction for backtracking as in paper
-    norm_d = norm(d,Inf);
-    if norm_d > 0
-        d_normed = d ./ norm_d;
-        σ = intersect_bounds( mop, x, Δᵗ(id), d_normed; return_vals = :pos )
+    norm_d = norm(d, Inf)
+    if norm_d > desc_cfg.min_stepsize
+        d_normed = d ./ norm_d
+        σ = intersect_bounds( mop, x, Δ, d_normed; return_vals = :pos )
         # Note: For scalar Δ the above should equal 
         # `σ = norm(d,Inf) < 1 || Δ <= 1 ? min( d, norm(d,Inf) ) : Δ`
-        # @assert σ >= 0
-        σ = max( σ, 0 )
+        
+        if σ > desc_cfg.min_stepsize 
+            x₊, mx₊, step = _backtrack( x, σ * d_normed, ω, sc, desc_cfg )
+            return ω, x₊, mx₊, norm(step, Inf)
+        end
+    end
+    
+    return 0, copy(x), eval_models( sc, x ), 0
+end 
 
-        x₊, mx₊, step = _backtrack( x, d_normed, σ, ω, sc, strict_backtracking(algo_config) );
-        return ω, x₊, mx₊, norm(step, Inf)
+
+function compute_descent_step( desc_cfg :: SteepestDescentConfig , mop, iter_data, data_base, sc, algo_config )
+    ω, d = get_criticality( desc_cfg, mop, iter_data, data_base, sc, algo_config )
+    return compute_descent_step(desc_cfg, mop, iter_data, data_base, sc, algo_config, ω, d )
+end
+
+
+# PASCOLETTI-SERAFINI
+# TODO would it matter to allow single precision reference_point?
+# Does NLopt honour precision?
+@with_kw struct PascolettiSerafiniConfig
+    
+    "Local utopia point to guide descent search in objective space."
+    reference_point :: Vector{Float64} = Float64[]
+
+    "Objective space direction to guide local subproblem solution."
+    reference_direction :: Vector{Float64} = Float64[]
+
+    trust_region_factor :: Float64 = 1.0
+
+    max_ps_problem_evals :: Int = -1
+    max_ps_polish_evals :: Int = -1
+
+    max_ideal_point_problem_evals :: Int = -1 
+
+    "Algorithm used for the Pascoletti Serafini subproblem minimization."
+    main_algo :: Symbol = :GN_ISRES 
+    
+    "Algorithm to compute local reference point if no point or direction is given."
+    reference_algo :: Symbol = :GN_ISRES
+    reference_trust_region_factor :: Float64 = 1.1
+    
+    "Specify local algorithm to polish Pascoletti-Serafini solution. Uses 1/4 of maximum allowed evals."
+    ps_polish_algo :: Union{Nothing, Symbol} = nothing 
+end
+
+function _get_local_dir( cfg :: PascolettiSerafiniConfig, fx, sorting_indices )
+    if !isempty( cfg.reference_direction )
+        return cfg.reference_direction[ sorting_indices ]
+    elseif !isempty( cfg.reference_point ) 
+        return fx .- cfg.reference_point[ sorting_indices ]
     else
-        return 0, copy(x), eval_models( sc, x ), 0
+        return nothing
     end
 end
 
-# PASCOLETTI-SERAFINI
-
-function compute_descent_step(::Val{:pascoletti_serafini}, algo_config :: AbstractConfig,
-    mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
-    pascoletti_serafini(Val(ps), algo_config, mop, id, sc )
+function _min_component( x, n_vars, lb, ub, algo_name, MAX_EVALS, opt_handle )
+    opt = NLopt.Opt( algo_name, n_vars )
+    opt.lower_bounds = lb
+    opt.upper_bounds = ub
+    opt.xtol_rel = 1e-3 
+    opt.maxeval = MAX_EVALS
+    #opt.min_objective = get_optim_handle( sc, mop, l )
+    opt.min_objective = opt_handle 
+    minf, _ = NLopt.optimize( opt, x );
+    return minf
 end
 
-function compute_descent_step(::Val{:ps}, algo_config :: AbstractConfig,
-    mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
+
+function _local_ideal_point( x :: AbstractVector{F}, lb, ub, optim_handles, max_evals, algo_name ) where F
+    @logmsg loglevel4 "Computing local ideal point. This can take a bit…"
+    
+    num_objectives = length( optim_handles )
+    n_vars = length(x)
+    
+    MAX_EVALS = max_evals < 0 ? 500 * (n_vars+1) : max_evals
+    
+    # preallocate local ideal point:
+    ȳ = fill( -F(Inf), num_objectives )
+
+    # minimize each individual scalar surrogate output 
+    for (l, opt_handle) in enumerate( optim_handles )
+        ȳ[l] = _min_component(x, n_vars, lb, ub, algo_name, MAX_EVALS, opt_handle)
+    end
+    return ȳ
+end
+
+
+function compute_descent_step( desc_cfg :: PascolettiSerafiniConfig, mop, iter_data, data_base, sc, algo_config )
+    
     @logmsg loglevel3 "Calculating Pascoletti-Serafini descent."
-    x = xᵗ(id);
-    fx = fxᵗ(id);
-    n_vars = num_vars(mop);
+    x = get_x( iter_data )
+    fx = get_fx( iter_data )
+    Δ = get_Δ( iter_data )
+    n_vars = length( x )
     n_out = num_objectives(mop);
     
-    r = begin 
-        if !isempty( reference_direction(algo_config) )
-            dir = apply_internal_sorting( reference_direction(algo_config), mop )
-            if all( dir .<= 0 )
-                dir *= -1
-            end
-        elseif !isempty( reference_point(algo_config))
-            dir = fx .- apply_internal_sorting(reference_point(algo_config), mop)
-        else
-            dir = fx .- _local_ideal_point(mop, algo_config, id, sc)
-        end
-        dir
+    r = _get_local_dir( desc_cfg, fx, mop )
+    if isnothing(r)
+        opt_handles = [ get_optim_handle(sc, l) for l = 1 : num_objectives ]
+        lb, ub = local_bounds(mop, x, desc_cfg.reference_trust_region_factor * Δ )
+        ip = _local_ideal_point(x,lb, ub, opt_handles, desc_cfg.MAX_EVALS, desc_cfg.algo_name)
+        r = fx .- ip 
     end
 
     @logmsg loglevel4 "Local image direction is $(_prettify(r))"
 
+    # If any component is not positive, we are critical
     if any( r .<= 0 )
         return 0, copy(x), eval_models(sc, x), 0
     end
 
-    lb, ub = local_bounds(mop, x, 1.1 .* Δᵗ(id));
-    mx = eval_models( sc, x );
-
-    MAX_EVALS = max_ps_problem_evals(algo_config);
-    if MAX_EVALS < 0 MAX_EVALS = 500 * (n_vars+1); end
-
-    polish_algo = ps_polish_algo(algo_config)
-    MAX_EVALS_global = isnothing( polish_algo ) ? MAX_EVALS : Int( floor( MAX_EVALS*3/4 ) );
-    
-    τ, χ_min, ret = _ps_optimization(sc,mop,ps_algo(algo_config),lb,ub,
-        MAX_EVALS_global,[-0.5;x],mx,r,n_vars,n_out);
-
-    if !isnothing(polish_algo)
-        @logmsg loglevel4 "Local polishing enabled."
-        MAX_EVALS_local =  let cfg_polish_evals = max_ps_polish_evals(algo_config);
-            if cfg_polish_evals < 0
-                MAX_EVALS - MAX_EVALS_global
-            else
-                cfg_polish_evals
-            end
+    # total number of sub solver evaluations
+    MAX_EVALS = desc_cfg.max_ps_problem_evals < 0 ? 500 * (n_vars+1) : desc_cfg.max_ps_problem_evals
+    # number of evaluations for the global optimization algo
+    if isnothing( desc_cfg.ps_polish_algo )
+        MAX_EVALS_global = MAX_EVALS 
+        MAX_EVALS_local = 0
+    else 
+        if desc_cfg.max_ps_polish_evals < 0
+            MAX_EVALS_global = Int( floor( MAX_EVALS*3/4 ) )
+            MAX_EVALS_local = MAX_EVALS - MAX_EVALS_global
+        else
+            MAX_EVALS_global = MAX_EVALS 
+            MAX_EVALS_local = desc_cfg.max_ps_polish_evals
         end
-        τₗ, χ_minₗ, retₗ = _ps_optimization(sc,mop,polish_algo,lb,ub,
-            MAX_EVALS_local,χ_min,mx,r,n_vars,n_out);
+    end
+
+    mx = eval_models( sc, x );
+    lb, ub = local_bounds(mop, x, decs_cfg.trust_region_factor * Δ)
+    
+    τ, χ_min, ret = _ps_optimization(sc, desc_cfg.main_algo, lb, ub,
+        MAX_EVALS_global, [-0.5;x], mx, r, n_vars, n_out)
+
+    if MAX_EVALS_local > 0
+        @logmsg loglevel4 "Local polishing for PS enabled."
+       
+        τₗ, χ_minₗ, retₗ = _ps_optimization(sc, desc_cfg.ps_polish_algo, lb, ub,
+            MAX_EVALS_local, χ_min, mx, r, n_vars, n_out);
         if !(retₗ == :FAILURE || isinf(τₗ) || isnan(τₗ) || any(isnan.(χ_minₗ)) )
             τ, χ_min, ret = τₗ, χ_minₗ, retₗ
         end
@@ -176,9 +308,10 @@ function compute_descent_step(::Val{:ps}, algo_config :: AbstractConfig,
     end
 end
 
-function _ps_optimization( sc :: SurrogateContainer, mop :: AbstractMOP, 
-    algo :: Symbol, lb :: RVec, ub :: RVec, MAX_EVALS :: Int, χ0 :: RVec, 
-    mx :: RVec, r :: RVec, n_vars :: Int, n_out :: Int )
+"Construct and solve Pascoletti Serafini subproblem using surrogates from `sc`."
+function _ps_optimization( sc :: SurrogateContainer, algo :: Symbol, 
+    lb :: Vec, ub :: Vec, MAX_EVALS :: Int, χ0 :: AbstractVector{F}, 
+    mx :: Vec, r :: Vec, n_vars :: Int, n_out :: Int ) where F
     
     opt = NLopt.Opt( algo, n_vars + 1 );
     opt.lower_bounds = [-1.0 ; lb ];
@@ -189,7 +322,7 @@ function _ps_optimization( sc :: SurrogateContainer, mop :: AbstractMOP,
     
     #NLopt.inequality_constraint!( opt, _get_ps_constraint_func(sc,mx,r), 1e-12 );
     for l = 1 : n_out 
-        NLopt.inequality_constraint!( opt, _get_ps_constraint_func(sc,mop,mx,r,l), 1e-12 );
+        NLopt.inequality_constraint!( opt, _get_ps_constraint_func(sc, mx, r, l), eps(F) )
     end
 
     @logmsg loglevel4 "Starting PS optimization."
@@ -199,6 +332,8 @@ function _ps_optimization( sc :: SurrogateContainer, mop :: AbstractMOP,
     return τ, χ_min, ret 
 end
 
+#=
+NOTE Does not work using the whole jacobian somehow
 function _get_ps_constraint_func( sc :: SurrogateContainer, mx :: RVec, dir :: RVec ) :: Function
     # return the l-th constraint functions for pascoletti_serafini
     # dir .>= 0 is the image direction
@@ -212,24 +347,32 @@ function _get_ps_constraint_func( sc :: SurrogateContainer, mx :: RVec, dir :: R
         return eval_models(sc, χ[2:end]) .- mx .- χ[1] .* dir
     end
 end
+=#
 
-function _get_ps_constraint_func( sc :: SurrogateContainer, mop :: AbstractMOP, mx :: RVec,
-    dir :: RVec, l :: Int ) :: Function
-    # return the l-th constraint functions for pascoletti_serafini
-    # dir .>= 0 is the image direction
-    # χ = [t;x] is the augmented variable vector
-    
+"""
+    _get_ps_constraint_func( sc :: SurrogateContainer, mx, dir, l )
+
+Return the `l`-th (possibly non-linear) constraint function 
+for Pascoletti-Serafini.
+`dir` .>= 0 is the image direction;
+`χ = [t;x]` is the augmented variable vector;
+
+"""
+function _get_ps_constraint_func( sc :: SurrogateContainer, mx, dir, l )
     return function(χ, g)
         if !isempty(g)
             g[1] = -dir[l]
-            g[2:end] .= get_gradient(sc,mop,χ[2:end],l);
+            g[2:end] .= get_gradient(sc, χ[2:end], l)
         end
-        ret_val = eval_models(sc, mop, χ[2:end], l) - mx[l] - χ[1] * dir[l]
+        ret_val = eval_models(sc, χ[2:end], l) - mx[l] - χ[1] * dir[l]
         return ret_val
     end
 end
 
-function _get_ps_objective_func() :: Function
+"""
+Return objective function for Pascoletti-Serafini, modifying gradient in place.
+"""
+function _get_ps_objective_func()
     function( χ, g )
         if !isempty(g)
             g[1] = 1.0;
@@ -239,37 +382,8 @@ function _get_ps_objective_func() :: Function
     end
 end
 
-function _local_ideal_point(mop :: AbstractMOP, algo_config :: AbstractConfig,
-    id :: AbstractIterData, sc :: SurrogateContainer) :: RVec
-    @logmsg loglevel4 "Computing local ideal point. This can take a bit…"
-    x0 = xᵗ(id);
-    # TODO enable adjustable enlargment factor here
-    lb, ub = local_bounds(mop, x0, 1.1 .* Δᵗ(id));
-    n_vars = num_vars(mop);
-    
-    MAX_EVALS = max_ideal_point_problem_evals(algo_config);
-    if MAX_EVALS < 0 MAX_EVALS = 500 * (n_vars+1); end
-    
-    # preallocate local ideal point:
-    ȳ = fill( typemin( eltype( fxᵗ(id) ) ), num_objectives(mop) );
-
-    # minimize each individual scalar surrogate output 
-    for l = 1 : num_objectives(mop)
-        opt = NLopt.Opt( ideal_point_algo(algo_config), n_vars );
-        opt.lower_bounds = lb;
-        opt.upper_bounds = ub;
-        opt.xtol_rel = 1e-3;
-        opt.maxeval = MAX_EVALS;
-        opt.min_objective = get_optim_handle( sc, mop, l )
-        minf, _ = NLopt.optimize( opt, x0 );
-        ȳ[l] = minf;
-    end
-    return ȳ;
-end
-
-
 # Directed Search
-
+#=
 function compute_descent_step(::Val{:directed_search}, algo_config :: AbstractConfig,
     mop :: AbstractMOP, id :: AbstractIterData, sc :: SurrogateContainer )
     pascoletti_serafini(Val(ds), algo_config, mop, id, sc )
@@ -346,4 +460,31 @@ function compute_descent_step(::Val{:ds}, algo_config :: AbstractConfig,
     else
         return ω, copy(x), eval_models( sc, x ), 0
     end
+end
+
+TODO Re-enable Directed Search
+=#
+
+####### Symbol values as quick configuration 
+
+# DefaultDescent -> Fallback to SteepestDescent
+function compute_descent_step( desc_cfg :: Symbol, mop, iter_data, data_base, sc, algo_config, args... )
+    
+    if desc_cfg == :steepest || desc_cfg == :sd || desc_cfg == :steepest_descent
+        true_cfg = SteepestDescentConfig{eltype(get_x(iter_data))}()
+    elseif desc_cfg == :ps || desc_cfg == :pascoletti_serafini 
+        true_cfg = PascolettiSerafiniConfig()
+    end
+    return compute_descent_step( true_cfg, mop, iter_data, data_base, sc, algo_config, args... )
+end
+
+# DefaultDescent -> Fallback to SteepestDescent
+function get_criticality( desc_cfg :: Symbol, mop, iter_data, data_base, sc, algo_config, args... )
+    
+    if desc_cfg == :steepest || desc_cfg == :sd || desc_cfg == :steepest_descent
+        true_cfg = SteepestDescentConfig{eltype(get_x(iter_data))}()
+    elseif desc_cfg == :ps || desc_cfg == :pascoletti_serafini 
+        true_cfg = PascolettiSerafiniConfig()
+    end
+    return get_criticality( true_cfg, mop, iter_data, data_base, sc, algo_config, args... )
 end

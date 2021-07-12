@@ -20,6 +20,8 @@ abstract type AbstractDB{F<:AbstractFloat} end;
 abstract type AbstractIterData{F<:AbstractFloat} end;
 abstract type AbstractIterSaveable{F<:AbstractFloat} end;
 
+abstract type AbstractDescentConfig end
+
 abstract type AbstractConfig{F<:AbstractFloat} end;
 
 abstract type DiffFn end;
@@ -37,6 +39,14 @@ abstract type AbstractResult{F<:AbstractFloat} end;
     SUCCESSFULL = 2;    # accept trial point, grow radius 
     MODELIMPROVING = 3; # reject trial point, keep radius 
     INACCEPTABLE = 4;   # reject trial point, shrink radius (much)
+end
+
+@enum STOP_CODE begin
+    CONTINUE = 1
+    MAX_ITER = 2
+    BUDGET_EXHAUSTED = 3
+    CRITICAL = 4
+    TOLERANCE = 5 
 end
 
 include("SurrogateModelInterface.jl");

@@ -126,7 +126,8 @@ struct HessFromGrads{GW <: GradWrapper} <: DiffFn
     method :: Symbol
 end
 
-@memoize ThreadSafeDict function _get_grad_func( gw :: GradWrapper, ℓ :: Int) :: Function
+#@memoize ThreadSafeDict 
+function _get_grad_func( gw :: GradWrapper, ℓ :: Int) :: Function
     return x -> _get_gradient( gw, x, ℓ)
 end
 

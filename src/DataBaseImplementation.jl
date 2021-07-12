@@ -1,5 +1,5 @@
 @with_kw mutable struct ArrayDB{
-		F, RT <: AbstractResult{F}, IT <: AbstractIterSaveable } <: AbstractDB{F}
+		F <:AbstractFloat, RT <: AbstractResult{F}, IT <: AbstractIterSaveable } <: AbstractDB{F}
 	
 	res :: Vector{RT} = RT[]
 
@@ -20,7 +20,7 @@ function init_db(:: Type{<:ArrayDB}, F :: Type{<:AbstractFloat},
 	return ArrayDB{F, Result{F}, IT}()
 end
 
-is_transformed( db :: ArrayDB ) = db.is_transformed
+is_transformed( db :: ArrayDB ) = db.transformed
 
 function set_transformed!( db :: ArrayDB, val :: Bool )
 	db.transformed = val 
@@ -45,8 +45,8 @@ function new_result!( db :: ArrayDB{F,RT,IT}, x :: Vec, y :: Vec ) where{F,RT,IT
 	return new_id
 end
 
-function stamp!( db :: ArrayDB{F,RT,IT}, ids :: IT ) :: Nothing where{F,RT,IT}
-	append!(db.iter_info, ids)
+function stamp!( db :: ArrayDB{F,RT,IT}, ids :: IT ) :: Nothing where{F <:AbstractFloat, RT <: AbstractResult{F}, IT <: AbstractIterSaveable } 
+	push!(db.iter_info, ids)
 	return nothing
 end
 

@@ -55,3 +55,9 @@ function morbit_formatter(level::LogLevel, _module, group, id, file, line)
         return Logging.default_metafmt( level, _module, group, id, file, line )
     end
 end
+
+# ## Shorthand Function 
+# The following (unexported) function sets the global logger to print everything:
+function print_all_logs()
+    Logging.global_logger( Logging.ConsoleLogger( stderr, Morbit.loglevel4; meta_formatter = morbit_formatter ) )
+end
