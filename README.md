@@ -1,5 +1,9 @@
 # Morbit
 
+**I am currently doing a large refactoring!**
+I hope to be finished at the end of July (2021). In my opinion, the package will be much better afterwards, but there will be some breaking changes.
+Up until then, you can still use version 2.1.8, but keep in mind, that some scripts won't work anymore in a week or so :)
+
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/stable)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/dev)
 [![Build Status](https://github.com/manuelbb-upb/Morbit.jl/workflows/CI/badge.svg)](https://github.com/manuelbb-upb/Morbit.jl/actions)
