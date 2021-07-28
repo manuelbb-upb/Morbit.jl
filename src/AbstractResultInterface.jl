@@ -1,11 +1,13 @@
 Broadcast.broadcastable( res :: AbstractResult ) = Ref(res)
 
-# NOTE the site and value vectors should be mutable!
 "Return the site vector associated with a result."
-( get_site( :: AbstractResult{F} ) :: AbstractVector{F} ) where F = F[];
+( get_site( :: AbstractResult{F} ) :: AbstractVector{F} ) where F = F[]
 
 "Return the value vector associated with a result."
-( get_value( :: AbstractResult{F} ) :: AbstractVector{F} ) where F = F[];
+( get_value( :: AbstractResult{F} ) :: AbstractVector{F} ) where F = F[]
+
+set_site!(r :: AbstractResult, x) :: Nothing = nothing
+set_value!(r :: AbstractResult, y) :: Nothing = nothing
 
 """
 	get_id( res :: AbstractResult ) :: Int
@@ -23,4 +25,15 @@ end
 # derived 
 function _equal_vals( r1 :: AbstractResult, r2 :: AbstractResult )
 	return get_site(r1) == get_site(r2) && get_value(r1) == get_value(r2)
+end
+
+function has_valid_site( r :: AbstractResult )
+	site = get_site(r)
+	return !(isempty(site) || any( isnan.(site) ))
+end
+
+function has_valid_value( r :: AbstractResult )
+	value = get_value(r)
+	isempty(value) && return false 
+	any( isnan.(value) ) && return false
 end

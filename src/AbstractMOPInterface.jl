@@ -156,32 +156,28 @@ function local_bounds( mop :: AbstractMOP, x :: Vec, Δ :: Union{Real, Vec} )
     return _local_bounds( x, Δ, lb, ub );
 end
 
-"Return smallest positive and biggest negative and `σ₊` and `σ₋` so that `x .+ σ± .* d` stays within bounds."
-function _intersect_bounds( x :: Vec, d :: Vec, lb :: Vec, ub :: Vec ) :: Tuple{Real,Real}
-    non_zero_dir = ( d .!= 0);
-    if any( non_zero_dir )
-       # how much can we go in positive direction 
-        σ_lb = (lb[non_zero_dir] .- x[non_zero_dir]) ./ d[non_zero_dir];
-        σ_ub = (ub[non_zero_dir] .- x[non_zero_dir]) ./ d[non_zero_dir];
-       
-        # sort so that first column contains the smallest factor 
-        # we are allowed to move along each coordinate, second the largest factor
-        smallest_largest = sort( [σ_lb σ_ub], dims = 2 );    
+function _project_into_box( z, lb, ub)
+    return min.( max.( z, lb ), ub )
+end
 
-        σ_pos = minimum( smallest_largest[:, 2] );
-        σ_neg = maximum( smallest_largest[:, 1] );
-        return σ_pos, σ_neg
-    else
-        return typemax(valtype(x)), typemin(valtype(x))
-    end
+"Return smallest positive and biggest negative and `σ₊` and `σ₋` so that `x .+ σ± .* d` stays within bounds."
+function _intersect_bounds( x :: Vec, d :: Vec, lb :: Vec, ub :: Vec ) 
+   d_normed = d ./ norm( d, Inf )
+
+   σ_pos = norm( _project_into_box( x .+ d_normed, lb, ub ) - x, 2 )
+   σ_neg = norm( _project_into_box( x .- d_normed, lb, ub ) - x, 2 )
+
+   return σ_pos, σ_neg
 end
 
 function intersect_bounds( mop :: AbstractMOP, x :: Vec, Δ :: Union{Real, Vec}, 
-    d :: Vec; return_vals :: Symbol = :both ) :: Union{Real, Tuple{Real,Real}}
-    x
+    d :: Vec; return_vals :: Symbol = :both )
     lb_eff, ub_eff = local_bounds( mop, x, Δ );
+    return intersect_bounds( x, d, lb_eff, ub_eff; return_vals )
+end
 
-    σ_pos, σ_neg = _intersect_bounds( x, d, lb_eff, ub_eff );
+function intersect_bounds( x :: Vec, d :: Vec, lb, ub ; return_vals :: Symbol = :both )
+    σ_pos, σ_neg = _intersect_bounds( x, d, lb, ub )
 
     if return_vals == :both 
         return σ_pos, σ_neg
@@ -196,48 +192,6 @@ function intersect_bounds( mop :: AbstractMOP, x :: Vec, Δ :: Union{Real, Vec},
             return σ_neg 
         end 
     end
-end
-
-# wrapper to unscale x̂ from internal domain
-# and safeguard against boundary violations
-struct TransformerFn{F}
-    lb :: Vector{F}
-    ub :: Vector{F}
-    w :: Vector{F}
-    inf_indices :: Vector{Int}
-    not_inf_indices :: Vector{Int}
-end
-
-function TransformerFn(mop :: AbstractMOP, T :: Type{<:AbstractFloat} = Float32)
-    LB, UB = full_bounds( mop )
-    W = UB - LB
-    I = findall(isinf.(W))
-    NI = setdiff( 1 : length(W), I )
-    W[ I ] .= 1
-
-    F = Base.promote_eltype( T, W )
-    return TransformerFn{F}(LB,UB,W,I,NI)
-end
-
-Base.broadcastable( tfn :: TransformerFn ) = Ref(tfn)
-
-using LinearAlgebra: diagm 
-function _jacobian_unscaling( tfn :: TransformerFn, x̂ :: Vec)
-    # for our simple bounds scaling the jacobian is diagonal.
-    return diagm(tfn.w)
-end
-
-"Unscale the point `x̂` from internal to original domain."
-function (tfn:: TransformerFn)( x̂ :: AbstractVector{<:Real} )
-    χ = copy(x̂)
-    I = tfn.not_inf_indices
-    χ[I] .= tfn.lb[I] .+ tfn.w[I] .* χ[I] 
-    return χ
-end
-
-# used in special broadcast to only retrieve bounds once
-function ( tfn ::TransformerFn)( X :: AbstractVector{<:AbstractVector} )
-    return [ _unscale( x, tfn.lb, tfn.ub ) for x ∈ X ]
 end
 
 function _add_objective!( mop :: AbstractMOP{true}, T :: Type{<:AbstractObjective},
@@ -290,7 +244,7 @@ function reverse_internal_sorting!( ŷ :: Vec, mop :: AbstractMOP )
     nothing
 end
 
-function apply_internal_sorting( y :: Vec, mop :: AbstractMOP )
+function apply_internal_sorting!( y :: Vec, mop :: AbstractMOP )
     y[:] = y[ output_indices(mop) ]
     nothing
 end
@@ -303,12 +257,14 @@ end
 
 "(Internally) Evaluate all objectives at site `x̂::Vec`. Objective order might differ from order in which they were added."
 function eval_all_objectives( mop :: AbstractMOP, x̂ :: Vec )
-    reduce(vcat, [ eval_objf( objf, unscale(x̂,mop) ) for objf ∈ list_of_objectives(mop) ] )
+    reduce(vcat, [ eval_objf( objf, unscale(x̂, mop) ) for objf ∈ list_of_objectives(mop) ] )
 end
 
+#=
 function eval_all_objectives( mop :: AbstractMOP, x̂ :: Vec, tfn :: TransformerFn )
     vcat( [ eval_objf( objf, tfn(x̂) ) for objf ∈ list_of_objectives(mop) ]... )
 end
+=#
 
 function Broadcast.broadcasted(::typeof(eval_all_objectives), mop :: AbstractMOP, X :: VecVec, args... )
     if isempty(X)
@@ -332,17 +288,15 @@ function Broadcast.broadcasted(::typeof(eval_all_objectives), mop :: AbstractMOP
 end
 
 "Evaluate all objectives at site `x̂::Vec` and sort the result according to the order in which objectives were added."
-function eval_and_sort_objectives(mop :: AbstractMOP, x̂ :: Vec, tfn)
-    ŷ = eval_all_objectives(mop, x̂, tfn);
-    return reverse_internal_sorting( ŷ, mop );
+function eval_and_sort_objectives(mop :: AbstractMOP, x̂ :: Vec)
+    ŷ = eval_all_objectives(mop, x̂)
+    return reverse_internal_sorting( ŷ, mop )
 end
 
-function Broadcast.broadcasted( ::typeof(eval_and_sort_objectives), mop :: AbstractMOP, 
-    X :: VecVec, t )
-    tfn = isnothing(t) ? TransformerFn(mop) : t
-    R = eval_all_objectives.(mop, X, tfn);
-    reverse_internal_sorting!.(R, mop)
-    return R
+function Broadcast.broadcasted( ::typeof(eval_and_sort_objectives), mop :: AbstractMOP, X :: VecVec )
+    Y = eval_all_objectives.(mop, X)
+    reverse_internal_sorting!.(Y, mop)
+    return Y
 end
 
 # Helper functions …
@@ -360,3 +314,45 @@ end
 
 # use for finite (e.g. local) bounds only
 _rand_box_point(lb::Vec, ub::Vec, type :: Type{<:Real} = Float16) ::Vec = lb .+ (ub .- lb) .* rand(type, length(lb));
+
+# wrapper to unscale x̂ from internal domain
+# and safeguard against boundary violations
+struct TransformerFn{F}
+    lb :: Vector{F}
+    ub :: Vector{F}
+    w :: Vector{F}
+    inf_indices :: Vector{Int}
+    not_inf_indices :: Vector{Int}
+end
+
+function TransformerFn(mop :: AbstractMOP, T :: Type{<:AbstractFloat} = Float32)
+    LB, UB = full_bounds( mop )
+    W = UB - LB
+    I = findall(isinf.(W))
+    NI = setdiff( 1 : length(W), I )
+    W[ I ] .= 1
+
+    F = Base.promote_eltype( T, W )
+    return TransformerFn{F}(LB,UB,W,I,NI)
+end
+
+Base.broadcastable( tfn :: TransformerFn ) = Ref(tfn)
+
+using LinearAlgebra: diagm 
+function _jacobian_unscaling( tfn :: TransformerFn, x̂ :: Vec)
+    # for our simple bounds scaling the jacobian is diagonal.
+    return diagm(tfn.w)
+end
+
+"Unscale the point `x̂` from internal to original domain."
+function (tfn:: TransformerFn)( x̂ :: AbstractVector{<:Real} )
+    χ = copy(x̂)
+    I = tfn.not_inf_indices
+    χ[I] .= tfn.lb[I] .+ tfn.w[I] .* χ[I] 
+    return χ
+end
+
+# used in special broadcast to only retrieve bounds once
+function ( tfn ::TransformerFn)( X :: AbstractVector{<:AbstractVector} )
+    return [ _unscale( x, tfn.lb, tfn.ub ) for x ∈ X ]
+end

@@ -54,12 +54,12 @@ max_iter( :: AbstractConfig ) :: Int = 50;
 ( Δ_tol_abs(ac :: AbstractConfig{F} ) ::Union{F, AbstractVector{F}} ) where F = F(1e-6);
 
 # what method to use for the subproblems
-descent_method( :: AbstractConfig ) :: Union{AbstractDescentConfig,Symbol} = :steepest
+descent_method( :: AbstractConfig ) :: Union{AbstractDescentConfig,Symbol} = :steepest_descent
 
 # acceptance test parameters
 strict_acceptance_test( :: AbstractConfig )::Bool = true;
-(_nu_success( :: AbstractConfig{F} )::F) where F = F(0.1);
-(_nu_accept(::AbstractConfig{F})::F) where F = F(0);
+(_nu_success( :: AbstractConfig{F} )::F) where F = F(0.2);
+(_nu_accept(::AbstractConfig{F})::F) where F = F(1e-3);
 
 (_mu(::AbstractConfig{F})::F) where F = F(2e3);
 (_beta(::AbstractConfig{F})::F) where F = F(1e3);

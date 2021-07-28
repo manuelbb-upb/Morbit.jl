@@ -4,35 +4,96 @@ current_env = Base.load_path()[1]
 Pkg.activate(@__DIR__)
 
 using Literate
+using PlutoSliderServer
 
 function replace_comments( content )
     content = replace(content, r"^(\h*)#~(.*)$"m => s"\1## \2")
     return content
 end    
 
+#%% Functions to convert notebook
+function make_notebook_html( notebook_jl_path )
+    out_dir = joinpath(@__DIR__, "src", "assets") 
+    PlutoSliderServer.export_notebook( notebook_jl_path; Export_output_dir = out_dir )
+    base_name = splitpath(splitext( notebook_jl_path )[1])[end]
+    return joinpath( out_dir, base_name * ".html" )
+end
+
+function modify_notebook_html( html_name )
+    content = open( html_name, "r" ) do html_file 
+        read( html_file, String )
+    end
+    content = replace(content, 
+        r"(<script\b[^>]*>[\s\S]*?<\/script>)" => 
+        s"\1\n\t<script src='./iframeResizer.contentWindow.min.js'></script>\n";
+        count = 1
+    )
+    open( html_name, "w" ) do html_file
+        write( html_file, content )
+    end
+    return nothing
+end
+
+const md_nb_template = """
+```@raw html
+<iframe id="fdnotebook" src="assets/HTML_NAME" width="100%"></iframe>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+	var myIframe = document.getElementById("fdnotebook");
+	iFrameResize({log:true}, myIframe);	
+});
+</script>
+```
+"""
+
+function create_md_nb_file( html_name )
+    global md_nb_template;
+    html_filename = splitpath(html_name)[end]    
+    content = replace( md_nb_template, "HTML_NAME" => html_filename)
+    md_path = joinpath(@__DIR__, "src", splitext( html_filename )[1] * ".md" ) 
+    open(md_path, "w") do md_file
+        write(md_file, content)
+    end
+    return md_path
+end
+
+function make_notebook_md( notebook_jl_path )
+    html_path = make_notebook_html( notebook_jl_path )
+    modify_notebook_html( html_path )
+    return create_md_nb_file( html_path )
+end
+
+#%%
+
 example_dir = joinpath(@__DIR__, "..", "examples")
 src_dir = joinpath(@__DIR__, "..", "src")
+#%%
+make_notebook_md( joinpath( example_dir, "notebook_finite_differences.jl" ) )
 
 #%%
 Literate.markdown(
     joinpath( example_dir, "example_two_parabolas.jl"), 
     joinpath( @__DIR__, "src" );    
-    documenter = true,
     preprocess = replace_comments
     )
 
 Literate.markdown(
     joinpath( example_dir, "example_zdt.jl"), 
     joinpath( @__DIR__, "src" );    
-    documenter = true,
     preprocess = replace_comments
     )
 
 #%%
 Literate.markdown(
+    joinpath( src_dir, "RbfModel.jl"), 
+    joinpath( @__DIR__, "src" );    
+    #flavor = Literate.FranklinFlavor(),
+    codefence = "````julia" => "````",
+)
+
+#%%
+Literate.markdown(
     joinpath( src_dir, "custom_logging.jl"), 
     joinpath( @__DIR__, "src" );    
-    documenter = false,
-    execute = false,
 )
 Pkg.activate(current_env)

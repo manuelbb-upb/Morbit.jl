@@ -27,7 +27,7 @@ function set_transformed!( db :: ArrayDB, val :: Bool )
 	return nothing 
 end
 
-Base.eachindex( db :: ArrayDB ) = Base.eachindex( db.res )
+Base.eachindex( db :: ArrayDB ) ::Vector{Int} = Base.eachindex( db.res )
 
 function get_result( db :: ArrayDB, id :: Int)
 	return db.res[id]

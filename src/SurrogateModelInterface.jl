@@ -14,9 +14,24 @@ fully_linear( :: SurrogateModel ) = false :: Bool;
 # to a new vector objective?
 combinable( :: SurrogateConfig ) = false :: Bool     
 
-_init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP, :: AbstractIterData, :: AbstractConfig ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
-update_model( :: SurrogateModel,:: AbstractObjective, :: SurrogateMeta, :: AbstractMOP, 
-:: AbstractIterData, :: AbstractConfig; kwargs... ) = nothing :: Tuple{<:SurrogateModel,<:SurrogateMeta};
+
+## TODO: make `prepare_init_model` and `_init_model` have a `ensure_fully_linear` kwarg too
+function prepare_init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP, 
+    :: AbstractIterData, ::AbstractDB, :: AbstractConfig ) :: SurrogateMeta 
+    nothing
+end
+
+function _init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP, 
+    :: AbstractIterData, ::AbstractDB, :: AbstractConfig, :: SurrogateMeta; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
+    nothing 
+end
+
+## TODO: Allow to pass a SurrogateConfig here as well. (ATM use `model_cfg(objf)`) #src
+## In general, the function signatures are somewhat messy. We should unify them a bit. #src
+function update_model( :: SurrogateModel, :: AbstractObjective, :: SurrogateMeta, :: AbstractMOP, 
+    :: AbstractIterData, :: AbstractDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
+    nothing 
+end
 
 eval_models( :: SurrogateModel, ::Vec ) ::Vec = nothing 
 get_gradient( :: SurrogateModel, ::Vec, :: Int ) :: Vec = nothing
@@ -24,15 +39,15 @@ get_jacobian( :: SurrogateModel, :: Vec ) :: Mat = nothing
 
 # DEFAULTS
 
-function init_model( objf:: AbstractObjective, args...)
-    _init_model( model_cfg(objf), objf, args...)
-end
+prepare_update_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...) = meta
+prepare_improve_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...) = meta
 
-# overwrite, this is inefficient
+# overwrite if possible, this is inefficient:
 eval_models( sm :: SurrogateModel, x̂ :: Vec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
+
 function improve_model( mod :: SurrogateModel, objf:: AbstractObjective, meta :: SurrogateMeta,
     mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig;
-    ensure_fully_linear) :: Tuple{SurrogateModel,SurrogateMeta}
+    ensure_fully_linear = false)
     return mod, meta 
 end
 

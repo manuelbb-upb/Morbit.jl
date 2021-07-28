@@ -17,9 +17,20 @@ function Base.:(==)(r1 :: Result, r2::Result)
     )
 end
 
-get_site( res :: Result ) = res.x;
-get_value( res :: Result ) = res.y;
-get_id( res :: Result ) = res.db_id;
+get_site( res :: Result ) = res.x
+get_value( res :: Result ) = res.y
+get_id( res :: Result ) = res.db_id
+
+function set_site!( res :: Result, x )
+    res.x[:] .= x[:]
+    return nothing 
+end
+
+function set_value!( res :: Result, y )
+    empty!(res.y)
+    append!(res.y, y)
+    return nothing 
+end
 
 function init_res( ::Type{<:Result{F}} , x :: Vec, y :: Vec, id :: Int ) where F
     return Result{F}( x, y, id )

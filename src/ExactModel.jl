@@ -1,12 +1,12 @@
 # This file defines the required data structures and methods for Exact Models.
 
 struct ExactModel{
-        M <: AbstractMOP,
+        M <: TransformerFn,
         O <: AbstractObjective,
         D <: DiffFn 
     } <: SurrogateModel
     # reference to mop to have unscaling availabe;
-    mop :: M
+    tfn :: M
 
     # reference to objective(s) to evaluate 
     objf :: O
@@ -38,8 +38,7 @@ fully_linear( em :: ExactModel ) = true;
 combinable( :: ExactConfig ) = false;
 
 # get a wrapper for when cfg.gradients isa Symbol
-function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractObjective, mop :: AbstractMOP ) where{G<:Symbol,J}
-    tfn = TransformerFn(mop)    # TODO pass `tfn` as argument?
+function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractObjective, tfn ) where{G<:Symbol,J}
     if cfg.gradients == :autodiff
         return AutoDiffWrapper( objf, tfn, nothing )
     elseif cfg.gradients == :fdm 
@@ -48,31 +47,36 @@ function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractObjective, mop :: 
 end
 
 # else get GradWrapper
-function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractObjective, mop :: AbstractMOP ) where{G,J}
+function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractObjective, tfn) where{G,J}
     @assert length(cfg.gradients) == num_outputs(objf) "Provide as many gradient functions as the objective has outputs."
-    tfn = TransformerFn(mop)
     return GradWrapper( tfn, cfg.gradients, cfg.jacobian )
 end
 
 @doc "Return an ExactModel build from a VectorObjectiveFunction `objf`. 
 Model is the same inside and outside of criticality round."
 function _init_model(cfg ::ExactConfig, objf :: AbstractObjective, 
-    mop :: AbstractMOP, ::AbstractIterData , :: AbstractConfig)
-    diff_fn = get_DiffFn( cfg, objf, mop )
-    em = ExactModel(mop, objf, diff_fn )
-    return em, ExactMeta();
+    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig, emeta :: ExactMeta)
+    tfn = TransformerFn(mop)
+    diff_fn = get_DiffFn( cfg, objf, tfn )
+    em = ExactModel(tfn, objf, diff_fn )
+    return em, emeta
 end
 
 function update_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
-    ::AbstractMOP, :: AbstractIterData, :: AbstractConfig; 
-    ensure_fully_linear :: Bool = false ) :: Tuple{ ExactModel, ExactMeta }
+    ::AbstractMOP, :: AbstractIterData, ::AbstractDB, :: AbstractConfig; 
+    ensure_fully_linear :: Bool = false )
     return em, meta
 end
 
 function improve_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
-    ::AbstractMOP, :: AbstractIterData, :: AbstractConfig; 
-    ensure_fully_linear :: Bool = false ) :: Tuple{ ExactModel, ExactMeta }
+    ::AbstractMOP, :: AbstractIterData, ::AbstractDB, :: AbstractConfig; 
+    ensure_fully_linear :: Bool = false )
     return em, meta
+end
+
+function prepare_init_model(cfg ::ExactConfig, objf :: AbstractObjective, 
+    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig)
+    return ExactMeta()
 end
 
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."

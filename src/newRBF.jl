@@ -30,7 +30,7 @@ function RbfModel( model :: RBF.RBFModel, n_vars :: Int )
         Y₂ = Y,
         Z = Z,
         Z₂ = Z
-    );
+    )
 end
 
 tdata_length( rbf :: RbfModel ) :: Int = sum( length.(Base.values(rbf.tdata) ) )
@@ -493,6 +493,7 @@ end
 function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP, id :: AbstractIterData; kwargs... ) :: Nothing
     return add_old_sites!(rbf, cfg, mop, id, Val( cfg.sampling_algorithm2); kwargs...)
 end
+
 function add_old_sites!(rbf :: RbfModel, cfg :: RbfConfig, mop :: AbstractMOP, 
     id :: AbstractIterData, ::Val{:standard_rand}; 
     max_new :: Int = typemax(Int) ):: Nothing

@@ -96,7 +96,7 @@ end
 
 "Grow radius according to `min( Δ_max, (γ + ||s||/Δ) * Δ )`"
 function grow_radius( ::Val{:steplength}, ac, Δ, steplength )
-	return min( Δᵘ(ac), ( _gamma_grow .+ steplength ./ Δ ) .* Δ )
+	return min( Δᵘ(ac), ( _gamma_grow(ac) .+ steplength ./ Δ ) .* Δ )
 end 
 
 # we expect mop :: MixedMOP, but should work for static MOP if everything 
@@ -166,7 +166,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float32[];
 
 	# make the problem static 
 	# initialize surrogate models
-	sc = init_surrogates( smop, id, ac );
+	sc = init_surrogates( smop, id, data_base, ac );
 
 	return (smop, id, data_base, sc, ac)
 end
@@ -205,7 +205,7 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 	count_non_lin_it_flag = count_nonlinear_iterations( algo_config )
 
     # set iteration counter
-    if it_stat(iter_data) != MODELIMPROVING || count_nonlin 
+    if it_stat(iter_data) != MODELIMPROVING || count_nonlinear_iterations( algo_config )
         inc_iterations!(iter_data)
         set_model_improvements!(iter_data, 0);
     else 
@@ -226,9 +226,9 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
     # update surrogate models
     if num_iterations(iter_data) > 1
         if it_stat == MODELIMPROVING 
-            improve_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = false );
+            improve_surrogates!( sc, mop, iter_data, data_base, algo_config; ensure_fully_linear = false );
         else
-            update_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = false );
+            update_surrogates!( sc, mop, iter_data, data_base, algo_config; ensure_fully_linear = false );
         end
     end
 	nothing 
@@ -252,7 +252,7 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 		DO_CRIT_LOOPS = true
         if !_fully_linear_sc
             @logmsg loglevel1 "Ensuring that all models are fully linear."
-            update_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = true );
+            update_surrogates!( sc, mop, iter_data, data_base, algo_config; ensure_fully_linear = true );
             
             ω, ω_data = get_criticality(mop, iter_data, data_base, sc, algo_config )
             if !fully_linear(sc)
@@ -277,7 +277,7 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 				set_Δ!(iter_data, Δ)
 				
 				# make models fully linear on smaller trust region
-				update_surrogates!( sc, mop, iter_data, algo_config; ensure_fully_linear = true )
+				update_surrogates!( sc, mop, iter_data, data_base, algo_config; ensure_fully_linear = true )
 
 				# (re)calculate criticality
 				ω, ω_data = get_criticality( mop, iter_data, data_base, sc, algo_config )
@@ -304,16 +304,15 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
         return CRITICAL
     end
 
-
-	mx = eval_models(sc, x);
-	fx₊ = eval_all_objectives(mop, x₊)
+	mx = eval_models(sc, x)
+	fx₊ = eval_and_sort_objectives(mop, x₊)
 	
 	if strict_acceptance_test( algo_config )
 		_ρ = minimum( (fx .- fx₊) ./ (mx .- mx₊) )
 	else
-		_ρ = (maximum(fx) - maximum( fx₊ ))/(maximum(mx)-maximum(mx₊))
+		_ρ = (maximum(fx) - maximum( fx₊ ))/(maximum(mx) - maximum(mx₊))
 	end
-	
+	@show _ρ
 	ρ = isnan(_ρ) ? -Inf : _ρ
 	
 	@logmsg loglevel2 """\n
@@ -339,10 +338,10 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 	else
 		if fully_linear(sc)
 			if ρ < ν_accept
-				shrink_radius_much( algo_config, Δ, steplength )
+				Δ = shrink_radius_much( algo_config, Δ, steplength )
 				it_stat!( iter_data, INACCEPTABLE )
 			else
-				shrink_radius(algo_config, Δ, steplength)
+				Δ = shrink_radius(algo_config, Δ, steplength)
 				it_stat!( iter_data, ACCEPTABLE )
 			end
 		else
@@ -399,7 +398,7 @@ function optimize( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float32[];
    
     @logmsg loglevel1 _fin_info_str(data_base, iter_data, mop, ret_code)
 
-    return ret_x, ret_fx, ret_code
+    return ret_x, ret_fx, ret_code, data_base
 end# function optimize
 
 

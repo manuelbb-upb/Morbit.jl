@@ -14,21 +14,21 @@ Pkg.develop(url="https://github.com/manuelbb-upb/MultiObjectiveProblems.jl")
 using MultiObjectiveProblems
 ```
 
-```@example example_zdt
+````@example example_zdt
 using MultiObjectiveProblems; #hide
 nothing #hide
-```
+````
 
 Import other dependencies:
 
-```@example example_zdt
+````@example example_zdt
 using CairoMakie
 using Morbit
-```
+````
 
 Retrieve test problem and define a `MixedMOP`
 
-```@example example_zdt
+````@example example_zdt
 test_problem = ZDT3(2);
 box = constraints(test_problem);
 
@@ -40,12 +40,12 @@ objf_cfg = ExactConfig()
 for objf ∈ objectives
     add_objective!(mop, objf, objf_cfg)
 end
-```
+````
 
 ## Run
 Run optimization and plot:
 
-```@example example_zdt
+````@example example_zdt
 I = get_ideal_point(test_problem)
 ac = AlgoConfig(; descent_method = :ps, reference_point = I )
 
@@ -67,7 +67,7 @@ ylims!(ax, (box.lb[2] .- .2, box.ub[2] .+ .2) )
 scatter!(Tuple(x); color = :red)
 
 fig
-```
+````
 
 ---
 

@@ -22,53 +22,58 @@ use_db( ::DefaultConfig ) = ArrayDB;
 ############################################
 # `AlgorithmConfig` is a struct with fields defining the method outputs.
 @with_kw struct AlgorithmConfig{ F, D } <: AbstractConfig{F}
-    eps_crit :: Real = _eps_crit(default_config(F));
-    gamma_crit :: F = _gamma_crit(default_config(F));
-    max_critical_loops :: Int = max_critical_loops(default_config(F));
     
-    max_evals :: Int = max_evals( default_config(F) )
-    max_iter :: Int = max_iter( default_config(F) );
+    # small hidden helper fields
+    _x_ :: F = 1.0
+    _F_ :: Type{F} = typeof(_x_)
 
-    db :: Union{Nothing,Type{<:AbstractDB}} = ArrayDB;
-
-    count_nonlinear_iterations :: Bool = count_nonlinear_iterations( default_config(F) );
+    eps_crit :: F = _eps_crit( default_config( _F_ ) );
+    gamma_crit :: F = _gamma_crit(default_config( _F_ ));
+    max_critical_loops :: Int = max_critical_loops(default_config( _F_ ));
     
-    Δ_0 :: Union{F, Vector{F}} = Δ⁰(default_config(F));
-    Δ_max :: Union{F, Vector{F}} = Δᵘ(default_config(F));
+    max_evals :: Int = max_evals( default_config( _F_ ) )
+    max_iter :: Int = max_iter( default_config( _F_ ) );
+
+    db :: Union{Nothing,Type{<:AbstractDB}} = ArrayDB{_F_}
+
+    count_nonlinear_iterations :: Bool = count_nonlinear_iterations( default_config( _F_ ) );
+    
+    Δ_0 :: Union{F, Vector{F}} = Δ⁰(default_config( _F_ ));
+    Δ_max :: Union{F, Vector{F}} = Δᵘ(default_config( _F_ ));
         
     # relative stopping 
     # stop if ||Δf|| ≤ ε ||f||
-    f_tol_rel::Union{F, Vector{F}} = f_tol_rel( default_config(F) );
+    f_tol_rel::Union{F, Vector{F}} = f_tol_rel( default_config( _F_ ) );
     # stop if ||Δx|| ≤ ε ||x||
-    x_tol_rel ::Union{F, Vector{F}} = x_tol_rel(default_config(F));
+    x_tol_rel ::Union{F, Vector{F}} = x_tol_rel(default_config( _F_ ));
 
     # absolute stopping
-    f_tol_abs ::Union{F, Vector{F}}  = f_tol_abs(default_config(F))
-    x_tol_abs ::Union{F, Vector{F}}  = x_tol_abs(default_config(F));
+    f_tol_abs ::Union{F, Vector{F}}  = f_tol_abs(default_config( _F_ ))
+    x_tol_abs ::Union{F, Vector{F}}  = x_tol_abs(default_config( _F_ ));
 
     # stop if ω ≤ ω_tol_rel && Δ .≤ Δ_tol_rel
-    ω_tol_rel :: F = ω_tol_rel(default_config(F));
-    Δ_tol_rel ::Union{F, Vector{F}} = Δ_tol_rel(default_config(F));
+    ω_tol_rel :: F = ω_tol_rel(default_config( _F_ ));
+    Δ_tol_rel ::Union{F, Vector{F}} = Δ_tol_rel(default_config( _F_ ));
 
     # stop if ω <= ω_tol_abs 
-    ω_tol_abs :: F = ω_tol_abs(default_config(F));
+    ω_tol_abs :: F = ω_tol_abs(default_config( _F_ ));
 
     # stop if Δ .<= Δ_tol_abs 
-    Δ_tol_abs ::Union{F, Vector{F}} = Δ_tol_abs(default_config(F));
-    
-    descent_method :: D = descent_method( default_config(F) )
-    
-    strict_acceptance_test :: Bool = strict_acceptance_test(default_config(F));
-    nu_success :: F = _nu_success( default_config(F) );
-    nu_accept :: F = _nu_accept( default_config(F) );
+    Δ_tol_abs ::Union{F, Vector{F}} = Δ_tol_abs(default_config( _F_ ));
+ 
+    descent_method :: D = descent_method( default_config( _F_ ) )
 
-    mu :: F = _mu( default_config(F) );
-    beta :: F = _beta( default_config(F) );
+    strict_acceptance_test :: Bool = strict_acceptance_test(default_config( _F_ ));
+    nu_success :: F = _nu_success( default_config( _F_ ) );
+    nu_accept :: F = _nu_accept( default_config( _F_ ) );
 
-    radius_update_method :: Symbol = radius_update_method(default_config(F))
-    gamma_grow :: F = _gamma_grow(default_config(F));
-    gamma_shrink :: F = _gamma_shrink(default_config(F));
-    gamma_shrink_much :: F = _gamma_shrink_much(default_config(F));
+    mu :: F = _mu( default_config( _F_ ) );
+    beta :: F = _beta( default_config( _F_ ) );
+
+    radius_update_method :: Symbol = radius_update_method(default_config( _F_ ))
+    gamma_grow :: F = _gamma_grow(default_config( _F_ ));
+    gamma_shrink :: F = _gamma_shrink(default_config( _F_ ));
+    gamma_shrink_much :: F = _gamma_shrink_much(default_config( _F_ ));
     
     @assert descent_method ∈ [:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search] "`descent_method` must be one of `:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search`."
 end
@@ -86,6 +91,6 @@ use_db( ac :: AlgorithmConfig ) = ac.db;
 #####################################################
 # outer constructors for the lazy user and backwards compatibility
 EmptyConfig() = default_config64;
-AlgoConfig(args...; kwargs...) = AlgorithmConfig{Float64}(args...; kwargs...);
+AlgoConfig(args...; kwargs...) = AlgorithmConfig(args...; kwargs...);
 
 export EmptyConfig, AlgoConfig;

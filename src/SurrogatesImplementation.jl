@@ -1,5 +1,5 @@
 
-#include("RBFModel.jl")
+include("RbfModel.jl")
 include("ExactModel.jl")
 #include("TaylorModel.jl")
 #include("LagrangeModel.jl")
@@ -57,16 +57,26 @@ end
 =#
 
 @doc "Return a SurrogateContainer initialized from the information provided in `mop`."
-function init_surrogates( mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig ) :: SurrogateContainer
+function init_surrogates( mop :: AbstractMOP, id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig ) :: SurrogateContainer
     @logmsg loglevel2 "Initializing surrogate models."
     
     sw_array = SurrogateWrapper[]
     output_model_mapping = Dict{Int,Tuple{Int,Int}}()
     sc_output_model_mapping = Dict{Int,Tuple{Int,Int}}()
 
+    meta_array = SurrogateMeta[]
+
+    for objf ∈ list_of_objectives(mop)
+        push!( meta_array, prepare_init_model( model_cfg( objf ), objf, mop, id, db, ac) )
+    end
+
+    @logmsg loglevel2 "Evaluation of unevaluated results."
+    eval_missing!(db, mop)
+    
     L = 1
     for (i, objf) ∈ enumerate(list_of_objectives(mop))
-        model, meta = init_model( objf, mop, id, ac )
+        meta_dat = meta_array[i]
+        model, meta = _init_model( model_cfg(objf), objf, mop, id, db, ac, meta_dat )
         push!( sw_array, SurrogateWrapper(objf, model, meta) )
 
         for (j, ℓ) in enumerate( output_indices( objf, mop ) )
@@ -83,10 +93,18 @@ function init_surrogates( mop :: AbstractMOP, id :: AbstractIterData, ac :: Abst
 end
 
 function update_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP, 
-    id :: AbstractIterData, ac :: AbstractConfig; ensure_fully_linear :: Bool = false ) :: Nothing 
+    id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; ensure_fully_linear :: Bool = false ) :: Nothing 
     @logmsg loglevel2 "Updating surrogate models."
+
+    meta_array = SurrogateMeta[]
     for (si,sw) ∈ enumerate(sc.surrogates)
-        new_model, new_meta = update_model( sw.model, sw.objf, sw.meta, mop, id, ac; ensure_fully_linear )
+        push!(meta_array, prepare_update_model(sw.model, sw.objf, sw.meta, mop, id, db, ac; ensure_fully_linear ) )
+    end
+    eval_missing!(db, mop)
+
+    for (si,sw) ∈ enumerate(sc.surrogates)
+        meta_dat = meta_array[si]
+        new_model, new_meta = update_model( sw.model, sw.objf, meta_dat, mop, id, db, ac; ensure_fully_linear )
         new_sw = SurrogateWrapper( 
             sw.objf,
             new_model, 
@@ -98,15 +116,23 @@ function update_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP,
 end
 
 function improve_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP, 
-    id :: AbstractIterData, ac :: AbstractConfig; ensure_fully_linear :: Bool = false ) :: Nothing 
+    id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; ensure_fully_linear :: Bool = false ) :: Nothing 
     @logmsg loglevel2 "Improving surrogate models."
+
+    meta_array = SurrogateMeta[]
     for (si,sw) ∈ enumerate(sc.surrogates)
-        new_model, new_meta = improve_model( sw.model, sw.objf, sw.meta, mop, id, ac; ensure_fully_linear )
+        push!(meta_array, prepare_improve_model(sw.model, sw.objf, sw.meta, mop, id, db, ac; ensure_fully_linear ) )
+    end
+    eval_missing!(db, mop)
+
+    for (si,sw) ∈ enumerate(sc.surrogates)
+        meta_dat = meta_array[si]
+        new_model, new_meta = improve_model( sw.model, sw.objf, meta_dat, mop, id, ac; ensure_fully_linear )
         new_sw = SurrogateWrapper( 
             sw.objf,
             new_model, 
             new_meta
-        );
+        )
         sc.surrogates[si] = new_sw
     end
     nothing

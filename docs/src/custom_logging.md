@@ -1,3 +1,7 @@
+```@meta
+EditURL = "<unknown>/src/custom_logging.jl"
+```
+
 # Printing Debug Info
 
 We provide a custom formatter method and define our own log levels.
@@ -15,12 +19,13 @@ Usually, the minimum log level is -1.
 
 We have the following `LogLevel`s and they can be referred to as `Morbit.loglevel1` ect.:
 
-```julia
+````@example custom_logging
 const loglevel1 = LogLevel(-1);
 const loglevel2 = LogLevel(-2);
 const loglevel3 = LogLevel(-3);
 const loglevel4 = LogLevel(-4);
-```
+nothing #hide
+````
 
 The can be made visible by setting one of these levels with a custom logger.
 For example, to see the most detailled messages, do something like this:
@@ -32,14 +37,14 @@ Or use `with_logger(logger) do … end` to leave the global logger unchanged.
 
 For prettier output, we define custom colors and indented prefixes:
 
-```julia
+````@example custom_logging
 const printDict = Dict(
     loglevel1 => (:blue, "Morbit"),
     loglevel2 => (:cyan, "Morbit "),
     loglevel3 => (:green, "Morbit  "),
     loglevel4 => (:green, "Morbit   ")
 )
-```
+````
 
 These are used in the `morbit_formatter`.
 The `morbit_formatter` can be enabled for a logger, such as `Logging.ConsoleLogger`,
@@ -49,23 +54,32 @@ Logging.ConsoleLogger( stderr, Morbit.loglevel4; meta_formatter = morbit_formatt
 ```
 Note, that `morbit_formatter` is exported.
 
-```julia
+````@example custom_logging
 function morbit_formatter(level::LogLevel, _module, group, id, file, line)
     @nospecialize
 	global printDict
     if level in keys(printDict)
         color, prefix = printDict[ level ]
-```
+````
 
 suffix ::String = ""
 
-```julia
+````@example custom_logging
         return color, prefix, ""
     else
         return Logging.default_metafmt( level, _module, group, id, file, line )
     end
 end
-```
+````
+
+## Shorthand Function
+The following (unexported) function sets the global logger to print everything:
+
+````@example custom_logging
+function print_all_logs()
+    Logging.global_logger( Logging.ConsoleLogger( stderr, Morbit.loglevel4; meta_formatter = morbit_formatter ) )
+end
+````
 
 ---
 

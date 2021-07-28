@@ -102,7 +102,7 @@ end
 "A general constructor."
 function _wrap_func( :: Type{<:OutTypeWrapper{T,O}}, fn :: Function, model_cfg :: SurrogateConfig, 
     n_vars :: Int, n_out :: Int ) where {T, O}
-    inner = _wrap_func( O, fn, n_vars, n_out )
+    inner = _wrap_func( O, fn, model_cfg, n_vars, n_out )
     return OutTypeWrapper{T, typeof(inner)}(inner)
 end
 

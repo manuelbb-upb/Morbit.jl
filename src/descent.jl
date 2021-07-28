@@ -1,5 +1,5 @@
 # In this file, methods for the descent step calculation are defined.
-# The method `compute_descent_step` takes all the same arguments as `iterate!`
+# The method `get_criticality` takes all the same arguments as `iterate!`
 # • `mop` to have access to constraint information 
 # • `iter_data` for iteration data (x, fx, …)
 # • `data_base` (just in case, e.g. if some simplex gradients have to be done on the fly)
@@ -7,15 +7,18 @@
 # • `algo_config` to have access to `desc_cfg`, an AbstractDescentConfiguration
 #
 # For the individual descent step methods a method with signature 
-# `compute_descent_step( :: typeof{desc_cfg}, :: AbstractMOP, ::AbstractIterData,
+# `get_criticality( :: typeof{desc_cfg}, :: AbstractMOP, ::AbstractIterData,
 #  ::AbstractDB, sc :: SurrogateContainer )`
 # should be defined, because this is then called internally
 # 
-# Return: a criticality measure, the new trial point (same eltype as x),
+# Return: a criticality measure the new trial point (same eltype as x),
 # the new trial point model values and the steplength (inf-norm)
 
-# TODO `compute_descent_step` is the main method and `get_criticality` was introduced as a Helper
-# it makes more sense, to swap their roles and make `compute_descent_step` call `get_criticality` and then proceed.
+# method to only compute criticality
+function get_criticality( mop :: AbstractMOP, iter_data :: AbstractIterData, 
+    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
+    return get_criticality( descent_method( algo_config ), mop, iter_data, data_base, sc, algo_config )
+end
 
 # methods to compute a local descent step
 function compute_descent_step( mop :: AbstractMOP, iter_data :: AbstractIterData, 
@@ -23,20 +26,10 @@ function compute_descent_step( mop :: AbstractMOP, iter_data :: AbstractIterData
     return compute_descent_step( descent_method( algo_config ), mop, iter_data, data_base, sc, algo_config, args... )
 end
 
-# methods to only compute criticality …
-function get_criticality( mop :: AbstractMOP, iter_data :: AbstractIterData, 
-    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
-    return get_criticality( descent_method( algo_config ), mop, iter_data, data_base, sc, algo_config )
-end
-
-function get_criticality( args... )
-    ω, data = compute_descent_step( args ... )
-    return ω, data 
-end
-
-# … and then to re-use data in step calculation
+# fallback, if `get_criticality` allready does the whole job: simply return `ω` and `data`
 function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, iter_data :: AbstractIterData, 
-    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, data )
+    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
+    ω, data = get_criticality(cfg, mop, iter_data, data_base, sc, algo_config)
     return (ω, data...)
 end
 
@@ -47,7 +40,7 @@ end
     "Require a descent in all model objective components."
     strict_backtracking :: Bool = true 
 
-    armijo_const_rhs :: F = 1e-6
+    armijo_const_rhs :: F = 1e-3
     armijo_const_shrink :: F = .5 
 
     min_stepsize :: F = eps(F)
@@ -83,7 +76,7 @@ function _steepest_descent_direction( x :: AbstractVector{F}, ∇F :: Mat, lb ::
 end
 
 function _armijo_condition( strict :: Val{true}, Fx, Fx₊, step_size, ω, const_rhs  )
-    return minimum(Fx .- Fx₊) >= step_size * const_rhs * ω
+    return all( (Fx .- Fx₊) .>= step_size * const_rhs * ω )
 end
 
 function _armijo_condition( strict :: Val{false}, Fx, Fx₊, step_size, ω, const_rhs  )
@@ -127,7 +120,7 @@ end
 
 function get_criticality( desc_cfg :: SteepestDescentConfig , mop, iter_data, data_base, sc, algo_config )
 
-    @logmsg loglevel3 "Calculating steepest descent criticality."
+    @logmsg loglevel3 "Calculating steepest descent direction."
 
     x = get_x( iter_data )
     ∇m = get_jacobian(sc, x)
@@ -140,7 +133,7 @@ function get_criticality( desc_cfg :: SteepestDescentConfig , mop, iter_data, da
 end
 
 function compute_descent_step( desc_cfg :: SteepestDescentConfig , mop, iter_data, data_base, sc, algo_config, ω, d )
-    @logmsg loglevel4 "Calculating steepest descent."
+    @logmsg loglevel4 "Calculating steepest stepsize."
 
     x = get_x( iter_data )
     Δ = get_Δ( iter_data )
@@ -240,7 +233,7 @@ function _local_ideal_point( x :: AbstractVector{F}, lb, ub, optim_handles, max_
 end
 
 
-function compute_descent_step( desc_cfg :: PascolettiSerafiniConfig, mop, iter_data, data_base, sc, algo_config )
+function get_criticality( desc_cfg :: PascolettiSerafiniConfig, mop, iter_data, data_base, sc, algo_config )
     
     @logmsg loglevel3 "Calculating Pascoletti-Serafini descent."
     x = get_x( iter_data )
@@ -467,24 +460,24 @@ TODO Re-enable Directed Search
 
 ####### Symbol values as quick configuration 
 
+function _cfg_from_symbol( desc_cfg :: Symbol, F :: Type )
+    if desc_cfg == :steepest || desc_cfg == :sd || desc_cfg == :steepest_descent
+        return SteepestDescentConfig{F}()
+    elseif desc_cfg == :ps || desc_cfg == :pascoletti_serafini 
+        return PascolettiSerafiniConfig()
+    end
+end
+
 # DefaultDescent -> Fallback to SteepestDescent
 function compute_descent_step( desc_cfg :: Symbol, mop, iter_data, data_base, sc, algo_config, args... )
-    
-    if desc_cfg == :steepest || desc_cfg == :sd || desc_cfg == :steepest_descent
-        true_cfg = SteepestDescentConfig{eltype(get_x(iter_data))}()
-    elseif desc_cfg == :ps || desc_cfg == :pascoletti_serafini 
-        true_cfg = PascolettiSerafiniConfig()
-    end
+    F = eltype(get_x(iter_data))
+    true_cfg = _cfg_from_symbol( desc_cfg, F )
     return compute_descent_step( true_cfg, mop, iter_data, data_base, sc, algo_config, args... )
 end
 
 # DefaultDescent -> Fallback to SteepestDescent
 function get_criticality( desc_cfg :: Symbol, mop, iter_data, data_base, sc, algo_config, args... )
-    
-    if desc_cfg == :steepest || desc_cfg == :sd || desc_cfg == :steepest_descent
-        true_cfg = SteepestDescentConfig{eltype(get_x(iter_data))}()
-    elseif desc_cfg == :ps || desc_cfg == :pascoletti_serafini 
-        true_cfg = PascolettiSerafiniConfig()
-    end
+    F = eltype(get_x(iter_data))
+    true_cfg = _cfg_from_symbol( desc_cfg, F )
     return get_criticality( true_cfg, mop, iter_data, data_base, sc, algo_config, args... )
 end

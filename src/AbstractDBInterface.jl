@@ -15,7 +15,7 @@ is_transformed( :: AbstractDB ) :: Bool = false
 set_transformed!( :: AbstractDB, :: Bool ) :: Nothing = nothing
 
 "List of all `id :: Int` belonging to the stored results."
-Base.eachindex( db :: AbstractDB ) :: Vector{Int} = Base.eachindex( get_sites(db) )
+Base.eachindex( db :: AbstractDB ) ::Vector{Int} = Int[]
 
 "Get result with `id` from database `db`."
 (get_result( db :: AbstractDB{F}, id :: Int ) :: AbstractResult ) where F = NoRes{F}()
@@ -46,6 +46,14 @@ function get_values( db :: AbstractDB  )
 	return [ get_value( get_result( db, id ) ) for id = eachindex( db ) ]
 end
 
+function set_site!(db, id, x) :: Nothing
+    set_site!( get_result(db,id), x )
+end
+
+function set_value!(db, id, y) :: Nothing
+    set_value!( get_result(db,id), y )
+end
+
 function find_result( db :: AbstractDB, x :: Vec, y :: Vec  ) :: Int
     for id ∈ eachindex(db)
         if get_site( db, id ) == x && get_value( db, id ) == y
@@ -61,6 +69,29 @@ function ensure_contains_values!( db :: AbstractDB, x :: Vec, y :: Vec ) :: Int
         x_pos = new_result!(db, x, y);
     end
     return x_pos
+end
+
+# this should be overwritten to make it more efficient. 
+# E.g., `new_result!` can store indices of results where `y` is empty
+function eval_missing!( db :: AbstractDB{F}, mop :: AbstractMOP ) :: Nothing where F
+    missing_ids = Int[]
+    for id = eachindex(db)
+        res = get_result( db, id )
+        if !has_valid_value(res)
+            push!(missing_ids, id)
+        end
+    end
+
+    # evaluate everything in one go to exploit parallelism
+    eval_sites = [ get_site( db, id ) for id in missing_ids ]
+    eval_values = eval_and_sort_objectives.(mop, eval_sites)
+
+    @assert length(eval_sites) == length(eval_values) == length(missing_ids) "Number of evaluation results does not match."
+    for (i,id) in enumerate(missing_ids)
+        set_value!( db, id, eval_values[i] )
+    end
+    
+    return nothing
 end
 
 # NOTE the modifying methods require the `get_site` and `get_value`
