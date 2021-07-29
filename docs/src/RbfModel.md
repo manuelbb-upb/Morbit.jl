@@ -36,7 +36,7 @@ function results_in_box_indices(db, lb, ub, exclude_indices = Int[] )
 end
 ````
 
-## Surrogate Interface implementations
+## Surrogate Interface Implementations
 
 The model used in our algorithm simply wraps an interpolation model from the `RBF` package.
 
@@ -67,6 +67,7 @@ that defines a calculation on `Δ`, e.g, "Δ/10".
 Note, that `shape_parameter` has a different meaning for the different kernels.
 For ``:gaussian, :inv_multiquadric, :multiquadric` it actually is a floating point shape_parameter.
 For :cubic it is the (odd) integer exponent and for `thin_plate_spline` it is an integer exponent as well.
+Use `NaN` for defaults.
 
 To see other configuration parameters use `fieldnames(Morbit.RbfConfig)`.
 They have individual docstrings attached.
@@ -76,7 +77,7 @@ They have individual docstrings attached.
     kernel :: Symbol = :cubic
 
 	"(default `1`) RBF shape paremeter, either a number or a string containing `Δ`."
-    shape_parameter :: Union{String, Float64} = 1
+    shape_parameter :: Union{String, Float64} = NaN
 
 	"(default `1`) Degree of polynomial attached to RBF. `-1` means no polynomial."
     polynomial_degree :: Int64 = 1;
@@ -113,9 +114,9 @@ They have individual docstrings attached.
     @assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
     @assert kernel ∈ Symbol.(["exp", "inv_multiquadric", "multiquadric", "cubic", "thin_plate_spline"]) "Kernel '$kernel' not supported yet."
 	# Some sanity checks for the shape parameters
-    @assert kernel != :thin_plate_spline || ( shape_parameter % 1 == 0 && shape_parameter >= 1 ) "Invalid shape_parameter for :thin_plate_spline."
-	@assert kernel != :cubic || ( shape_parameter % 1 == 0 && shape_parameter % 2 == 1 ) "Invalid shape_parameter for :cubic."
-	@assert shape_parameter > 0 "Shape parameter must be strictly positive."
+    @assert kernel != :thin_plate_spline || ( isnan(shape_parameter) || shape_parameter % 1 == 0 && shape_parameter >= 1 ) "Invalid shape_parameter for :thin_plate_spline."
+	@assert kernel != :cubic || ( isnan(shape_parameter) || shape_parameter % 1 == 0 && shape_parameter % 2 == 1 ) "Invalid shape_parameter for :cubic."
+	@assert isnan(shape_parameter) || shape_parameter > 0 "Shape parameter must be strictly positive."
     # @assert θ_enlarge_1 >=1 && θ_enlarge_2 >=1 "θ's must be >= 1."
 end
 ````
@@ -156,7 +157,7 @@ of (potentially unevaluated) results that are later used for fitting the model.
     round3_indices :: Vector{Int} = []
     round4_indices :: Vector{Int} = []
     fully_linear :: Bool = false
-	improving_directions :: Vector{F} = []
+	improving_directions :: Vector{Vector{F}} = []
 end
 ````
 
@@ -172,6 +173,8 @@ function _collect_indices( meta :: RbfMeta; include_x = true ) :: Vector{Int}
 		meta.round4_indices
 	]
 end
+
+export RbfConfig, RbfMeta, RbfModel
 ````
 
 ## Construction
@@ -182,7 +185,7 @@ We delegate the work to `prepare_update_model`.
 
 ````julia
 function prepare_init_model( cfg :: RbfConfig, objf :: AbstractObjective, mop :: AbstractMOP,
-	id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig)
+	id :: AbstractIterData{F}, db :: AbstractDB, ac :: AbstractConfig) where F<:AbstractFloat
 
 	meta = RbfMeta{F}(; center_index = get_x_index( id ) )
 	return prepare_update_model(nothing, objf, meta, mop, id, db, ac; ensure_fully_linear = true)
@@ -194,6 +197,7 @@ Because of the trick from above, we actually allow `nothing`, too.
 
 ````julia
 function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: RbfMeta, mop, iter_data, db, algo_config; ensure_fully_linear = false)
+	@logmsg loglevel2 "Trying to find results for fitting an RBF model."
 
 	# Retrieve current iteration information and some meta data.
 	Δ = get_Δ(iter_data)
@@ -213,6 +217,8 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: Rb
 	Δ_1 = F.(cfg.θ_enlarge_1 * Δ)
 	lb_1, ub_1 = local_bounds( mop, x, Δ_1 )
 	piv_val_1 = F.(cfg.θ_pivot * Δ_1) # threshold value for acceptance in filter
+
+	@logmsg loglevel3 "Round1: Inspect box with radius $(Δ_1) and pivot value $(piv_val_1)."
 
 	### only consider points from within current trust region …
 	candidate_indices_1 = results_in_box_indices( db, lb_1, ub_1, [x_index],)
@@ -236,6 +242,8 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: Rb
 	n_missing = n_vars - length( filtered_indices_1 )
 
 	if n_missing == 0 || ensure_fully_linear
+		@logmsg loglevel3 "Found enough sites already. No round 2."
+
 		### (if `ensure_fully_linear == True`, we skip this step and go to round 3)
 		fully_linear = true
 		filter_2 = filter
@@ -245,6 +253,9 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: Rb
 		Δ_2 = F.(cfg.θ_enlarge_2 * Δ_max )
 		lb_2, ub_2 = local_bounds( mop, x, Δ_2 )
 		piv_val_2 = piv_val_1 # the pivot value stays the same
+
+		@logmsg loglevel3 "Missing $(n_missing) sites still."
+		@logmsg loglevel3 "Round2: Inspect box with radius $(Δ_2) and pivot value $(piv_val_1)."
 
 		### as before, only consider points in box of radius `Δ_2`, but ignore `x` and the previous points
 		candidate_indices_2 = results_in_box_indices( db, lb_2, ub_2, [x_index; candidate_indices_1])
@@ -275,6 +286,8 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: Rb
 	n_missing -= length(meta.round2_indices)
 	if n_missing > 0
 
+		@logmsg loglevel3 "Round3: Still missing $(n_missing). Sampling in box of radius $(Δ_1)."
+
 		### take into consideration the maximum number of evaluations allowed.
 		max_new = min( max_evals(algo_config), max_evals(cfg) ) - 1 - num_evals( objf )
 		n_new = min(n_missing, max_new)
@@ -282,7 +295,7 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: Rb
 		new_indices = Int[]
 		while !isempty(meta.improving_directions) && length( new_indices ) < n_new
 			dir = popfirst!( meta.improving_directions )
-			len = intersect_bounds( x, dir, lb_1, ub_2; return_vals = :absmax )
+			len = intersect_bounds( x, dir, lb_1, ub_1; return_vals = :absmax )
 			offset = len .* dir
 			if norm( offset, Inf ) > piv_val_1
 				new_id = new_result!( db, x .+ offset, F[] )
@@ -300,6 +313,7 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: Rb
 	end
 
 
+	meta.fully_linear = fully_linear
 	return meta
 end
 ````
@@ -352,6 +366,8 @@ Note, that sanity check are performed in the RbfConfig constructor.
 
 ````julia
 function _get_kernel_params( sp, kernel_name :: Symbol )
+	isnan(sp) && return nothing
+
 	if kernel_name == :gaussian
 		return sp
 	elseif kernel_name == :inv_multiquadric
@@ -368,7 +384,7 @@ function _get_kernel_params( sp, kernel_name :: Symbol )
 end
 
 function update_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, meta :: RbfMeta,
-	mop :: AbstractMOP, id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; kwargs... )
+	mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; kwargs... )
 
 	Δ = get_Δ(iter_data)
 	cfg = model_cfg(objf)
@@ -382,16 +398,16 @@ function update_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, m
 	else
 		F(cfg.shape_parameter)
 	end
-	kernel_params = _get_kernel_params( sp, cfg.kernel_name )
+	kernel_params = _get_kernel_params( sp, cfg.kernel )
 
 	# get the training data from `meta` and the database `db`
 	training_indices = _collect_indices( meta )
-	training_results = get_results( db, training_indices )
+	training_results = get_result.( db, training_indices )
 	training_sites = get_site.( training_results )
 	oi = output_indices( objf, mop)	# only consider the objective output indices
-	training_values = [ v[oi] for v in get_value.( traning_results ) ]
+	training_values = [ v[oi] for v in get_value.( training_results ) ]
 
-	inner_model = RBF.RBFInterpolationModel( training_sites, training_values, cfg.kernel_name, kernel_params )
+	inner_model = RBF.RBFInterpolationModel( training_sites, training_values, cfg.kernel, kernel_params )
 
 	return RbfModel( inner_model, meta.fully_linear ), meta
 

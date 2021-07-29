@@ -58,7 +58,7 @@ combinable( ::Type{<:AbstractObjective}, ::Type{<:AbstractObjective} ) = false;
 function combinable( objf1 :: T, objf2 :: F ) where {T<:AbstractObjective, F<:AbstractObjective}
     return ( combinable( T,F ) && 
         combinable( objf1 ) && combinable( objf2 ) && 
-        model_cfg( objf1 ) == model_cfg( objf2 )
+        isequal(model_cfg( objf1 ), model_cfg( objf2 ))
     )
 end
 

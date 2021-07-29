@@ -55,7 +55,7 @@ end
 @doc "Return an ExactModel build from a VectorObjectiveFunction `objf`. 
 Model is the same inside and outside of criticality round."
 function _init_model(cfg ::ExactConfig, objf :: AbstractObjective, 
-    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig, emeta :: ExactMeta)
+    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig, emeta :: ExactMeta; kwargs...)
     tfn = TransformerFn(mop)
     diff_fn = get_DiffFn( cfg, objf, tfn )
     em = ExactModel(tfn, objf, diff_fn )
@@ -64,18 +64,18 @@ end
 
 function update_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
     ::AbstractMOP, :: AbstractIterData, ::AbstractDB, :: AbstractConfig; 
-    ensure_fully_linear :: Bool = false )
+    ensure_fully_linear :: Bool = false, kwargs... )
     return em, meta
 end
 
 function improve_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
     ::AbstractMOP, :: AbstractIterData, ::AbstractDB, :: AbstractConfig; 
-    ensure_fully_linear :: Bool = false )
+    ensure_fully_linear :: Bool = false, kwargs ... )
     return em, meta
 end
 
 function prepare_init_model(cfg ::ExactConfig, objf :: AbstractObjective, 
-    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig)
+    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig; kwargs...)
     return ExactMeta()
 end
 

@@ -78,6 +78,13 @@ begin
 	end
 end
 
+# ╔═╡ fdcf00a4-836e-4404-ba1c-6058ae85d9ce
+md"We could already define a finite difference function using a `FiniteDiffStamp`:"
+
+# ╔═╡ 07e698bb-fac0-4951-85dc-5adb208cf5dd
+md"Of course, some concrete implementations are still missing. 
+We provide some entries from the table in [Wikipedia](https://en.wikipedia.org/wiki/Finite_difference_coefficient)."
+
 # ╔═╡ 9462b310-0842-4373-ac2c-f2eaef5e6e7f
 begin
 	stepsize( x :: F ) where F <: AbstractFloat = 10 * sqrt(eps(F))
@@ -85,10 +92,6 @@ begin
 	stepsize( x :: AbstractVector{F} ) where F<:AbstractFloat = stepsize(F)
 	stepsize( x ) = stepsize(Float64)
 end
-
-# ╔═╡ 07e698bb-fac0-4951-85dc-5adb208cf5dd
-md"Of course, some concrete implementations are still missing. 
-We provide some entries from the table is [Wikipedia](https://en.wikipedia.org/wiki/Finite_difference_coefficient)."
 
 # ╔═╡ c19325b6-7516-4acf-a5f1-fe7084bc113d
 begin
@@ -225,15 +228,6 @@ begin
 
 end
 
-# ╔═╡ 7c091ff3-7d34-4ad8-b959-fe601397f091
-begin
-	vec_typex( x :: AbstractVector{Y}, stamp ) where Y = Vector{ Base.promote_op( +, Y, typeof(_stepsize(stamp))) }
-	vec_typef( fx :: AbstractVector{Y}, stamp ) where Y = Vector{ Base.promote_op( *, Y, typeof(_coeff(stamp)[1])) }
-end
-
-# ╔═╡ fdcf00a4-836e-4404-ba1c-6058ae85d9ce
-md"We could already define a finite difference function using a `FiniteDiffStamp`:"
-
 # ╔═╡ aeac724f-b87a-4f37-aa57-893d1d131f6d
 "Evaluate all outputs of `f` with respect to ``x_i``." 
 function dx(stamp :: FiniteDiffStamp, f :: Function, x0 :: RVec, i = 1)
@@ -242,6 +236,9 @@ function dx(stamp :: FiniteDiffStamp, f :: Function, x0 :: RVec, i = 1)
 	evals = f.(grid)
 	return stamp( evals )
 end
+
+# ╔═╡ a5e02956-c0f9-44a6-80da-abfb497bcfb9
+md"Does it work?"
 
 # ╔═╡ 09d78bbc-f568-459a-8bd0-05de84b04af2
 begin
@@ -266,9 +263,9 @@ For simplicity, first consider ``k=1`` (the single output case).
 * For forming ``∂_1 ∂_1 f(x_0)`` we would instead need values approximating ``∂_1 f(ξ_1^1),…, ∂_1 f(ξ_m^1)``. 
   Using the same rule to approximate the first order partial derivatives requires function evaluations at sites ``ξ_{1,1}^1, …, ξ_{1,m}^1, ξ_{2,1}^1, …, ξ_{m,m}^1`` resulting from applying ``G_f`` to each of ``ξ_i^1``.
 
-This process can be recursed infinitily. 
+This process can be recursed infinitely. 
 To actually compute the desired derivative approximation we would first have to construct the evaluation sites ``ξ_I^J``. 
-We can think of a tree-like structure, with a root node containing ``x_0`` where add for each derivative order child nodes by applying ``G_f`` to the previous leaves. \
+We can think of a tree-like structure, with a root node containing ``x_0`` where we add -- for each derivative order -- child nodes by applying ``G_f`` to the previous leaves. \
 The tree is hence build from top to bottom but for evaluation we start at the leaves and resolve the lowest order derivative approximations first. 
 In a sense, this is a dynamic programming approach.
 """
@@ -318,9 +315,6 @@ md"""The tree is build recursively from the top down by calling the `build_tree`
 # ╔═╡ 1db29942-3ff0-49e8-b5c6-2480eadd608f
 md"`build_tree` is called in default the `DiffWrapper` constructor to store the `tree` (out of `FDiffNode`s) for the derivative `order` stored within the container. 
 A `DiffWrapper` also stores the base point `x0` and the finite difference rule `stamp`.
-
-!!! note
-    A `DiffWrapper` should be initialized with the right (floating point) vector types for `x0` and `fx0`. If `fx0` is not known, but the precision, use something like `fx0 = Float32[]`.
 "
 
 # ╔═╡ af650705-0636-4728-a643-ab658d362290
@@ -332,6 +326,18 @@ begin
 	
 	_get_vars( x :: AbstractVector ) = _get_vars(length(x))
 end
+
+# ╔═╡ 7c091ff3-7d34-4ad8-b959-fe601397f091
+begin
+	vec_typex( x :: AbstractVector{Y}, stamp ) where Y = Vector{ Base.promote_op( +, Y, typeof(_stepsize(stamp))) }
+	vec_typef( fx :: AbstractVector{Y}, stamp ) where Y = Vector{ Base.promote_op( *, Y, typeof(_coeff(stamp)[1])) }
+end
+
+# ╔═╡ 59211507-8901-4f4c-b2ab-c5d4fb950bf1
+md"""
+!!! note
+    A `DiffWrapper` should be initialized with the right (floating point) vector types for `x0` and `fx0`. If `fx0` is not known, but the precision, use something like `fx0 = Float32[]`.
+"""
 
 # ╔═╡ eb61f081-bd96-4a25-b2ba-9a3bc9e87934
 md"We exploit the meta data stored to forward the `val` method.
@@ -351,6 +357,9 @@ md"""
 md"From this, it is easy to define convenience functions for hessians and gradients.
 For second order `DiffWrapper`s we can also make use of the fact, that each derivative rule has a grid point with index `zi` where ``x_0`` is not varied.
 That means, we can collect the gradient from the leaves with the parent node of index `zi` (relative to the root)."
+
+# ╔═╡ 5dd33903-f4a4-455c-8348-c3c98e5f6404
+md"Does it work?"
 
 # ╔═╡ 8ad29cb3-9bb5-48d6-b0a6-ceb46e30293e
 md"""
@@ -395,6 +404,9 @@ end
 
 # ╔═╡ d41308c0-b7f1-4ed9-b27e-7c6fe87080e6
 md"---"
+
+# ╔═╡ f294835d-ee9a-42b1-b2b7-5816d65e0f18
+md"`ingredients` thanks to [fonsp](https://github.com/fonsp/Pluto.jl/issues/115)"
 
 # ╔═╡ e9af48fd-ac05-4358-8a33-c14008ca1cb9
 function ingredients(path::String)
@@ -1232,14 +1244,14 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╟─10b9b062-450e-43a2-9c7a-2fe6c7121ab7
 # ╟─bd83fc2a-d7bd-489e-83f3-ef5b327d5cca
 # ╠═a7d81ac5-0124-441a-8eae-f83cee2b81c3
-# ╠═9462b310-0842-4373-ac2c-f2eaef5e6e7f
-# ╠═7c091ff3-7d34-4ad8-b959-fe601397f091
+# ╟─fdcf00a4-836e-4404-ba1c-6058ae85d9ce
+# ╠═aeac724f-b87a-4f37-aa57-893d1d131f6d
 # ╟─07e698bb-fac0-4951-85dc-5adb208cf5dd
+# ╠═9462b310-0842-4373-ac2c-f2eaef5e6e7f
 # ╠═c19325b6-7516-4acf-a5f1-fe7084bc113d
 # ╠═2426f92a-21f3-4455-aeb7-fe6674aafe02
 # ╠═4ebb80a7-539d-49a0-981f-166f0bbf3964
-# ╟─fdcf00a4-836e-4404-ba1c-6058ae85d9ce
-# ╠═aeac724f-b87a-4f37-aa57-893d1d131f6d
+# ╟─a5e02956-c0f9-44a6-80da-abfb497bcfb9
 # ╠═09d78bbc-f568-459a-8bd0-05de84b04af2
 # ╟─04861d1b-38d9-4ba7-9fde-b10150f39280
 # ╟─20907685-2bb6-49d5-9ff0-a175435fa591
@@ -1257,7 +1269,9 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╠═17347e0e-08ee-4a29-83b3-f337e397f49b
 # ╟─1db29942-3ff0-49e8-b5c6-2480eadd608f
 # ╠═af650705-0636-4728-a643-ab658d362290
+# ╠═7c091ff3-7d34-4ad8-b959-fe601397f091
 # ╠═a09ab593-8efd-4799-8f0f-aa2ceb1e135d
+# ╟─59211507-8901-4f4c-b2ab-c5d4fb950bf1
 # ╟─eb61f081-bd96-4a25-b2ba-9a3bc9e87934
 # ╠═5253756b-1a03-4d8f-854a-b03c5f396dc9
 # ╟─f77f8375-5b8f-4a3e-b571-28ebccb204c4
@@ -1267,6 +1281,7 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╠═2f50ce22-7a20-4b24-ac57-5f3c3918079e
 # ╠═98051445-7ffd-4a92-af38-07507efab445
 # ╠═634067d4-15db-4aa5-8b5a-b0794ee88a39
+# ╟─5dd33903-f4a4-455c-8348-c3c98e5f6404
 # ╠═e0154be3-4c57-4ab9-9218-13ab3a4f44b4
 # ╠═90b565b5-0826-4674-836a-376430823cc5
 # ╟─8ad29cb3-9bb5-48d6-b0a6-ceb46e30293e
@@ -1286,6 +1301,7 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╠═8a1443d4-0beb-4f78-8ab4-ed47adf45e8c
 # ╟─d41308c0-b7f1-4ed9-b27e-7c6fe87080e6
 # ╠═6c6e63ae-28ce-4c1c-bb60-7e7826ffefbb
+# ╟─f294835d-ee9a-42b1-b2b7-5816d65e0f18
 # ╟─e9af48fd-ac05-4358-8a33-c14008ca1cb9
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

@@ -17,7 +17,7 @@ combinable( :: SurrogateConfig ) = false :: Bool
 
 ## TODO: make `prepare_init_model` and `_init_model` have a `ensure_fully_linear` kwarg too
 function prepare_init_model( ::SurrogateConfig, :: AbstractObjective, :: AbstractMOP, 
-    :: AbstractIterData, ::AbstractDB, :: AbstractConfig ) :: SurrogateMeta 
+    :: AbstractIterData, ::AbstractDB, :: AbstractConfig; kwargs... ) :: SurrogateMeta 
     nothing
 end
 

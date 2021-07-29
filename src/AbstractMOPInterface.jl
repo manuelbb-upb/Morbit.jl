@@ -271,8 +271,8 @@ function Broadcast.broadcasted(::typeof(eval_all_objectives), mop :: AbstractMOP
         return Vec[]
     else
         X_unscaled = unscale.(X,mop)
-        all_vec_objfs = list_of_objectives(mop);
-        b_res = Vector{VecVec}(undef, length(all_vec_objfs));
+        all_vec_objfs = list_of_objectives(mop)
+        b_res = Vector{VecVec}(undef, length(all_vec_objfs))
         for (i,objf) ∈ enumerate(all_vec_objfs)
             b_res[i] = eval_objf.(objf, X_unscaled)
         end

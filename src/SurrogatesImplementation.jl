@@ -67,7 +67,7 @@ function init_surrogates( mop :: AbstractMOP, id :: AbstractIterData, db :: Abst
     meta_array = SurrogateMeta[]
 
     for objf ∈ list_of_objectives(mop)
-        push!( meta_array, prepare_init_model( model_cfg( objf ), objf, mop, id, db, ac) )
+        push!( meta_array, prepare_init_model( model_cfg( objf ), objf, mop, id, db, ac; meta_array ))
     end
 
     @logmsg loglevel2 "Evaluation of unevaluated results."
@@ -98,7 +98,7 @@ function update_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP,
 
     meta_array = SurrogateMeta[]
     for (si,sw) ∈ enumerate(sc.surrogates)
-        push!(meta_array, prepare_update_model(sw.model, sw.objf, sw.meta, mop, id, db, ac; ensure_fully_linear ) )
+        push!(meta_array, prepare_update_model(sw.model, sw.objf, sw.meta, mop, id, db, ac; ensure_fully_linear, meta_array ) )
     end
     eval_missing!(db, mop)
 

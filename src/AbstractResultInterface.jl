@@ -36,4 +36,5 @@ function has_valid_value( r :: AbstractResult )
 	value = get_value(r)
 	isempty(value) && return false 
 	any( isnan.(value) ) && return false
+	return true
 end
