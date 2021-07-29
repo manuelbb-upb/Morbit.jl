@@ -1,6 +1,7 @@
 
 module Morbit
-using Base: _shrink, AbstractFloat
+
+using Base: is_exported_from_stdlib
 using Printf: @sprintf
 
 # steepest descent and directed search
@@ -108,7 +109,13 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float32[];
 	if num_objectives(mop) == 0
 		error("`mop` has no objectives!")
 	end
-			
+	
+	@logmsg loglevel1 """\n
+    |--------------------------------------------
+    | Initialization
+    |--------------------------------------------
+	"""	
+	
 	@warn "The evaluation counter of `mop` is reset."
 	reset_evals!( mop )
 	# initialize first iteration site
@@ -231,7 +238,6 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
             update_surrogates!( sc, mop, iter_data, data_base, algo_config; ensure_fully_linear = false );
         end
     end
-	nothing 
 
 	# TODO: if problem is constrained by functions:
 	# do "normal step here"
@@ -305,14 +311,13 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
     end
 
 	mx = eval_models(sc, x)
-	fx₊ = eval_and_sort_objectives(mop, x₊)
+	fx₊ = eval_all_objectives(mop, x₊)
 	
 	if strict_acceptance_test( algo_config )
 		_ρ = minimum( (fx .- fx₊) ./ (mx .- mx₊) )
 	else
 		_ρ = (maximum(fx) - maximum( fx₊ ))/(maximum(mx) - maximum(mx₊))
 	end
-	@show _ρ
 	ρ = isnan(_ρ) ? -Inf : _ρ
 	
 	@logmsg loglevel2 """\n
