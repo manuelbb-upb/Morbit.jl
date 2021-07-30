@@ -1,7 +1,6 @@
 
 module Morbit
 
-using Base: is_exported_from_stdlib
 using Printf: @sprintf
 
 # steepest descent and directed search

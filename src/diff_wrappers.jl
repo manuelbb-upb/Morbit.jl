@@ -121,13 +121,17 @@ function get_hessian( hw :: HessWrapper, x̂ :: Vec, ℓ :: Int = 1)
     return Jtfn'hw.list_of_hess_fns[ℓ](hw.tfn(x̂))*Jtfn;
 end
 
-struct HessFromGrads{GW <: GradWrapper} <: DiffFn 
+struct HessFromGrads{GW <: Union{AbstractVector{<:Function},GradWrapper}} <: DiffFn 
     gw :: GW
     method :: Symbol
 end
 
+function _get_grad_func( gw :: AbstractVector{<:Function}, ℓ :: Int )
+    return gw[ℓ] 
+end
+
 #@memoize ThreadSafeDict 
-function _get_grad_func( gw :: GradWrapper, ℓ :: Int) :: Function
+function _get_grad_func( gw :: GradWrapper, ℓ :: Int) 
     return x -> _get_gradient( gw, x, ℓ)
 end
 

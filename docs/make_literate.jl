@@ -74,12 +74,14 @@ make_notebook_md( joinpath( example_dir, "notebook_finite_differences.jl" ) )
 Literate.markdown(
     joinpath( example_dir, "example_two_parabolas.jl"), 
     joinpath( @__DIR__, "src" );    
-    preprocess = replace_comments
+    preprocess = replace_comments,
+    codefence = "````julia" => "````",  # disables execution; REMOVE when it works again
     )
 
 Literate.markdown(
     joinpath( example_dir, "example_zdt.jl"), 
-    joinpath( @__DIR__, "src" );    
+    joinpath( @__DIR__, "src" );   
+    codefence = "````julia" => "````", # disables execution; REMOVE when it works again
     preprocess = replace_comments
     )
 
@@ -94,6 +96,7 @@ Literate.markdown(
 #%%
 Literate.markdown(
     joinpath( src_dir, "custom_logging.jl"), 
-    joinpath( @__DIR__, "src" );    
+    joinpath( @__DIR__, "src" );  
+    codefence = "````julia" => "````",
 )
 Pkg.activate(current_env)

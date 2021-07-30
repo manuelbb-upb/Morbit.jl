@@ -33,7 +33,7 @@ x_1 +1 \\ x_2 + 1 \end{bmatrix}, \;
 
 We can provide them to the solver to find a critical point:
 
-````@example example_two_parabolas
+````julia
 import Logging #src
 
 
@@ -73,7 +73,7 @@ Hopefully, `x` is critical, i.e., `x[1] ≈ x[2]`.
 ### Plotting Iteration Sites
 We can retrieve iteration data from `id` and the database `Morbit.db(id)`
 
-````@example example_two_parabolas
+````julia
 db = Morbit.db(id);
 nothing #hide
 ````
@@ -81,14 +81,14 @@ nothing #hide
 Let's retrieve the iteration sites.
 We convert to Tuples for easier plotting.
 
-````@example example_two_parabolas
+````julia
 it_sites = Tuple.(Morbit.get_iterate_sites(db));
 nothing #hide
 ````
 
 For Plotting we use CairoMakie
 
-````@example example_two_parabolas
+````julia
 using CairoMakie
 
 #  Pareto Set ≙ line from (-1,-1) to (1,1)
@@ -125,7 +125,7 @@ also take some time to evaluate.
 In this situation, we could try to model them using surrogate models.
 To use radial basis function models, pass an `RbfConfig` when specifying the objective:
 
-````@example example_two_parabolas
+````julia
 mop_rbf = MixedMOP()
 
 #  Define the RBF surrogates
@@ -150,7 +150,7 @@ nothing #hide
 
 The iteration sites are the orange circles:
 
-````@example example_two_parabolas
+````julia
 fig #hide
 ````
 
@@ -159,7 +159,7 @@ fig #hide
 The method could converge to different points depending on the starting point.
 We can pass the evaluation data from previous runs to facilitate the construction of surrogate models:
 
-````@example example_two_parabolas
+````julia
 ac = AlgoConfig( max_iter = 10 ); #hide
 mop_rbf = MixedMOP(); #hide
 #  define the RBF surogates #hide
@@ -203,7 +203,7 @@ end
 
 Plotting:
 
-````@example example_two_parabolas
+````julia
 fig, ax, _ = lines( [(-1,-1),(1,1)]; color = :blue, linewidth = 2,
     figure = (resolution = (600, 600), ),
     axis = (title="Different Starting Points",),

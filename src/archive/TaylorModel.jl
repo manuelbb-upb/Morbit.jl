@@ -1,90 +1,40 @@
-# # Taylor Polynomial Models 
-#
-# We provide vector valued polynomial Taylor models of degree 1 or 2.
-# They implement the `SurrogateModel` interface.
+# This file defines the required data structures and methods for vector-valued
+# Taylor models.
+# For Differentiation the `diff_wrappers.jl` are needed.
+# Also, abstract types SurrogateConfig, SurrogateModel, SurrogateMeta must be defined.
 
-# We allow the user to either provide gradient and hessian callback handles 
-# or to request finite difference approximations.
-# For using callbacks, we have `TaylorConfigCallbacks`. \
-# There are two ways to use finite differences. The old (not recommended way) is to 
-# use `TaylorConfigFiniteDiff`. This uses `FiniteDiff.jl` and could potentially
-# require more evaluations. \
-# To make use of the new 2-phase construction procedure, use `TaylorConfig` and 
-# set the fields `gradients` and `hessians` to an `RFD.FiniteDiffStamp`.
-# If they use the same stamp (default: `RFD.CFDStamp(1,3) :: CFDStamp{3,Float64}`), 
-# it should be the most efficient, because we get the gradients for free from computing the hessians.
+@with_kw mutable struct TaylorConfig <: SurrogateConfig
+    degree :: Int64 = 1;
 
-include("RecursiveFiniteDifferences.jl")
+    gradients :: Union{Symbol, Nothing, Vector{<:Function}, Function } = :fdm
+    hessians ::  Union{Symbol, Nothing, Vector{<:Function}, Function } = gradients
 
-using .RecursiveFiniteDifferences
-const RFD = RecursiveFiniteDifferences
+    # alternative to specifying individual gradients
+    jacobian :: Union{Symbol, Nothing, Function} = nothing
 
-# Because of all these possibilities, we actually have several 
-# (sub-)implementiations of `SurrogateConfig` for Taylor Models:
-abstract type TaylorCFG <: SurrogateConfig end 
-
-@with_kw struct TaylorConfigCallbacks{
-        G <:Union{Nothing,AbstractVector{<:Function}},
-        J <:Union{Nothing,Function},
-        H <:Union{Nothing,AbstractVector{<:Function}},
-    } <: TaylorCFG
-    
-    degree :: Int64 = 1
-    gradients :: G 
-    jacobian :: J = nothing
-    hessians :: H = nothing 
-
-    max_evals :: Int64 = typemax(Int64)
-
-    @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
-    @assert !(isnothing(gradients) && isnothing(jacobian)) "Provide either `gradients` or `jacobian`."
-    @assert isa( gradients, AbstractVector ) && !isempty( gradients ) || !isnothing(jacobian) "Provide either `gradients` or `jacobian`."
-    @assert !(isnothing(gradients) || isnothing(hessians)) || length(gradients) == length(hessians) "Provide same number of gradients and hessians."
-end
-
-@with_kw struct TaylorConfigFiniteDiff <: TaylorCFG
-    degree :: Int64 = 1
-
-    max_evals :: Int64 = typemax(Int64)
-    
+    max_evals :: Int64 = typemax(Int64);
+    @assert !( ( isa(gradients, Vector) && isempty( gradients ) ) && isnothing(jacobian) ) "Provide either `gradients` or `jacobian`."
+    @assert !( isnothing(gradients) && isnothing(jacobian) ) "Provide either `gradients` or `jacobian`."
     @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
 end
 
-@with_kw struct TalyorConfig{
-        S1 <: RFD.FiniteDiffStamp,
-        S2 <: RFD.FiniteDiffStamp
-    } <: TalyorCFG 
-    
-    degree :: Int64 = 1
+@with_kw mutable struct TaylorModel <: SurrogateModel
+    degree :: Int64 = 2;
+    # reference to mop to have unscaling availabe;
+    mop :: AbstractMOP
+    # reference to objective(s) to evaluate 
+    objf :: AbstractObjective
+    diff_fn :: Union{DiffFn,Nothing} = nothing
+    hess_fn :: Union{HessFromGrads, DiffFn, HessWrapper, Nothing} = nothing
 
-    gradients :: S1 = RFD.CFDStamp(1,3)
-    hessians :: S2 = gradients
-
-    max_evals :: Int64 = typemax(Int64)
-    
-    @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models." 
-end
-
-# The actual model is defined only by the gradient vectors at `x₀` and maybe Hessians.
-@with_kw struct TaylorModel{
-    XT <: AbstractVector{<:Real}, FXT <: AbstractVector{<:Real}, 
-    G <: AbstractVector{<:AbstractVector{<:Real}}, 
-    H <: AbstractVector{<:AbstractMatrix{<:Real}},
-    T <: Union{Nothing,TransformerFn}
-    } <: SurrogateModel
-    
     # expansion point and value 
-    x0 :: XT
-    fx0 :: FXT
-    
+    x0 :: RVec = Real[];
+    fx0 :: RVec = Real[];
     # gradient(s) at x0
-    g :: G
-    H :: H
-
-    tfn :: T = nothing
+    g :: RVecArr = RVec[];
+    H :: Vector{<:RMat} = RMat[];
 end
 
-#=
 struct TaylorMeta <: SurrogateMeta end   # no construction meta data needed
 
 max_evals( cfg :: TaylorConfig ) = cfg.max_evals;
@@ -218,4 +168,3 @@ function get_jacobian( tm :: TaylorModel, x̂ :: RVec )
     return transpose( hcat( grad_list... ) )
 end
 
-=#

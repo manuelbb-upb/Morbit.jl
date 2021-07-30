@@ -19,7 +19,7 @@ Usually, the minimum log level is -1.
 
 We have the following `LogLevel`s and they can be referred to as `Morbit.loglevel1` ect.:
 
-````@example custom_logging
+````julia
 const loglevel1 = LogLevel(-1);
 const loglevel2 = LogLevel(-2);
 const loglevel3 = LogLevel(-3);
@@ -37,7 +37,7 @@ Or use `with_logger(logger) do … end` to leave the global logger unchanged.
 
 For prettier output, we define custom colors and indented prefixes:
 
-````@example custom_logging
+````julia
 const printDict = Dict(
     loglevel1 => (:blue, "Morbit"),
     loglevel2 => (:cyan, "Morbit "),
@@ -54,7 +54,7 @@ Logging.ConsoleLogger( stderr, Morbit.loglevel4; meta_formatter = morbit_formatt
 ```
 Note, that `morbit_formatter` is exported.
 
-````@example custom_logging
+````julia
 function morbit_formatter(level::LogLevel, _module, group, id, file, line)
     @nospecialize
 	global printDict
@@ -64,7 +64,7 @@ function morbit_formatter(level::LogLevel, _module, group, id, file, line)
 
 suffix ::String = ""
 
-````@example custom_logging
+````julia
         return color, prefix, ""
     else
         return Logging.default_metafmt( level, _module, group, id, file, line )
@@ -75,7 +75,7 @@ end
 ## Shorthand Function
 The following (unexported) function sets the global logger to print everything:
 
-````@example custom_logging
+````julia
 function print_all_logs()
     Logging.global_logger( Logging.ConsoleLogger( stderr, Morbit.loglevel4; meta_formatter = morbit_formatter ) )
 end

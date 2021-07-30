@@ -14,21 +14,21 @@ Pkg.develop(url="https://github.com/manuelbb-upb/MultiObjectiveProblems.jl")
 using MultiObjectiveProblems
 ```
 
-````@example example_zdt
+````julia
 using MultiObjectiveProblems; #hide
 nothing #hide
 ````
 
 Import other dependencies:
 
-````@example example_zdt
+````julia
 using CairoMakie
 using Morbit
 ````
 
 Retrieve test problem and define a `MixedMOP`
 
-````@example example_zdt
+````julia
 test_problem = ZDT3(2);
 box = constraints(test_problem);
 
@@ -45,7 +45,7 @@ end
 ## Run
 Run optimization and plot:
 
-````@example example_zdt
+````julia
 I = get_ideal_point(test_problem)
 ac = AlgoConfig(; descent_method = :ps, reference_point = I )
 

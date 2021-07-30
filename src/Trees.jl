@@ -1,3 +1,8 @@
+# This file has an abstract interface for a Tree structure 
+# and some traversal iterators.
+# I wrote it for another project, but use it for the Finite-Difference Taylor models here.
+
+module Trees 
 
 abstract type Node end
 
@@ -236,3 +241,4 @@ begin
 end
 =#
 
+end
