@@ -12,7 +12,9 @@ fully_linear( :: SurrogateModel ) = false :: Bool;
 
 # can objective functions with same configuration types be combined 
 # to a new vector objective?
-combinable( :: SurrogateConfig ) = false :: Bool     
+combinable( :: SurrogateConfig ) = false :: Bool    
+
+# TODO make combinable bi-variate to check for to concrete configs if they are combinable
 
 
 ## TODO: make `prepare_init_model` and `_init_model` have a `ensure_fully_linear` kwarg too

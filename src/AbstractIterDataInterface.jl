@@ -66,7 +66,7 @@ function init_iter_data( :: T, x :: Vec, fx :: Vec, Δ :: NumOrVec ) :: T where 
 	return nothing
 end
 
-saveable_type( :: AbstractIterData ) :: Type{<:AbstractIterSavebale} = nothing
+saveable_type( :: AbstractIterData, sc = nothing ) :: Type{<:AbstractIterSavebale} = nothing
 get_saveable( id :: AbstractIterData{F}; kwargs... ):: AbstractIterSaveable = nothing
 
 #=

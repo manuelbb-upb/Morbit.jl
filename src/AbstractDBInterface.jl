@@ -7,7 +7,7 @@ Broadcast.broadcastable( db :: AbstractDB ) = Ref( db );
 Base.length( db :: AbstractDB ) :: Int = length(get_sites(db)) 
 
 "Constructor for empty database of type `T`."
-init_db( :: Type{<:AbstractDB}, :: Type{<:AbstractFloat}, :: Type{<:AbstractIterSaveable} ) :: AbstractDB = nothing 
+init_db( :: Type{<:AbstractDB}, :: Type{<:AbstractFloat}, :: Union{Type{<:Nothing},Type{<:AbstractIterSaveable}} ) :: AbstractDB = nothing 
 
 "Bool indicating if the database data been transformed."
 is_transformed( :: AbstractDB ) :: Bool = false
@@ -25,7 +25,7 @@ function next_id( db :: AbstractDB ) :: Int
 end
 
 "Add a new result to the database, return its id of type Int."
-function new_result!( db :: AbstractDB, x :: Vec, y :: Vec ) :: Int
+function new_result!( db :: AbstractDB, x :: Vec, y :: Vec, id :: Int = - 1 ) :: Int
     return -1
 end
 
@@ -34,6 +34,7 @@ function stamp!( db :: AbstractDB, ids :: AbstractIterSaveable ) :: Nothing
 end
 
 # Derived methods
+get_precision( :: AbstractDB{F} ) where F = F
 
 get_value( db :: AbstractDB, id :: Int ) = get_value( get_result( db, id ) )
 get_site( db :: AbstractDB, id :: Int ) = get_site( get_result( db, id) )
@@ -142,10 +143,11 @@ function untransform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing
     nothing
 end
 
+#=
 function merge( db1 :: T, db2 :: T ) :: T where{T <: AbstractDB}
 	new_db = T()
 	if is_transformed(db1) == is_transformed(db2)
-		for db in [db1;db2]
+		for db in [ db1, db2 ]
 			for id = Base.eachindex( db )
 				new_result!( new_db, get_site( db, id ), get_value(db, id) )
 			end
@@ -154,4 +156,22 @@ function merge( db1 :: T, db2 :: T ) :: T where{T <: AbstractDB}
 	else
 		error("Cannot merge two databases where only on is (un)transformed.")
 	end
+end
+=#
+
+"Return a new database of same 'base' type but with different saveable type."
+function copy_db( old_db :: DBT, saveable_type :: Type ) where DBT <: AbstractDB 
+    try
+        base_type = @eval $(DBT.name.name)
+        new_db = init_db(base_type, get_precision(old_db), saveable_type )
+        for id = eachindex(old_db)
+            res_id = get_result( old_db, id )
+            new_result!(new_db, get_site(res_id), get_value(res_id) )
+        end
+        @logmsg loglevel2 "Copied database with new saveable type."
+        return new_db
+    catch
+        @logmsg loglevel2 "Failed to copy database with new saveable type."
+        return old_db 
+    end
 end

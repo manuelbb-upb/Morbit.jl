@@ -153,7 +153,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float32[];
 
 	# initialize iter data obj
 	id = init_iter_data( IterData, x, fx, Δ⁰(ac) )
-	CT = saveable_type(id)	 # type for database constructor
+	#CT = saveable_type(id)	 # type for database constructor
 
 	# initialize database
 	if !isnothing(populated_db)
@@ -162,10 +162,10 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float32[];
 		transform!( data_base, mop )
 	else
 		result_type = Result{F}
-		data_base = init_db( ArrayDB, F, CT );
+		data_base = init_db( ArrayDB, F, Nothing )
 		set_transformed!(data_base, true)
 	end
-	#%%
+	
 	# make sure, x & fx are in database
 	x_id = ensure_contains_values!(data_base, x, fx)
 	set_x_index!(id, x_id)
@@ -174,7 +174,11 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float32[];
 	# initialize surrogate models
 	sc = init_surrogates( smop, id, data_base, ac );
 
-	return (smop, id, data_base, sc, ac)
+	# now that we have meta data available, we retrive the 
+	# right saveable type and make a new database, that can handle `CT`
+	CT = saveable_type( id, sc )
+	new_data_base = copy_db(data_base, CT )
+	return (smop, id, new_data_base, sc, ac)
 end
 
 function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :: AbstractMOP, 

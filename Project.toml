@@ -43,6 +43,7 @@ OSQP = "0.6"
 Parameters = "0.12"
 ThreadSafeDicts = "0.0.2"
 julia = "1.5"
+RadialBasisFunctionModels = "0.3.0"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

@@ -75,7 +75,8 @@ function init_iter_data( ::T, x :: Vec, fx :: Vec, Δ :: NumOrVec ) where T<:Typ
 end
 
 ####### IterSaveable
-function saveable_type( :: IterData{F} ) where F 
+function saveable_type( :: IterData{F}, sc = nothing ) where F 
+    # TODO take sc into consideration!
     return IterSaveable{F}
 end
 

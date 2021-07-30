@@ -50,10 +50,10 @@ end
     @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
 end
 
-@with_kw struct TalyorConfig{
+@with_kw struct TaylorConfig{
         S1 <: RFD.FiniteDiffStamp,
         S2 <: RFD.FiniteDiffStamp
-    } <: TalyorCFG 
+    } <: TaylorCFG 
     
     degree :: Int64 = 1
 
@@ -66,7 +66,7 @@ end
 end
 
 # The actual model is defined only by the gradient vectors at `x₀` and maybe Hessians.
-@with_kw struct TaylorModel{
+struct TaylorModel{
     XT <: AbstractVector{<:Real}, FXT <: AbstractVector{<:Real}, 
     G <: AbstractVector{<:AbstractVector{<:Real}}, 
     H <: AbstractVector{<:AbstractMatrix{<:Real}},
@@ -80,8 +80,45 @@ end
     # gradient(s) at x0
     g :: G
     H :: H
+end
 
-    tfn :: T = nothing
+# There are two types of meta. The legacy meta type stores callbacks for gradients and hessians.
+# If a list of functions is provided, the file `src/diff_wrappers.jl` provides the same methods 
+# as for `DiffFn`s. The legacy meta does not exploit the 2-phase construction process.
+# The new meta type only stores database indices of sites used for a finite diff approximation in the actual
+# construction call.
+
+struct TaylorMetaCallbacks{GW, HW}
+    gw :: GW
+    hw :: HW
+end
+
+# If actual callback handles are provided, we construct the wrappers here, similar to how its done for 
+# `ExactModel`s:
+function init_meta( cfg :: TaylorConfigCallbacks, tfn )
+    gw = FiniteDiffWrapper( tfn, cfg.gradients, cfg.jacobian )
+    hw = isa( cfg.hessians, AbstractVector{<:Function} ) ? 
+        HessWrapper(tfn, cfg.hessians ) : HessFromGrads( gw );
+    return TaylorMetaCallbacks( gw, hw )
+end
+
+# If no callbacks are provided:
+function init_meta( cfg :: TaylorConfigFiniteDiff, tfn )
+    gw = FiniteDiffWrapper( tfn, cfg.gradients, cfg.jacobian )
+    hw = HessFromGrads(gw)
+    return TaylorMetaCallbacks( gw, hw )
+end
+
+# The other type of meta data is filled in the `prepare_XXX` methods:
+@with_kw struct TaylorIndexMeta 
+    grad_eval_indices :: Vector{Int} = Int[]
+    grad_setter_indices :: Vector{Int} = Int[]
+    hess_eval_indices :: Vector{Int} = Int[]
+    hess_setter_indices :: Vector{Int} = Int[]
+end
+
+function init_meta( :: TaylorConfig )
+    return TaylorIndexMeta()
 end
 
 #=

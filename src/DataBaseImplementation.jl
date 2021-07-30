@@ -1,5 +1,6 @@
 @with_kw mutable struct ArrayDB{
-		F <:AbstractFloat, RT <: AbstractResult{F}, IT <: AbstractIterSaveable } <: AbstractDB{F}
+		F <:AbstractFloat, RT <: AbstractResult{F}, 
+		IT <: Union{Nothing,AbstractIterSaveable} } <: AbstractDB{F}
 	
 	res :: Vector{RT} = RT[]
 
@@ -16,7 +17,7 @@ end
 Base.length( db :: ArrayDB ) = db.num_entries
 
 function init_db(:: Type{<:ArrayDB}, F :: Type{<:AbstractFloat},
-		IT :: Type{<:AbstractIterSaveable} )
+		IT :: Union{Type{<:AbstractIterSaveable},Type{<:Nothing}} )
 	return ArrayDB{F, Result{F}, IT}()
 end
 
@@ -37,8 +38,8 @@ function next_id( db :: ArrayDB) :: Int
 	return db.num_entries + 1
 end
 
-function new_result!( db :: ArrayDB{F,RT,IT}, x :: Vec, y :: Vec ) where{F,RT,IT}
-	new_id = next_id(db)
+function new_result!( db :: ArrayDB{F,RT,IT}, x :: Vec, y :: Vec, id :: Int = -1 ) where{F,RT,IT}
+	new_id = id < 0 ? next_id(db) : id
 	new_result = init_res( RT, x, y, new_id )
 	append!(db.res, new_result)
 	db.num_entries += 1

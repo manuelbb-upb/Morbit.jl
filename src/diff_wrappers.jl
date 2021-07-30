@@ -25,7 +25,7 @@ end
 # false =̂ list_of_grads empty but jacobian handle provided
 function _get_gradient( :: Val{false}, gw :: GradWrapper, x̂ :: Vec, ℓ :: Int = 1)
     Jtfn = _jacobian_unscaling( gw.tfn, x̂ )
-    return vec( Jtfn'gw.jacobian_handle( gw.tfn(x̂) )[ℓ, :] );
+    return vec( Jtfn[:,ℓ]'gw.jacobian_handle( gw.tfn(x̂) ) )
 end
 
 function get_gradient( gw :: GradWrapper, x̂ :: Vec, ℓ :: Int = 1)
@@ -65,9 +65,20 @@ function get_jacobian( adw :: AutoDiffWrapper{O,TT,JT}, x̂ :: Vec ) where{O,TT,
     return Jtfn'gw.jacobian_handle( adw.tfn(x̂) )
 end
 
+# jacobian handle set
+function get_gradient( adw :: AutoDiffWrapper{O,TT,JT}, x̂ :: Vec, ℓ :: Int = 1 ) where{O,TT,JT<:Function}
+    Jtfn = _get_transformer_jacobian( adw, x̂ )
+    return vec(Jtfn[:,ℓ]'gw.jacobian_handle( adw.tfn(x̂) ))
+end
+
+# fallbacks, if no jacobian is set; not optimized for multiple outputs
 function get_gradient( adw :: AutoDiffWrapper, x̂ :: Vec, ℓ :: Int = 1)
     return AD.gradient( x -> eval_handle(adw.objf)( adw.tfn(x) )[ℓ], x̂ )
 end  
+
+function get_hessian( adw :: AutoDiffWrapper{O,TT,JT}, x̂ :: Vec, ℓ :: Int = 1) where{O,TT,JT<:Nothing}
+    return AD.jacobian( x -> get_gradient(adw, x, ℓ), x̂ )
+end
 
 # not optimized for multiple outputs
 function get_hessian( adw :: AutoDiffWrapper, x̂ :: Vec, ℓ :: Int = 1)
@@ -84,28 +95,37 @@ struct FiniteDiffWrapper{
     jacobian :: JT
 end
 
-# no jacobian handle set
+# no jacobian handle set: apply finite differencing to the composed function(s)
+# F_ℓ ∘ unscale  
 function get_jacobian( fdw :: FiniteDiffWrapper{O,TT,JT}, x̂ :: Vec ) where{O,TT,JT<:Nothing}
     return FD.finite_difference_jacobian( x -> eval_handle(fdw.objf)( adw.tfn(x) ) , x̂ )
 end
 
-# jacobian handle set
+# jacobian handle set: use the jacobian handle and apply chain rule for unscaling transformation
 function get_jacobian( fdw :: FiniteDiffWrapper{O,TT,JT}, x̂ :: Vec ) where{O,TT,JT<:Function}
     Jtfn = _jacobian_unscaling( fdw.tfn, x̂ )
     return Jtfn'gw.jacobian_handle( fdw.tfn(x̂) )
+end
+
+# gradient from jacobian if jacobian handle is set:
+function get_gradient(fdw :: FiniteDiffWrapper{O,TT,JT}, x̂ :: Vec, ℓ :: Int = 1 ) where{O,TT,JT<:Function}
+    Jtfn = _jacobian_unscaling( fdw.tfn, x̂ )
+    return Jtfn[:,ℓ]'gw.jacobian_handle( fdw.tfn(x̂) )
 end
 
 function get_gradient( fdw :: FiniteDiffWrapper, x̂ :: Vec, ℓ :: Int = 1)
     return FD.finite_difference_gradient( x -> eval_handle(fdw.objf)( adw.tfn(x) )[ℓ], x̂ );
 end
 
+#=
 # NOTE this is clearly is not optimized for multiple outputs 
 # (and atm is not meant to be optimized)
 # one could differentiate the gradients here and use the same evaluation sites 
 # for all hessians
 function get_hessian( fdw :: FiniteDiffWrapper, x̂ :: Vec, ℓ :: Int = 1 )
-    return FD.finite_difference_hessian(x -> eval_handle(fdw.objf)( adw.tfn(x) )[ℓ], x̂ );
+    return FD.finite_difference_jacobian(x -> get_gradient( fdw, x, ℓ ), x̂ );
 end
+=#
 
 ###### Hessians ########################
 
@@ -121,24 +141,40 @@ function get_hessian( hw :: HessWrapper, x̂ :: Vec, ℓ :: Int = 1)
     return Jtfn'hw.list_of_hess_fns[ℓ](hw.tfn(x̂))*Jtfn;
 end
 
-struct HessFromGrads{GW <: Union{AbstractVector{<:Function},GradWrapper}} <: DiffFn 
+struct HessFromGrads{GW} <: DiffFn 
     gw :: GW
-    method :: Symbol
 end
 
+#=
+# if gw is a vector of gradient callbacks
 function _get_grad_func( gw :: AbstractVector{<:Function}, ℓ :: Int )
-    return gw[ℓ] 
+    return x -> gw[ℓ](x)
 end
 
-#@memoize ThreadSafeDict 
-function _get_grad_func( gw :: GradWrapper, ℓ :: Int) 
+# if gw is jacobian callback
+function _get_grad_func( gw :: Function, ℓ :: Int )
+    return x -> vec( gw(x)[ℓ, :] )
+end
+=# # Use a GradWrapper instead 
+
+function _get_grad_func( gw, ℓ :: Int) 
     return x -> _get_gradient( gw, x, ℓ)
 end
 
-function get_hessian( hw :: HessFromGrads, x̂ :: Vec, ℓ :: Int = 1 )
+function get_hessian( hw :: HessFromGrads{<:AutoDiffWrapper}, x̂ :: Vec, ℓ :: Int = 1 )
+    return get_hessian( hw.gw, x̂, ℓ)
+end
+
+function get_hessian( hw :: HessFromGrads{<:FiniteDiffWrapper}, x̂ :: Vec, ℓ :: Int = 1 )
+    FD.finite_difference_jacobian( _get_grad_func( hw.gw, ℓ), x̂ )
+end
+
+#=
+function get_hessian( hw :: HessFromGrads, x̂ :: Vec, ℓ :: Int = 1)
     if hw.method == :autodiff
         return AD.jacobian( _get_grad_func( hw.gw, ℓ), x̂ )
     elseif hw.method == :fdm
         return FD.finite_difference_jacobian( _get_grad_func( hw.gw, ℓ), x̂ )
     end
 end
+=#
