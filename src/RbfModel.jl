@@ -150,6 +150,10 @@ end
 	improving_directions :: Vector{Vector{F}} = []
 end
 
+
+saveable_type( meta :: T ) where {T<:RbfMeta} = T
+saveable( meta :: RbfMeta ) = deepcopy(meta)
+
 # A little helper to retrieve all those indices:
 function _collect_indices( meta :: RbfMeta; include_x = true ) :: Vector{Int}
 	return [ 

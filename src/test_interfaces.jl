@@ -11,7 +11,7 @@ f2 = x -> sum( (x .+ 1).^2 )
 
 #M.add_objective!(mop, f1, M.ExactConfig())
 #M.add_objective!(mop, f2, M.ExactConfig())
-M.add_objective!(mop, f1, M.RbfConfig(;use_max_points = true))
+M.add_objective!(mop, f1, M.RbfConfig(;use_max_points = false))
 M.add_objective!(mop, f2, M.RbfConfig(kernel = :gaussian))
 #M.add_objective!(mop, f2, M.RbfConfig())
 

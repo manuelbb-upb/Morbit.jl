@@ -121,6 +121,9 @@ function init_meta( :: TaylorConfig )
     return TaylorIndexMeta()
 end
 
+saveable_type( :: TaylorIndexMeta ) = TaylorIndexMeta
+saveable( meta :: TaylorIndexMeta ) = deepcopy(meta)
+
 #=
 struct TaylorMeta <: SurrogateMeta end   # no construction meta data needed
 
