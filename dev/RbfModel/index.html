@@ -56,12 +56,20 @@ They have individual docstrings attached.
     &quot;(default `-1`) Maximum number of training sites. `-1` is reset to `2n+1`.&quot;
     max_model_points :: Int64 = -1 # is probably reset in the algorithm
     &quot;(default `false`) Sample new sites to always use the maximum number of points.&quot;
-    use_max_points :: Bool = false</code></pre><p>&quot;(default <code>:orthogonal</code>) Algorithm to use for finding affinely independent set.&quot;    sampling<em>algorithm :: Symbol = :orthogonal # :orthogonal or :monte</em>carlo</p><pre><code class="language-julia hljs">#	&quot;(default `:standard_rand`) Algorithm to use if additional points are required.&quot;</code></pre><p>sampling<em>algorithm2 :: Symbol = :standard</em>rand</p><pre><code class="language-julia hljs">    &quot;(default `typemax(Int64)`) Maximum number of objective evaluations.&quot;
+    use_max_points :: Bool = false
+
+#    &quot;(default `:orthogonal`) Algorithm to use for finding affinely independent set.&quot;
+#    sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
+
+##	&quot;(default `:standard_rand`) Algorithm to use if additional points are required.&quot;
+#    sampling_algorithm2 :: Symbol = :standard_rand
+
+    &quot;(default `typemax(Int64)`) Maximum number of objective evaluations.&quot;
     max_evals :: Int64 = typemax(Int64)
 
 	@assert θ_enlarge_1 * θ_pivot ≤ 1 &quot;θ_pivot must be &lt;= θ_enlarge_1^(-1).&quot;
 
-#	@assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] &quot;Sampling algorithm must be either `:orthogonal` or `:monte_carlo`.&quot;
+##	@assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] &quot;Sampling algorithm must be either `:orthogonal` or `:monte_carlo`.&quot;
     @assert kernel ∈ Symbol.([&quot;gaussian&quot;, &quot;inv_multiquadric&quot;, &quot;multiquadric&quot;, &quot;cubic&quot;, &quot;thin_plate_spline&quot;]) &quot;Kernel &#39;$kernel&#39; not supported yet.&quot;
 	# Some sanity checks for the shape parameters
     @assert kernel != :thin_plate_spline || ( isnan(shape_parameter) || shape_parameter % 1 == 0 &amp;&amp; shape_parameter &gt;= 1 ) &quot;Invalid shape_parameter for :thin_plate_spline.&quot;
@@ -90,7 +98,11 @@ end</code></pre><p>The <code>RbfMeta</code> is used to store construction and up
     round4_indices :: Vector{Int} = []
     fully_linear :: Bool = false
 	improving_directions :: Vector{Vector{F}} = []
-end</code></pre><p>A little helper to retrieve all those indices:</p><pre><code class="language-julia hljs">function _collect_indices( meta :: RbfMeta; include_x = true ) :: Vector{Int}
+end
+
+
+saveable_type( meta :: T ) where {T&lt;:RbfMeta} = T
+saveable( meta :: RbfMeta ) = deepcopy(meta)</code></pre><p>A little helper to retrieve all those indices:</p><pre><code class="language-julia hljs">function _collect_indices( meta :: RbfMeta; include_x = true ) :: Vector{Int}
 	return [
 		include_x ? meta.center_index : [];
 		meta.round1_indices;
@@ -356,7 +368,10 @@ end</code></pre><p>Usually, <code>prepare_update_model</code> would only accept 
 				g = givens( Rξ[j,j], Rξ[row_index, j], j, row_index )[1]
 				Rξ = g*Rξ;
 				G = g*G;
-			end</code></pre><p>now, from G we can update the other matrices</p><pre><code class="language-julia hljs">			Gᵀ = transpose(G)
+			end
+
+			### now, from G we can update the other matrices
+			Gᵀ = transpose(G)
 			g̃ = Gᵀ[1 : end-1, end]
 			ĝ = Gᵀ[end, end]
 
@@ -406,7 +421,10 @@ end</code></pre><p>Usually, <code>prepare_update_model</code> would only accept 
 					Φ   φξ;
 					φξ&#39; φ₀
 				]
-				push!( kernels, RBF.make_kernel(φ, ξ) )</code></pre><p>assert all( diag( L * L⁻¹) .≈ 1 )</p><pre><code class="language-julia hljs">				N += 1
+				push!( kernels, RBF.make_kernel(φ, ξ) )
+
+				# assert all( diag( L * L⁻¹) .≈ 1 )
+				N += 1
 			end#if
 		end#for
 		append!(meta.round4_indices, round4_indices)
@@ -414,7 +432,7 @@ end</code></pre><p>Usually, <code>prepare_update_model</code> would only accept 
 	end#if
 
 	return meta
-end</code></pre><div class="admonition is-info"><header class="admonition-header">Note</header><div class="admonition-body"><p>At the moment, we do not store the matrices calculated in round 4 of the update procedure. This could be done, to save some work when actually calculating the coefficients.</p></div></div><p>In contrast to the old RBF mechanism, the models in <code>RadialBasisFunctionModels</code> sometimes accept 2 parameters for the kernel. We use this little helper, to get defaults from the shape parameter. Note, that sanity check are performed in the RbfConfig constructor.</p><pre><code class="language-julia hljs">function _get_kernel_params( Δ , cfg )
+end</code></pre><div class="admonition is-info"><header class="admonition-header">Note</header><div class="admonition-body"><p>At the moment, we do not store the matrices calculated in round 4 of the update procedure. This could be done to save some work when actually calculating the coefficients.</p></div></div><p>In contrast to the old RBF mechanism, the models in <code>RadialBasisFunctionModels</code> sometimes accept 2 parameters for the kernel. We use this little helper, to get defaults from the shape parameter. Note, that sanity check are performed in the RbfConfig constructor.</p><pre><code class="language-julia hljs">function _get_kernel_params( Δ , cfg )
 
 	F = eltype(Δ)
 
@@ -523,4 +541,4 @@ end
 @doc &quot;Jacobian Matrix of ExactModel `em` at scaled site `x̂`.&quot;
 function get_jacobian( mod :: RbfModel, x̂ :: Vec )
     return RBF.jac( mod.model, x̂ )
-end</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p><section class="footnotes is-size-7"><ul><li class="footnote" id="footnote-wild_diss"><a class="tag is-link" href="#citeref-wild_diss">wild_diss</a>“Derivative-Free Optimization Algorithms For Computationally Expensive Functions”, Stefan M. Wild, 2009</li></ul></section></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../example_zdt/">« ZDT3</a><a class="docs-footer-nextpage" href="../notebook_finite_differences/">Finite Differences »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.5 on <span class="colophon-date" title="Friday 30 July 2021 14:32">Friday 30 July 2021</span>. Using Julia version 1.6.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+end</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p><section class="footnotes is-size-7"><ul><li class="footnote" id="footnote-wild_diss"><a class="tag is-link" href="#citeref-wild_diss">wild_diss</a>“Derivative-Free Optimization Algorithms For Computationally Expensive Functions”, Stefan M. Wild, 2009</li></ul></section></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../example_zdt/">« ZDT3</a><a class="docs-footer-nextpage" href="../notebook_finite_differences/">Finite Differences »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.5 on <span class="colophon-date" title="Friday 30 July 2021 14:58">Friday 30 July 2021</span>. Using Julia version 1.6.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
