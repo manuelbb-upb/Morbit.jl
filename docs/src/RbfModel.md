@@ -102,24 +102,19 @@ They have individual docstrings attached.
     max_model_points :: Int64 = -1 # is probably reset in the algorithm
     "(default `false`) Sample new sites to always use the maximum number of points."
     use_max_points :: Bool = false
-````
 
-   "(default `:orthogonal`) Algorithm to use for finding affinely independent set."
-   sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
+#    "(default `:orthogonal`) Algorithm to use for finding affinely independent set."
+#    sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
 
-````julia
-#	"(default `:standard_rand`) Algorithm to use if additional points are required."
-````
+##	"(default `:standard_rand`) Algorithm to use if additional points are required."
+#    sampling_algorithm2 :: Symbol = :standard_rand
 
-   sampling_algorithm2 :: Symbol = :standard_rand
-
-````julia
     "(default `typemax(Int64)`) Maximum number of objective evaluations."
     max_evals :: Int64 = typemax(Int64)
 
 	@assert θ_enlarge_1 * θ_pivot ≤ 1 "θ_pivot must be <= θ_enlarge_1^(-1)."
 
-#	@assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
+##	@assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
     @assert kernel ∈ Symbol.(["gaussian", "inv_multiquadric", "multiquadric", "cubic", "thin_plate_spline"]) "Kernel '$kernel' not supported yet."
 	# Some sanity checks for the shape parameters
     @assert kernel != :thin_plate_spline || ( isnan(shape_parameter) || shape_parameter % 1 == 0 && shape_parameter >= 1 ) "Invalid shape_parameter for :thin_plate_spline."
@@ -179,6 +174,10 @@ of (potentially unevaluated) results that are later used for fitting the model.
     fully_linear :: Bool = false
 	improving_directions :: Vector{Vector{F}} = []
 end
+
+
+saveable_type( meta :: T ) where {T<:RbfMeta} = T
+saveable( meta :: RbfMeta ) = deepcopy(meta)
 ````
 
 A little helper to retrieve all those indices:
@@ -477,11 +476,8 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: Rb
 				Rξ = g*Rξ;
 				G = g*G;
 			end
-````
 
-now, from G we can update the other matrices
-
-````julia
+			### now, from G we can update the other matrices
 			Gᵀ = transpose(G)
 			g̃ = Gᵀ[1 : end-1, end]
 			ĝ = Gᵀ[end, end]
@@ -533,11 +529,8 @@ now, from G we can update the other matrices
 					φξ' φ₀
 				]
 				push!( kernels, RBF.make_kernel(φ, ξ) )
-````
 
-assert all( diag( L * L⁻¹) .≈ 1 )
-
-````julia
+				# assert all( diag( L * L⁻¹) .≈ 1 )
 				N += 1
 			end#if
 		end#for
@@ -551,7 +544,7 @@ end
 
 !!! note
     At the moment, we do not store the matrices calculated in round 4 of the
-    update procedure. This could be done, to save some work when actually
+    update procedure. This could be done to save some work when actually
     calculating the coefficients.
 
 In contrast to the old RBF mechanism, the models in `RadialBasisFunctionModels` sometimes

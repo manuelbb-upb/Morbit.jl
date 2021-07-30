@@ -89,7 +89,6 @@ Literate.markdown(
 Literate.markdown(
     joinpath( src_dir, "RbfModel.jl"), 
     joinpath( @__DIR__, "src" );    
-    #flavor = Literate.FranklinFlavor(),
     codefence = "````julia" => "````",
 )
 

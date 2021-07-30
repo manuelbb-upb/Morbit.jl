@@ -424,7 +424,7 @@ function ingredients(path::String)
 end
 
 # ╔═╡ 6c6e63ae-28ce-4c1c-bb60-7e7826ffefbb
-Trees = ingredients( joinpath(@__DIR__, ".." ,"src", "Trees.jl") )
+Trees = ingredients( joinpath(@__DIR__, ".." ,"src", "Trees.jl") ).Trees
 
 # ╔═╡ c3fa417a-898f-4273-a75c-974a42e80a79
 @with_kw struct FDiffNode{T,X,C} <: Trees.Node
