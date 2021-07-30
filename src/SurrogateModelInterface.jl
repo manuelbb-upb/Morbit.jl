@@ -41,6 +41,9 @@ get_jacobian( :: SurrogateModel, :: Vec ) :: Mat = nothing
 
 # DEFAULTS
 
+saveable_type( :: SurrogateMeta ) = Nothing 
+saveable( :: SurrogateMeta ) = nothing
+
 prepare_update_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...) = meta
 prepare_improve_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...) = meta
 

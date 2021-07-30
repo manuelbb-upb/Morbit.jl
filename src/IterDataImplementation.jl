@@ -7,9 +7,9 @@
     Δ :: Union{F, Vector{F}} = zero(F)
     
     x_index :: Int = -1
-    num_iterations :: Int = 0;
-    num_model_improvements :: Int = 0;
-    it_stat :: ITER_TYPE = SUCCESSFULL;
+    num_iterations :: Int = 0
+    num_model_improvements :: Int = 0
+    it_stat :: ITER_TYPE = SUCCESSFULL
 
 end
 
@@ -75,12 +75,19 @@ function init_iter_data( ::T, x :: Vec, fx :: Vec, Δ :: NumOrVec ) where T<:Typ
 end
 
 ####### IterSaveable
+function _surrogate_container_saveable_type( sc )
+    return Tuple{ (saveable_type(sw.meta) for sw in sc.surrogates)... }
+end
+_surrogate_container_saveable_type(::Nothing) = Nothing
+
+_surrogate_container_saveable(sc) = Tuple( saveable(sw.meta) for sw in sc.surrogates )
+_surrogate_container_saveable(::Nothing) = nothing
+
 function saveable_type( :: IterData{F}, sc = nothing ) where F 
-    # TODO take sc into consideration!
-    return IterSaveable{F}
+    return IterSaveable{F, _surrogate_container_saveable_type(sc) }
 end
 
-@with_kw struct IterSaveable{F<:AbstractFloat } <: AbstractIterSaveable{F}
+@with_kw struct IterSaveable{F<:AbstractFloat,M} <: AbstractIterSaveable{F}
     Δ :: Union{F, Vector{F}}
     x_index :: Int
     num_iterations :: Int
@@ -92,10 +99,12 @@ end
     ρ :: F
     stepsize :: F
     ω :: F
+    
+    model_meta :: M = nothing
 end
 
-function get_saveable( id :: IterData{F}; x_trial_index, ρ, stepsize, ω ) where F
-    return IterSaveable{F}(;
+function get_saveable( id :: IterData{F}; x_trial_index, ρ, stepsize, ω, sc = nothing ) where F
+    iter_saveable = IterSaveable(;
         Δ = get_Δ(id),
         x_index = get_x_index(id),
         num_iterations = num_iterations(id),
@@ -104,6 +113,8 @@ function get_saveable( id :: IterData{F}; x_trial_index, ρ, stepsize, ω ) wher
         x_trial_index,
         ρ = F(ρ),
         stepsize = F(stepsize),
-        ω = F.(ω)
+        ω = F.(ω),
+        model_meta = _surrogate_container_saveable(sc)
     )
+    return iter_saveable
 end

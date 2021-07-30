@@ -23,6 +23,6 @@ populated_db = nothing
 x0 = rand(2)
 fx0 = []
 #%%
-mop, id, db, sc, ac = M.initialize_data(mop,x0);
+#mop, id, db, sc, ac = M.initialize_data(mop,x0);
 #%%
 X, FX, ret, db = Morbit.optimize( mop, x0; algo_config )

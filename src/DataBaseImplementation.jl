@@ -46,7 +46,7 @@ function new_result!( db :: ArrayDB{F,RT,IT}, x :: Vec, y :: Vec, id :: Int = -1
 	return new_id
 end
 
-function stamp!( db :: ArrayDB{F,RT,IT}, ids :: IT ) :: Nothing where{F <:AbstractFloat, RT <: AbstractResult{F}, IT <: AbstractIterSaveable } 
+function stamp!( db :: ArrayDB, ids :: AbstractIterSaveable ) :: Nothing 
 	push!(db.iter_info, ids)
 	return nothing
 end

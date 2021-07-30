@@ -360,7 +360,7 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 	# before updating `iter_data`, retrieve a saveable
 	# (order is important here to have current index and next index)
 	stamp_content = get_saveable( iter_data; x_trial_index = trial_index,
-		ρ = ρ, stepsize = steplength, ω = ω )
+		ρ = ρ, stepsize = steplength, ω = ω, sc = sc )
 	stamp!( data_base, stamp_content )
 
 	# update iter data 
