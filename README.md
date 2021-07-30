@@ -1,9 +1,16 @@
 # Morbit
 
+## Warning
 **I am currently doing a large refactoring!**
-I hope to be finished at the end of July (2021). In my opinion, the package will be much better afterwards, but there will be some breaking changes.
-Up until then, you can still use version 2.1.8, but keep in mind, that some scripts won't work anymore in a week or so :)
+I hope to be finished at the end of ~~July~~ August (2021), after my 3 week vacation. 
+In my opinion, the package will be much better afterwards, but there will be ~~some~~ many breaking changes.
+Up until then, you can still use version 2.1.8, but keep in mind, that some scripts won't work anymore once the next version releases (and I found some bugs that I won't fix for the 2.1.X versions). 
+I have also made it so that any new documentation is hosted here: [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/dev)
+* There you can see the re-implementation of the RBFModels and
+* a notebook on how I plan to redo the Taylor Models.
+* Lagrange models will be redone soon.
 
+## README
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/stable)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/dev)
 [![Build Status](https://github.com/manuelbb-upb/Morbit.jl/workflows/CI/badge.svg)](https://github.com/manuelbb-upb/Morbit.jl/actions)
@@ -103,5 +110,31 @@ Please see the [docs](https://manuelbb-upb.github.io/Morbit.jl/dev).
 * Maybe provide some plotting recipes?
   
 
+There are many options to configure both the algorithm behavior and the 
+surrogate modelling techniques.
+Please see the [docs](https://manuelbb-upb.github.io/Morbit.jl/dev).
 
+## Features
+* Applicable to unconstrained and finitely box-constrained problems with one or more objectives.
+* Treat the objectives as exact (and benefit from automatic differencing) or use surrogate models.  
+  Available surrogates are
+  * First and second degree Taylor polynomials, either using exact derivatives or finite-difference approximations.
+  * Fully-linear Lagrange polynomials of degree 1 or 2.
+  * Fully-linear Radial basis function models with a polynomial tail of degree 1 or less.
+* The surrogate construction algorithms try to avoid evaluating the true objectives unnecessarily.  
+  Evaluation data is stored in a database and can be retrieved afterwards.
+* At the moment, the trust region sub-problems are solved using either a multiobjective **steepest descent 
+  direction** (default) or the Pascoletti-Serafini scalarization 
+  (see [here](https://www.tu-ilmenau.de/fileadmin/media/mmor/thomann/SIAM_MHT_TE.pdf)).  
+  *From prior experiments we know the “directed search” method and the nonlinear conjugate gradient steps to work well, too. 
+  They need re-implementation. Directed search cannot be guaranteed to converge to critical points and for CG we need the strong Wolfe conditions.*
+* Objectives can be defined with parallelism in mind, i.e., they then receive sampling sites in batches when possible.
 
+## ToDo's
+
+* Provide more examples.
+* Finish the MathOptInterface. `AbstractMOP` already is `MOI.ModelLike`, but for the solver we wait on [this issue](https://github.com/jump-dev/JuMP.jl/issues/2099).
+* Re-enable the sampling from [PointSampler.jl](https://github.com/manuelbb-upb/PointSampler.jl) for surrogate construction.
+* Saving of results and evaluation data needs re-implementation.
+* Maybe provide some plotting recipes?
+  
