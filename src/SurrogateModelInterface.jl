@@ -66,4 +66,4 @@ function Base.:(==)( cfg1 :: T, cfg2 :: F ) where {T <: SurrogateConfig, F<:Surr
 end
 
 # only needed if combinable
-combine( :: SurrogateConfig, :: SurrogateConfig  ) :: SurrogateConfig = nothing
+combine( cfg :: SurrogateConfig, :: SurrogateConfig  ) = cfg

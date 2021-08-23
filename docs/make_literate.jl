@@ -36,7 +36,7 @@ end
 
 const md_nb_template = """
 ```@raw html
-<iframe id="fdnotebook" src="assets/HTML_NAME" width="100%"></iframe>
+<iframe id="fdnotebook" src="../assets/HTML_NAME" width="100%"></iframe>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
 	var myIframe = document.getElementById("fdnotebook");

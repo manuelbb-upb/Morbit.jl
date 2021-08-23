@@ -1,0 +1,156 @@
+module TaylorTests
+
+using ForwardDiff
+using Morbit
+using Test
+
+using LinearAlgebra: norm
+
+const RFD = Morbit.RFD 
+const Trees = RFD.Trees 
+
+ensure_vec( x ) = vec(x)
+ensure_vec( x :: Number ) = [x,]
+
+const test_funcs = [
+	x -> [x[1],],
+	x -> [π + ℯ * sum(x.^2),],
+	x -> x.^2,
+	x -> [ exp(sum(x)), x[1] + x[end]^3 ]
+]
+
+const test_stamps64 = [
+	RFD.CFDStamp(1,2),
+	RFD.CFDStamp(1,4),
+	RFD.CFDStamp(1,6),
+	RFD.FFDStamp(1,1),
+	RFD.FFDStamp(1,2),
+	RFD.FFDStamp(1,3),
+	RFD.BFDStamp(1,1),
+	RFD.BFDStamp(1,2),
+	RFD.BFDStamp(1,3),
+]
+
+h32 = RFD.stepsize(RFD.stepsize(Float32))
+const test_stamps32 = [
+	RFD.CFDStamp(1,2, h32),
+	RFD.CFDStamp(1,4, h32),
+	RFD.CFDStamp(1,6, h32),
+	RFD.FFDStamp(1,1, h32),
+	RFD.FFDStamp(1,2, h32),
+	RFD.FFDStamp(1,3, h32),
+	RFD.BFDStamp(1,1, h32),
+	RFD.BFDStamp(1,2, h32),
+	RFD.BFDStamp(1,3, h32),
+]
+
+h16 = RFD.stepsize(RFD.stepsize(Float16))
+const test_stamps16 = [
+	RFD.CFDStamp(1,2, h16),
+	RFD.CFDStamp(1,4, h16),
+	RFD.CFDStamp(1,6, h16),
+	RFD.FFDStamp(1,1, h16),
+	RFD.FFDStamp(1,2, h16),
+	RFD.FFDStamp(1,3, h16),
+	RFD.BFDStamp(1,1, h16),
+	RFD.BFDStamp(1,2, h16),
+	RFD.BFDStamp(1,3, h16),
+]
+#=
+@testset "Recursive Finite Difference Trees" begin
+	for ET in [Float16, Float32, Float64]
+		stamps = ET == Float16 ? test_stamps16 : ET == Float32 ? test_stamps32 : test_stamps64
+
+		for (j,func) in enumerate(test_funcs)
+			n_in = rand(1:5)
+			x0 = ensure_vec(rand(ET, n_in))	
+			fx0 = func(x0)
+			for stamp in stamps
+				for order in [1,2]
+					# first, use convenience function to fill tree
+					dw_1 = RFD.DiffWrapper(; x0, fx0, stamp, order)
+					RFD.prepare_tree!(dw_1, func)
+
+					# secondly, use the Morbit routine
+					dw_2 = RFD.DiffWrapper(; x0, fx0, stamp, order)
+					RFD.substitute_leaves!(dw_2)
+					all_sites = RFD.collect_leave_sites( dw_2 )
+					all_vals = func.(all_sites)
+					RFD.set_leave_values!(dw_2, all_vals)
+
+					if order > 1 
+						for i = 1 : length(fx0)
+							Hi = RFD.hessian(dw_1; output_index = i)
+							@test Hi ≈ RFD.hessian( dw_2; output_index = i)
+							# I don't test against automatic differencing because 
+							# finite diff hessians become somewhat instable without careful tuning 
+							# of stepsize …
+							# H_ad = ForwardDiff.hessian( x -> func(x)[i], x0 )
+							# ET == Float16 || @test norm( Hi .- H_ad ) <= .1
+						end
+					end
+
+					J1 = RFD.jacobian(dw_1)
+
+					for i = 1 : length(fx0)
+						Gi = RFD.gradient( dw_1; output_index = i )
+						@test Gi ≈ RFD.gradient( dw_2; output_index = i)
+						@test Gi ≈ J1[i,:]
+					end
+
+					# does it roughly compare to a jacobian determined by automatic differencing
+					J_ad = ForwardDiff.jacobian( func, x0 )
+					ET == Float16 || @test norm( J1 .- J_ad ) <= 0.1
+				
+				end
+			end
+		end
+	end
+
+end#testset
+=#
+@testset "Accurate Linear Models, Unconstrained " begin
+	mop = Morbit.MixedMOP(2)
+	
+	# The gradients for a linear objective will be exact and a linear model 
+	# should then equal the linear objective globally
+	Morbit.add_objective!( mop, x -> sum(x), Morbit.TaylorConfig(;degree=1) )
+
+	x0 = [π, -ℯ]
+
+	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
+	Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+
+	mod = sc.surrogates[1].model
+	objf = Morbit.list_of_objectives(smop)[1]
+
+	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
+	@test Morbit.get_gradient( mod, x0, 1 ) ≈ [1, 1]
+	@test Morbit.get_jacobian(sc, x0) ≈ [ 1 1 ]
+
+end#testset
+
+@testset "Accurate Linear Models, Constrained " begin
+	mop = Morbit.MixedMOP( fill(-10.0, 2), fill(10.0, 2) )
+
+	Morbit.add_objective!( mop, x -> sum(x), Morbit.TaylorConfig(;degree=1) )
+
+	x0 = [π, -ℯ]
+
+	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
+	Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+
+	mod = sc.surrogates[1].model
+	objf = Morbit.list_of_objectives(smop)[1]
+
+	x̂0 = Morbit.scale( x0, smop)
+
+	@test Morbit.eval_models( mod, x̂0 ) ≈ Morbit.eval_objf(objf, x0 )
+	@test Morbit.get_gradient( mod, x̂0, 1 ) ≈ ForwardDiff.gradient( ξ -> Morbit.eval_objf(objf, Morbit.unscale(ξ, smop) )[end], x̂0 )
+	@test Morbit.get_jacobian( mod, x̂0 ) ≈ ForwardDiff.jacobian( ξ -> Morbit.eval_all_objectives(smop, ξ), x̂0 )
+
+end#testset
+
+end#module
+
+using .TaylorTests

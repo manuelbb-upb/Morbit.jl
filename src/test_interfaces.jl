@@ -11,9 +11,12 @@ f2 = x -> sum( (x .+ 1).^2 )
 
 #M.add_objective!(mop, f1, M.ExactConfig())
 #M.add_objective!(mop, f2, M.ExactConfig())
-M.add_objective!(mop, f1, M.RbfConfig(;use_max_points = false))
-M.add_objective!(mop, f2, M.RbfConfig(kernel = :gaussian))
+#M.add_objective!(mop, f1, M.RbfConfig(;use_max_points = false))
+#M.add_objective!(mop, f2, M.RbfConfig(kernel = :gaussian))
 #M.add_objective!(mop, f2, M.RbfConfig())
+#M.add_objective!(mop, f1, M.TaylorConfig(; gradients = M.RFD.CFDStamp(1,3), hessians = M.RFD.CFDStamp(1,5)))
+M.add_objective!(mop, f1, M.TaylorConfig())
+M.add_objective!(mop, f2, M.TaylorConfig())
 
 algo_config = AlgoConfig(;
 	max_iter = 3

@@ -198,8 +198,6 @@ function _add_objective!( mop :: AbstractMOP{true}, T :: Type{<:AbstractObjectiv
     func :: Function, model_cfg :: SurrogateConfig; n_out :: Int = 0, 
     can_batch :: Bool = false, out_type :: Union{Type{<:Vec},Nothing} = nothing )
 
-    # use a transformer to be able to directly evaluate scaled variables 
-
     fx = can_batch ? BatchObjectiveFunction(func) : vec ∘ func;
 
     inner_objf = _wrap_func( T, fx, model_cfg, num_vars(mop), n_out )

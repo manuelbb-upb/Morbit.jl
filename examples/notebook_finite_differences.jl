@@ -381,6 +381,19 @@ function _set_node_values!( node, f :: Function )
 	append!(node.vals, f( node.x ))
 end
 
+# ╔═╡ 9cb6592b-ba7d-4b46-9171-1816fd7dff69
+function set_leave_values!(dw :: DiffWrapper, leave_vals :: AbstractVector )
+	for (i,node) in enumerate(Trees.Leaves(dw.tree))
+		empty!(node.vals)
+		append!(node.vals, leave_vals[i] )
+	end
+end
+
+md"""
+!!! note
+    The `set_leave_values!` methods should also reset the cache. Not implemented in this notebook.
+"""
+
 # ╔═╡ 5d586923-a32e-4d16-a0a6-56bbc73680f2
 md"""
 ### Morbit Example
@@ -465,7 +478,7 @@ end
 
 # ╔═╡ 17347e0e-08ee-4a29-83b3-f337e397f49b
 function build_tree( x_sym, stamp, vars, order = 1; x_type = Vector{Float64}, val_type = Vector{Float64}, cache_type = Nothing )
-	
+	@show cache_type
 	if order <= 0
 		# return a leave node
 		return FDiffNode(; x_sym, x = x_type(), vals = val_type(), cache = nothing )
@@ -604,14 +617,6 @@ function set_leave_values!(dw :: DiffWrapper, f :: Function )
 	end
 end
 
-# ╔═╡ 9cb6592b-ba7d-4b46-9171-1816fd7dff69
-function set_leave_values!(dw :: DiffWrapper, leave_vals :: AbstractVector )
-	for (i,node) in enumerate(Trees.Leaves(dw.tree))
-		empty!(node.vals)
-		append!(node.vals, leave_vals[i] )
-	end
-end
-
 # ╔═╡ 8a1443d4-0beb-4f78-8ab4-ed47adf45e8c
 begin
 	func = x -> [ sum(x.^2); exp( sum( x ) ) ]
@@ -684,6 +689,9 @@ end
 
 # ╔═╡ 90b565b5-0826-4674-836a-376430823cc5
 jacobian(dw)
+
+# ╔═╡ 0abd5c62-203a-44c6-8634-0b8ed4d9a55a
+first(Trees.Leaves(dw.tree))
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1284,6 +1292,7 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╟─5dd33903-f4a4-455c-8348-c3c98e5f6404
 # ╠═e0154be3-4c57-4ab9-9218-13ab3a4f44b4
 # ╠═90b565b5-0826-4674-836a-376430823cc5
+# ╠═0abd5c62-203a-44c6-8634-0b8ed4d9a55a
 # ╟─8ad29cb3-9bb5-48d6-b0a6-ceb46e30293e
 # ╠═351d4199-28fa-4733-89d1-266ee16137c4
 # ╠═fef9850c-3cbd-47f8-a786-e420f01d9141

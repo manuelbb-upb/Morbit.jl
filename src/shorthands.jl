@@ -2,11 +2,18 @@ const RVec = AbstractVector{R} where R<:Real;
 const RVecArr = AbstractVector{<:RVec};
 const RMat = AbstractMatrix{R} where R <: Real;
 
+#=
 const Vec = AbstractVector{<:AbstractFloat}
 const VecVec = AbstractVector{<:Vec}
 const NumOrVec = Union{AbstractFloat, Vec}
 const VecOrNum = NumOrVec
 const Mat = AbstractMatrix{<:AbstractFloat}
+=#
+const Vec = AbstractVector{<:Real}
+const VecVec = AbstractVector{<:AbstractVector}
+const NumOrVec = Union{Real, Vec}
+const VecOrNum = NumOrVec 
+const Mat = AbstractMatrix{<:Real}
 
 struct XInt <: Integer 
     val :: Union{Int,Nothing}
