@@ -15,7 +15,7 @@ end
 @doc "Add a vector objective to `mop::MixedMOP` modelled according to `model_config`."
 function add_vector_objective!(mop :: MixedMOP, func :: Function,
         model_config :: SurrogateConfig; n_out :: Int64, can_batch = false, out_type = nothing )
-    return _add_objective!( mop, VectorObjectiveFunction, func, model_config, n_out, can_batch )
+    return _add_objective!( mop, VectorObjectiveFunction, func, model_config; n_out, can_batch, out_type )
 end
 
 # OLD FUNCTIONS TO ADD OBJECTIVES TO AN MOP

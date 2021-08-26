@@ -26,27 +26,32 @@ const RFD = RecursiveFiniteDifferences
     HT <: Union{Nothing,AbstractVector{<:AbstractMatrix{<:Real}}},
     } <: SurrogateModel
     
-    # expansion point and value 
+    ## expansion point and value 
     x0 :: XT
     fx0 :: FXT
     
-    # gradient(s) at x0
+    ## gradient(s) at x0
     g :: G
     H :: HT = nothing
 end
+
+fully_linear( :: TaylorModel ) = true
 
 # Note, that the derivative approximations are actually constructed for the function(s)
 # ```math
 #     f_ℓ ∘ s^{-1}
 # ```
 # if some internal transformation ``s`` has happened before.
-# If the problem is unbounded then ``s = id = s^{-1}``.
+# If the problem is unbounded then ``s = \operatorname{id} = s^{-1}``.
 
 # ## Model Construction
 
 # Because of all the possibilities offered to the user, we actually have several 
 # (sub-)implementiations of `SurrogateConfig` for Taylor Models.
 abstract type TaylorCFG <: SurrogateConfig end 
+
+# We make sure, that all subtypes have a field `max_evals`:
+max_evals( cfg :: TaylorCFG ) = cfg.max_evals
 
 # ### Recursive Finite Difference Models
 
@@ -98,7 +103,8 @@ saveable( meta :: TaylorIndexMeta ) = TaylorIndexMeta(;
     hess_setter_indices = meta.hess_setter_indices
 )
 
-# The new construction process it is a bit complicated: We set up a recursive finite diff tree and 
+# The new construction process it is a bit complicated. 
+# We set up a recursive finite diff tree and 
 # need this little helper:
 "Return `unique_elems, indices = unique_with_indices(arr)` such that 
 `unique_elems[indices] == arr` (and `unique_elems == unique(arr)`)." 
@@ -119,8 +125,8 @@ end
 
 # Now, if the polynomial degree equals 2 we construct a tree for the Hessian calculation.
 # In any case, we need a tree for the gradients/jacobian.
-# If the `RFD.FiniteDiffStamp` for the gradients is the same as for the hessians, we can re-use the 
-# hessian tree for this purpose. Else, we need to construct a new one.
+# If the `RFD.FiniteDiffStamp` for the gradients is the same as for the Hessians, we can re-use the 
+# Hessian tree for this purpose. Else, we need to construct a new one.
 
 function _get_RFD_trees( x, fx, grad_stamp, hess_stamp = nothing, deg = 2)
     if deg >= 2 
@@ -211,74 +217,61 @@ function _init_model( cfg :: TaylorConfig, objf :: AbstractObjective, mop :: Abs
     return update_model( nothing, objf, meta, mop, iter_data, db, algo_config; kwargs...)
 end
 
+# Note, that we only perform updates if the iterate has changed, `x != mod.x0`, because 
+# we don't change the differencing parameters.
 function update_model( mod :: Union{Nothing, TaylorModel}, objf :: AbstractObjective, meta :: TaylorIndexMeta, 
     mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; kwargs...)
 
-    all_leave_vals = get_value.( db, meta.database_indices )
+    x = get_x(iter_data)
+    if isnothing(mod) || (x != mod.x0)
+        all_leave_vals = get_value.( db, meta.database_indices )
+            
+        if !isnothing( meta.hess_wrapper )
+            hess_leave_vals = all_leave_vals[ meta.hess_setter_indices ]
+            RFD.set_leave_values!( meta.hess_wrapper, hess_leave_vals )
+            H = [ RFD.hessian( meta.hess_wrapper; output_index = ℓ ) for ℓ = 1 : num_outputs(objf) ]
+        else
+            H = nothing
+        end
+
+        ## calculate gradients
+        if meta.hess_wrapper != meta.grad_wrapper
+            grad_leave_vals = all_leave_vals[ meta.grad_setter_indices ]
+            RFD.set_leave_values!( meta.grad_wrapper, grad_leave_vals )
+        end
+
+        ## if hessians have been calculated before and `grad_wrapper == hess_wrapper` we profit from caching
+        J = RFD.jacobian( meta.grad_wrapper )
+        g = copy.( eachrow( J ) )
         
-    if !isnothing( meta.hess_wrapper )
-        hess_leave_vals = all_leave_vals[ meta.hess_setter_indices ]
-        RFD.set_leave_values!( meta.hess_wrapper, hess_leave_vals )
-        H = [ RFD.hessian( meta.hess_wrapper; output_index = ℓ ) for ℓ = 1 : num_outputs(objf) ]
+        return TaylorModel(;
+            x0 = x,
+            fx0 = get_fx( iter_data ),
+            g, H
+        ), meta
     else
-        H = nothing
-    end
-
-    ## calculate gradients
-    if meta.hess_wrapper != meta.grad_wrapper
-        grad_leave_vals = all_leave_vals[ meta.grad_setter_indices ]
-        RFD.set_leave_values!( meta.grad_wrapper, grad_leave_vals )
-    end
-
-    ## if hessians have been calculated before and `grad_wrapper == hess_wrapper` we profit from caching
-    J = RFD.jacobian( meta.grad_wrapper )
-    g = copy.( eachrow( J ) )
-    
-    return TaylorModel(;
-        x0 = get_x( iter_data ),
-        fx0 = get_fx( iter_data ),
-        g, H
-    ), meta
-end
-
-# ## Model Evaluation
-
-"Evaluate (internal) output `ℓ` of TaylorModel `tm`, provided a difference vector `h = x - x0`."
-function _eval_models( tm :: TaylorModel, h :: Vec, ℓ :: Int )
-    ret_val = tm.fx0[ℓ] + tm.g[ℓ]'h
-    if !isnothing(tm.H)
-        ret_val += .5 * h'tm.H[ℓ]*h 
-    end
-    return ret_val
-end
-
-"Evaluate (internal) output `ℓ` of `tm` at scaled site `x̂`."
-function eval_models( tm :: TaylorModel, x̂ :: Vec, ℓ :: Int )
-    h = x̂ .- tm.x0
-    return _eval_models( tm, h, ℓ)
- end
-
-function eval_models( tm :: TaylorModel, x̂ :: Vec )
-    h = x̂ .- tm.x0
-    return [ _eval_models(tm, h, ℓ) for ℓ = eachindex(tm.g)]
-end
-
-function get_gradient( tm :: TaylorModel, x̂ :: Vec, ℓ :: Int) 
-    if isnothing(tm.H)
-        return tm.g[ℓ]
-    else
-        h = x̂ .- tm.x0
-        return tm.g[ℓ] .+ .5 * ( tm.H[ℓ]' + tm.H[ℓ] ) * h
+        return mod,meta
     end
 end
 
-function get_jacobian( tm :: TaylorModel, x̂ :: Vec )
-    grad_list = [ get_gradient(tm, x̂, ℓ) for ℓ=eachindex( tm.g ) ]
-    return transpose( hcat( grad_list... ) )
-end
-#=
+# ### Callback Models with Derivatives, AD or Adaptive Finite Differencing 
 
-@with_kw struct TaylorConfigCallbacks{
+# The old way of defining Taylor Models was to provide an objective callback function 
+# and either give callbacks for the derivatives too or ask for automatic differencing.
+# This is very similar to the `ExactModel`s, with the notable difference that the 
+# gradient and Hessian information is only used to construct models 
+# ``m_ℓ = f_0 + \mathbf g^T \mathbf h + \mathbf h^T \mathbf H \mathbf h`` **once** per iteration
+# and then use these ``m_ℓ`` for all subsequent model evaluations/differentiation.
+
+"""
+    TaylorCallbackConfig(;degree=1,gradients,hessians=nothing,max_evals=typemax(Int64))
+
+Configuration for a linear or quadratic Taylor model where there are callbacks provided for the 
+gradients and -- if applicable -- the Hessians.
+The `gradients` keyword point to an array of callbacks where each callback evaluates 
+the gradient of one of the outputs.
+"""
+@with_kw struct TaylorCallbackConfig{
         G <:Union{Nothing,AbstractVector{<:Function}},
         J <:Union{Nothing,Function},
         H <:Union{Nothing,AbstractVector{<:Function}},
@@ -294,154 +287,173 @@ end
     @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
     @assert !(isnothing(gradients) && isnothing(jacobian)) "Provide either `gradients` or `jacobian`."
     @assert isa( gradients, AbstractVector ) && !isempty( gradients ) || !isnothing(jacobian) "Provide either `gradients` or `jacobian`."
-    @assert !(isnothing(gradients) || isnothing(hessians)) || length(gradients) == length(hessians) "Provide same number of gradients and hessians."
+    @assert !(isnothing(gradients)) && ( isnothing(hessians) || length(gradients) == length(hessians) ) "Provide same number of gradients and hessians."
 end
 
-@with_kw struct TaylorConfigFiniteDiff <: TaylorCFG
+"""
+    TaylorApproximateConfig(;degree=1,mode=:fdm,max_evals=typemax(Int64))
+
+Configure a linear or quadratic Taylor model where the gradients and Hessians are constructed 
+either by finite differencing (`mode = :fdm`) or automatic differencing (`mode = :autodiff`).
+"""
+@with_kw struct TaylorApproximateConfig <: TaylorCFG
     degree :: Int64 = 1
+
+    mode :: Symbol = :fdm
 
     max_evals :: Int64 = typemax(Int64)
     
     @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
+    @assert mode in [:fdm, :autodiff] "Use `mode = :fdm` or `mode = :autodiff`."
 end
 
-# There are two types of meta. The legacy meta type stores callbacks for gradients and hessians.
-# If a list of functions is provided, the file `src/diff_wrappers.jl` provides the same methods 
-# as for `DiffFn`s. The legacy meta does not exploit the 2-phase construction process.
+# For these models, it is not advisable to combine objectives:
+combinable( :: Union{TaylorCallbackConfig, TaylorApproximateConfig}) = false
 
-struct TaylorMetaCallbacks{GW, HW}
+# In both cases we transfer the finalized callbacks to the same meta structs.
+# In fact, `GW` and `HW` are `DiffFn`s as defined in `src/diff_wrappers.jl` (or `nothing`):
+
+struct TaylorMetaCallbacks{GW, HW} <: SurrogateMeta
     gw :: GW
     hw :: HW
 end
 
-# If actual callback handles are provided, we construct the wrappers here, similar to how its done for 
-# `ExactModel`s:
-function init_meta( cfg :: TaylorConfigCallbacks, tfn )
-    gw = FiniteDiffWrapper( tfn, cfg.gradients, cfg.jacobian )
-    hw = cfg.degree == 2 ? (isa( cfg.hessians, AbstractVector{<:Function} ) ? 
-        HessWrapper(tfn, cfg.hessians ) : HessFromGrads( gw ) ) : nothing
+# Again, we have a `tfn::TransformerFn` that represents the (un)scaling. \
+# If callbacks are provided, then we use the `GradWrapper` and the `HessWrapper`.
+
+function init_meta( cfg :: TaylorCallbackConfig, objf, tfn )
+    gw = GradWrapper( tfn, cfg.gradients, cfg.jacobian )
+    hw = cfg.degree == 2 ? isa( cfg.hessians, AbstractVector{<:Function} ) ? 
+        HessWrapper(tfn, cfg.hessians ) : nothing : nothing;
     return TaylorMetaCallbacks( gw, hw )
 end
 
-# If no callbacks are provided:
-function init_meta( cfg :: TaylorConfigFiniteDiff, tfn )
-    gw = FiniteDiffWrapper( tfn, cfg.gradients, cfg.jacobian )
+# If no callbacks are provided, we inspect the `mode` and use the corresponding wrappers: 
+
+function init_meta( cfg :: TaylorApproximateConfig, objf, tfn )
+    if cfg.mode == :fdm
+        gw = FiniteDiffWrapper(objf, tfn, nothing)
+    else
+        gw = AutoDiffWrapper( objf, tfn, nothing )
+    end
     hw = cfg.degree == 2 ? HessFromGrads(gw) : nothing
     return TaylorMetaCallbacks( gw, hw )
 end
 
 # The initialization for the legacy config types is straightforward as they don't use 
-# the 2-phase process:
-function prepare_init_model(cfg :: Union{TaylorConfigCallbacks, TaylorConfigFiniteDiff}, objf :: AbstractObjective, 
+# the new 2-phase process:
+function prepare_init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractObjective, 
     mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig; kwargs...)
     tfn = TransformerFn(mop)
-    return init_meta( cfg, tfn )
+    return init_meta( cfg, objf, tfn )
 end
 
+# The model construction happens in the `update_model` method and makes use of the `get_gradient` and `get_hessian`
+# methods for the wrappers stored in `meta`:
 
-=#
+function _init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractObjective, 
+    mop :: AbstractMOP, iter_data ::AbstractIterData, db ::AbstractDB, algo_config :: AbstractConfig, 
+    meta :: TaylorMetaCallbacks; kwargs...)
+    return update_model(nothing, objf, meta, mop, iter_data, db, algo_config; kwargs...)
+end
 
-#=
-struct TaylorMeta <: SurrogateMeta end   # no construction meta data needed
+function update_model( mod :: Union{Nothing,TaylorModel}, objf :: AbstractObjective, meta :: TaylorMetaCallbacks, 
+    mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; kwargs...)
 
-max_evals( cfg :: TaylorConfig ) = cfg.max_evals;
+    x = get_x(iter_data)
+    if isnothing(mod) || (x != mod.x0)
+        fx = get_fx( iter_data )
 
-fully_linear( tm :: TaylorModel ) = true;
-combinable( :: TaylorConfig ) = false;      # TODO think about this 
+        num_out = num_outputs( objf )
+        g = [ get_gradient(meta.gw , x , ℓ ) for ℓ = 1 : num_out ]
 
-# Same method as for ExactModel; duplicated for tidyness...
-"Modify/initialize thec exact model `mod` so that we can differentiate it later."
-function set_gradients!( mod :: TaylorModel, objf :: AbstractObjective, mop :: AbstractMOP ) :: Nothing
-    cfg = model_cfg(objf);
-    if isa( cfg.gradients, Symbol )
-        if cfg.gradients == :autodiff
-            mod.diff_fn = AutoDiffWrapper( objf )
-        elseif cfg.gradients == :fdm 
-            mod.diff_fn = FiniteDiffWrapper( objf );
+        if !isnothing(meta.hw)
+            H = [ get_hessian(meta.hw, x, ℓ) for ℓ = 1 : num_out ]
+        else
+            H = nothing 
         end
+
+        return TaylorModel(; x0 = x, fx0 = fx, g, H ), meta
     else
-        if isa(cfg.gradients, Vector)
-            @assert length(cfg.gradients) == num_outputs(objf) "Provide as many gradient functions as the objective has outputs."
-        elseif isa(cfg.gradients, Function)
-            @assert num_outputs(objf) == 1 "Only one gradient provided for $(num_outputs(objf)) outputs."
-        end
-        mod.diff_fn = GradWrapper(mop, cfg.gradients, cfg.jacobian )
+        return mod, meta
     end
-    nothing
+
 end
 
-function set_hessians!( mod :: TaylorModel, objf :: AbstractObjective, mop :: AbstractMOP) :: Nothing
-    cfg = model_cfg(objf);
-    if isa( cfg.hessians, Symbol )
-        if isa( mod.diff_fn, GradWrapper )
-            mod.hess_fn = HessFromGrads( mod.diff_fn, cfg.hessians );
-        else 
-            if cfg.hessians == :autodiff
-                if isa( mod.diff_fn, AutoDiffWrapper )
-                    mod.hess_fn = mod.diff_fn 
-                else
-                    mod.hess_fn = AutoDiffWrapper(objf);
-                end
-            elseif cfg.hessians == :fdm 
-                if isa( mod.diff_fn, FiniteDiffWrapper)
-                    mod.hess_fn = mod.diff_fn
-                else
-                    mod.hess_fn = FiniteDiffWrapper( objf );
-                end
-            end
-        end
+# ## Model Evaluation
+
+# The evaluation of a Taylor model of form 
+# 
+# ```math 
+#     m_ℓ(\mathbf x) = f_ℓ(\mathbf x_0) + 
+#     \mathbf g^T ( \mathbf x - \mathbf x_0 ) + ( \mathbf x - \mathbf x_0 )^T \mathbf H_ℓ ( \mathbf x - \mathbf x_0)  
+# ```
+# is straightforward:
+"Evaluate (internal) output `ℓ` of TaylorModel `tm`, provided a difference vector `h = x - x0`."
+function _eval_models( tm :: TaylorModel, h :: Vec, ℓ :: Int )
+    ret_val = tm.fx0[ℓ] + tm.g[ℓ]'h
+    if !isnothing(tm.H)
+        ret_val += .5 * h'tm.H[ℓ]*h 
+    end
+    return ret_val
+end
+
+"Evaluate (internal) output `ℓ` of `tm` at scaled site `x̂`."
+function eval_models( tm :: TaylorModel, x̂ :: Vec, ℓ :: Int )
+    h = x̂ .- tm.x0
+    return _eval_models( tm, h, ℓ)
+ end
+
+# For the vector valued model, we iterate over all (internal) outputs:
+function eval_models( tm :: TaylorModel, x̂ :: Vec )
+    h = x̂ .- tm.x0
+    return [ _eval_models(tm, h, ℓ) for ℓ = eachindex(tm.g)]
+end
+
+# The gradient of ``m_ℓ`` can easily be determined:
+function get_gradient( tm :: TaylorModel, x̂ :: Vec, ℓ :: Int) 
+    if isnothing(tm.H)
+        return tm.g[ℓ]
     else
-        if isa(cfg.hessians, Vector)
-            @assert length(cfg.hessians) == num_outputs(objf) "Provide as many hessian functions as the objective has outputs."
-        elseif isa(cfg.hessians, Function)
-            @assert num_outputs(objf) == 1 "Only one hessian function provided for $(num_outputs(objf)) outputs."
-        end
-        mod.hess_fn = HessWrapper(mop, cfg.hessians )
+        h = x̂ .- tm.x0
+        return tm.g[ℓ] .+ .5 * ( tm.H[ℓ]' + tm.H[ℓ] ) * h
     end
-    nothing
 end
 
-@doc "Return a TaylorModel build from a VectorObjectiveFunction `objf`."
-function _init_model( cfg ::TaylorConfig, objf :: AbstractObjective, 
-    mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig ) :: Tuple{TaylorModel, TaylorMeta}
-    tm0 = TaylorModel(; mop = mop, objf = objf );
-    set_gradients!( tm0, objf, mop );
-    if cfg.degree >= 2
-        set_hessians!( tm0, objf, mop );
-    end
-    tmeta0 = TaylorMeta()
-    return update_model( tm0, objf, tmeta0, mop, id, ac);    
+# And for the Jacobian, we again iterate:
+function get_jacobian( tm :: TaylorModel, x̂ :: Vec )
+    grad_list = [ get_gradient(tm, x̂, ℓ) for ℓ=eachindex( tm.g ) ]
+    return transpose( hcat( grad_list... ) )
 end
 
-function update_model( tm :: TaylorModel, objf :: AbstractObjective, tmeta :: TaylorMeta,
-    mop :: AbstractMOP, id :: AbstractIterData, :: AbstractConfig; ensure_fully_linear :: Bool = false ) :: Tuple{TaylorModel,TaylorMeta}
-    @info "Building Taylor model(s)."
-    tm.x0 = xᵗ(id);
-    tm.fx0 = fxᵗ(id)[output_indices(objf,mop)];
-    
-    # set gradients
-    empty!(tm.g)
-    for ℓ = 1 : num_outputs(objf)
-        push!(tm.g, get_gradient(tm.diff_fn, tm.x0, ℓ))
-    end
-    
-    # and hessians if needed
-    if !isnothing(tm.hess_fn)
-        empty!(tm.H)
-        for ℓ = 1 : num_outputs(objf)
-            hess_mat = Matrix(get_hessian(tm.hess_fn, tm.x0, ℓ));
-            push!(tm.H, hess_mat);
-        end
-    end
-    @info "Done building Taylor model(s)."
-    return tm, tmeta
-end
+# ## Summary & Quick Examples 
 
-function improve_model(tm::TaylorModel, ::AbstractObjective, tmeta :: TaylorMeta,
-    ::AbstractMOP, id :: AbstractIterData, :: AbstractConfig;
-    ensure_fully_linear :: Bool = false ) :: Tuple{TaylorModel, TaylorMeta}
-    tm, tmeta 
-end
+# 1. The recommended way to use Finite Difference Taylor models is to define them 
+#    with TaylorConfig, i.e.,  
+#    ```julia
+#    add_objective!(mop, f, TaylorConfig())
+#    ```
+# 2. To use `FiniteDiff.jl` instead, do 
+#    ```julia
+#    add_objective!(mop, f, TaylorApproximateConfig(; mode = :fdm))
+#    ```
+# 3. Have callbacks for the gradients and the Hessians? Great! 
+#    ```julia
+#    add_objective!(mop, f, TaylorCallbackConfig(; degree = 1, gradients = [g1,g2]))
+#    ```
+# 4. No callbacks, but you want the correct matrices anyways? `ForwardDiff` to the rescue:
+#    ```julia 
+#    add_objective!(mop, f, TaylorApproximateConfig(; degree = 2, mode = :autodiff)
+#    ```
 
-
-=#
+# ### Complete usage example 
+# ```julia
+# using Morbit
+# Morbit.print_all_logs()
+# mop = MixedMOP(3)
+#
+# add_objective!( mop, x -> sum( ( x .- 1 ).^2 ), Morbit.TaylorApproximateConfig(;degree=2,mode=:fdm) )
+# add_objective!( mop, x -> sum( ( x .+ 1 ).^2 ), Morbit.TaylorApproximateConfig(;degree=2,mode=:autodiff) )
+#
+# x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])
+# ```

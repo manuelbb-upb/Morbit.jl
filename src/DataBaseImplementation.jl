@@ -11,6 +11,8 @@
 	
 	iter_info :: Vector{IT} = IT[]
 
+	unevaluated_ids :: Vector{Int} = []
+
 	@assert length(res) == num_entries "Number of entries does not match `num_entries`."
 end
 
@@ -42,9 +44,29 @@ function new_result!( db :: ArrayDB{F,RT,IT}, x :: Vec, y :: Vec, id :: Int = -1
 	new_id = id < 0 ? next_id(db) : id
 	new_result = init_res( RT, x, y, new_id )
 	append!(db.res, new_result)
+	if !has_valid_value(new_result) 
+		push!(db.unevaluated_ids, new_id)
+	end
 	db.num_entries += 1
 	return new_id
 end
+
+function _missing_ids(db :: ArrayDB)
+	return db.unevaluated_ids
+end
+
+function set_evaluated_flag!( db :: ArrayDB, id :: Int )
+	if has_valid_value( get_result(db, id) )
+		for (i,_id) in enumerate(db.unevaluated_ids)
+			if _id == id
+				deleteat!(db.unevaluated_ids,i)
+				break
+			end
+		end
+	end
+	nothing
+end
+
 
 function stamp!( db :: ArrayDB, ids :: AbstractIterSaveable ) :: Nothing 
 	push!(db.iter_info, ids)

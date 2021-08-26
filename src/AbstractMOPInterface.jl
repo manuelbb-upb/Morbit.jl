@@ -311,7 +311,7 @@ function reset_evals!(mop :: AbstractMOP) :: Nothing
 end
 
 # use for finite (e.g. local) bounds only
-_rand_box_point(lb::Vec, ub::Vec, type :: Type{<:Real} = Float16) ::Vec = lb .+ (ub .- lb) .* rand(type, length(lb));
+_rand_box_point(lb::Vec, ub::Vec, type :: Type{<:Real} = MIN_PRECISION) ::Vec = lb .+ (ub .- lb) .* rand(type, length(lb));
 
 # wrapper to unscale x̂ from internal domain
 # and safeguard against boundary violations
@@ -323,7 +323,14 @@ struct TransformerFn{F}
     not_inf_indices :: Vector{Int}
 end
 
-function TransformerFn(mop :: AbstractMOP, T :: Type{<:AbstractFloat} = Float32)
+"Evaluate the objective at scaled site `x̂` with help of `tfn`. Used in `diff_wrappers`."
+function eval_objf(objf :: AbstractObjective, tfn :: TransformerFn, x̂ :: Vec)
+    inc_evals!(objf)
+    eval_handle(objf)( unscale(tfn, x̂ ) )
+end
+
+"Return the `TransformerFn` defined by `mop` with a minimum precision of `T`."
+function TransformerFn(mop :: AbstractMOP, T :: Type{<:AbstractFloat} = MIN_PRECISION)
     LB, UB = full_bounds( mop )
     W = UB - LB
     I = findall(isinf.(W))
@@ -350,7 +357,18 @@ function (tfn:: TransformerFn)( x̂ :: AbstractVector{<:Real} )
     return χ
 end
 
+unscale( tfn :: TransformerFn, x̂ :: Vec ) = tfn(x̂)
+
+function scale( tfn :: TransformerFn, x :: Vec )
+    χ = copy( x )
+    I = tfn.not_inf_indices;
+    χ[I] .= ( χ[I] .- tfn.lb[I] ) ./ tfn.w[I]
+    return χ
+end
+
+#=
 # used in special broadcast to only retrieve bounds once
 function ( tfn ::TransformerFn)( X :: AbstractVector{<:AbstractVector} )
     return [ _unscale( x, tfn.lb, tfn.ub ) for x ∈ X ]
 end
+=#

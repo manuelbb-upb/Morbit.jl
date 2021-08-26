@@ -55,6 +55,19 @@ function set_value!(db, id, y) :: Nothing
     set_value!( get_result(db,id), y )
 end
 
+function _missing_ids( db :: AbstractDB )
+    missing_ids = Int[]
+    for id = eachindex(db)
+        res = get_result( db, id )
+        if !has_valid_value(res)
+            push!(missing_ids, id)
+        end
+    end
+    return _missing_ids
+end
+
+set_evaluated_flag!( db :: AbstractDB, id :: Int) = nothing
+
 function find_result( db :: AbstractDB, x :: Vec, y :: Vec  ) :: Int
     for id ∈ eachindex(db)
         if get_site( db, id ) == x && get_value( db, id ) == y
@@ -75,23 +88,22 @@ end
 # this should be overwritten to make it more efficient. 
 # E.g., `new_result!` can store indices of results where `y` is empty
 function eval_missing!( db :: AbstractDB{F}, mop :: AbstractMOP ) :: Nothing where F
-    missing_ids = Int[]
-    for id = eachindex(db)
-        res = get_result( db, id )
-        if !has_valid_value(res)
-            push!(missing_ids, id)
-        end
-    end
+    
+    missing_ids = _missing_ids(db)
 
+    @logmsg loglevel2 "Performing $(length(missing_ids)) objective evaluations into the database."
     # evaluate everything in one go to exploit parallelism
     eval_sites = [ get_site( db, id ) for id in missing_ids ]
     eval_values = eval_and_sort_objectives.(mop, eval_sites)
-
+   
     @assert length(eval_sites) == length(eval_values) == length(missing_ids) "Number of evaluation results does not match."
     for (i,id) in enumerate(missing_ids)
         set_value!( db, id, eval_values[i] )
     end
-    
+   
+    for id in missing_ids 
+        set_evaluated_flag!(db, id)
+    end
     return nothing
 end
 
@@ -174,4 +186,10 @@ function copy_db( old_db :: DBT, saveable_type :: Type ) where DBT <: AbstractDB
         @logmsg loglevel2 "Failed to copy database with new saveable type."
         return old_db 
     end
+end
+
+"Return indices of results in `db` that lie in a box with corners `lb` and `ub`."
+function results_in_box_indices(db, lb, ub, exclude_indices = Int[] )
+	return [ id for id = eachindex(db) if
+		id ∉ exclude_indices && all(lb .<= get_site(db,id) .<= ub ) ]
 end

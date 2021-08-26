@@ -2,7 +2,7 @@
 include("RbfModel.jl")
 include("ExactModel.jl")
 include("TaylorModel.jl")
-#include("LagrangeModel.jl")
+include("LagrangeModel.jl")
 #include("newRBF.jl");
 
 struct SurrogateWrapper{

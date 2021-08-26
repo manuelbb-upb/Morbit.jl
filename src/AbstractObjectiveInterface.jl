@@ -94,11 +94,6 @@ function eval_handle( wrapped_objf :: OutTypeWrapper{T,O} ) where {T,O}
     return x -> convert(T, eval_handle(wrapped_objf.objf(x)))
 end
 
-function eval_objf( wrapped_objf :: OutTypeWrapper{T,O}, x :: Vec ) :: T where {T,O}
-    inc_evals!(wrapped_objf)
-    return convert(T, eval_handle(wrapped_objf.objf)(x))
-end
-
 "A general constructor."
 function _wrap_func( :: Type{<:OutTypeWrapper{T,O}}, fn :: Function, model_cfg :: SurrogateConfig, 
     n_vars :: Int, n_out :: Int ) where {T, O}

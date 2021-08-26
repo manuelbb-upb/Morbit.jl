@@ -15,6 +15,8 @@ const NumOrVec = Union{Real, Vec}
 const VecOrNum = NumOrVec 
 const Mat = AbstractMatrix{<:Real}
 
+const MIN_PRECISION = Float32
+
 struct XInt <: Integer 
     val :: Union{Int,Nothing}
 end 

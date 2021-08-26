@@ -56,7 +56,7 @@ const test_stamps16 = [
 	RFD.BFDStamp(1,2, h16),
 	RFD.BFDStamp(1,3, h16),
 ]
-#=
+
 @testset "Recursive Finite Difference Trees" begin
 	for ET in [Float16, Float32, Float64]
 		stamps = ET == Float16 ? test_stamps16 : ET == Float32 ? test_stamps32 : test_stamps64
@@ -108,7 +108,7 @@ const test_stamps16 = [
 	end
 
 end#testset
-=#
+
 @testset "Accurate Linear Models, Unconstrained " begin
 	mop = Morbit.MixedMOP(2)
 	
@@ -138,7 +138,7 @@ end#testset
 	x0 = [π, -ℯ]
 
 	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
-	Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+	#Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
 
 	mod = sc.surrogates[1].model
 	objf = Morbit.list_of_objectives(smop)[1]
@@ -150,6 +150,134 @@ end#testset
 	@test Morbit.get_jacobian( mod, x̂0 ) ≈ ForwardDiff.jacobian( ξ -> Morbit.eval_all_objectives(smop, ξ), x̂0 )
 
 end#testset
+
+
+@testset "Quadratic Models, Unconstrained " begin
+	mop = Morbit.MixedMOP(2)
+	
+	Morbit.add_objective!( mop, x -> sum(x.^2), Morbit.TaylorConfig(;degree=2) )
+
+	x0 = [π, -ℯ]
+
+	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
+	#Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+
+	mod = sc.surrogates[1].model
+	objf = Morbit.list_of_objectives(smop)[1]
+
+	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
+	@test Morbit.get_gradient( mod, x0, 1 ) ≈ 2 .* x0
+	@test Morbit.get_jacobian(sc, x0) ≈ 2 .* x0'
+end#testset
+
+@testset "Two Parabolas, Taylor Models, 3D2D" begin
+	mop = MixedMOP(3)
+
+	add_objective!( mop, x -> sum( ( x .- 1 ).^2 ), Morbit.TaylorApproximateConfig(;degree=2,mode=:fdm) )
+	add_objective!( mop, x -> sum( ( x .+ 1 ).^2 ), Morbit.TaylorApproximateConfig(;degree=2,mode=:autodiff) )
+
+	x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])
+
+	@test isapprox(x_fin[1],x_fin[2], atol = 1e-3) && isapprox(x_fin[2], x_fin[3]; atol = 1e-3) 
+
+	mop = MixedMOP(3)
+
+	add_objective!( mop, x -> sum( ( x .- 1 ).^2 ), 
+		TaylorCallbackConfig(; degree = 1, gradients = [ x -> 2 .* ( x .- 1 ), ] ))
+	add_objective!( mop, x -> sum( ( x .+ 1 ).^2 ), 
+		TaylorCallbackConfig(; degree=2, gradients = [ x -> 2 .* ( x .+ 1 ), ],
+		hessians = [ x -> [ 2.0 0.0 0.0; 0.0 2.0 0.0; 0.0 0.0 2.0] ] ) )
+
+	
+	x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])
+
+	@test isapprox(x_fin[1],x_fin[2], atol = 1e-3) && isapprox(x_fin[2], x_fin[3]; atol = 1e-3) 
+
+end#testset
+
+@testset "Two Parabolas, Derivative Accuracy" begin
+	# deg 1 autodiff
+	mop = Morbit.MixedMOP( 2 )
+
+	Morbit.add_objective!( mop, x -> sum(x), Morbit.TaylorApproximateConfig(;degree=1, mode=:autodiff) )
+
+	x0 = [π, -ℯ]
+
+	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
+#	Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+
+	mod = sc.surrogates[1].model
+	objf = Morbit.list_of_objectives(smop)[1]
+
+	x̂0 = Morbit.scale( x0, smop)
+
+	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
+	@test Morbit.get_gradient( mod, x0, 1 ) ≈ [1, 1]
+	@test Morbit.get_jacobian(sc, x0) ≈ [ 1 1 ]
+
+	#===================================================================#
+	# deg 2 autodiff
+	mop = Morbit.MixedMOP( 2 )
+
+	Morbit.add_objective!( mop, x -> sum(x.^2), Morbit.TaylorApproximateConfig(;degree=2, mode=:autodiff) )
+
+	x0 = [π, -ℯ]
+
+	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
+	# Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+
+	mod = sc.surrogates[1].model
+	objf = Morbit.list_of_objectives(smop)[1]
+
+	x̂0 = Morbit.scale( x0, smop)
+
+	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
+	@test Morbit.get_gradient( mod, x0, 1 ) ≈ 2 .* x0
+	@test Morbit.get_jacobian(sc, x0) ≈ 2 .* x0'
+	@test mod.H[1] ≈ [ 2.0 0.0; 0.0 2.0 ]	# hessian of Taylor Model
+
+	#===================================================================#
+	# deg 1 finite diff
+	mop = Morbit.MixedMOP( 2 )
+
+	Morbit.add_objective!( mop, x -> sum(x), Morbit.TaylorApproximateConfig(;degree=1, mode=:fdm) )
+
+	x0 = [π, -ℯ]
+
+	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
+	#Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+
+	mod = sc.surrogates[1].model
+	objf = Morbit.list_of_objectives(smop)[1]
+
+	x̂0 = Morbit.scale( x0, smop)
+
+	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
+	@test Morbit.get_gradient( mod, x0, 1 ) ≈ [1, 1]
+	@test Morbit.get_jacobian(sc, x0) ≈ [ 1 1 ]
+
+	#===================================================================#
+	# deg 2 autodiff
+	mop = Morbit.MixedMOP( 2 )
+
+	Morbit.add_objective!( mop, x -> sum(x.^2), Morbit.TaylorApproximateConfig(;degree=2, mode=:fdm) )
+
+	x0 = [π, -ℯ]
+
+	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
+#	Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+
+	mod = sc.surrogates[1].model
+	objf = Morbit.list_of_objectives(smop)[1]
+
+	x̂0 = Morbit.scale( x0, smop)
+
+	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
+	@test Morbit.get_gradient( mod, x0, 1 ) ≈ 2 .* x0
+	@test Morbit.get_jacobian(sc, x0) ≈ 2 .* x0'
+	@test norm(mod.H[1] .- [ 2.0 0.0; 0.0 2.0 ]) <= 0.1	# hessian of Taylor Model
+	
+end
 
 end#module
 

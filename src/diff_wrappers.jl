@@ -56,7 +56,8 @@ end
 
 # no jacobian handle set
 function get_jacobian( adw :: AutoDiffWrapper{O,TT,JT}, x̂ :: Vec ) where{O,TT,JT<:Nothing}
-    return AD.jacobian( eval_handle(adw.objf) ∘ adw.tfn, x̂ );
+    #return AD.jacobian( eval_handle(adw.objf) ∘ adw.tfn, x̂ );
+    return AD.jacobian( _eval_handle(adw), x̂ )
 end
 
 # jacobian handle set
@@ -73,32 +74,40 @@ end
 
 # fallbacks, if no jacobian is set; not optimized for multiple outputs
 function get_gradient( adw :: AutoDiffWrapper, x̂ :: Vec, ℓ :: Int = 1)
-    return AD.gradient( x -> eval_handle(adw.objf)( adw.tfn(x) )[ℓ], x̂ )
+    #return AD.gradient( x -> eval_handle(adw.objf)( adw.tfn(x) )[ℓ], x̂ )
+    return AD.gradient( _eval_handle(adw, ℓ), x̂ )
 end  
 
-function get_hessian( adw :: AutoDiffWrapper{O,TT,JT}, x̂ :: Vec, ℓ :: Int = 1) where{O,TT,JT<:Nothing}
-    return AD.jacobian( x -> get_gradient(adw, x, ℓ), x̂ )
-end
-
+#=
 # not optimized for multiple outputs
 function get_hessian( adw :: AutoDiffWrapper, x̂ :: Vec, ℓ :: Int = 1)
-    return AD.hessian( x -> eval_handle(adw.objf)( adw.tfn(x) )[ℓ], x̂ )
+    #return AD.hessian( x -> eval_handle(adw.objf)( adw.tfn(x) )[ℓ], x̂ )
+    return AD.hessian( x -> eval_objf(adw.objf, adw.tfn, x )[ℓ], x̂ )
 end
+=#
 
 struct FiniteDiffWrapper{
         O<:AbstractObjective,
-        TT<:AbstractMOP,
-        JT<:Function
+        TT<:TransformerFn,
+        JT<:Union{Function,Nothing}
     } <: DiffFn
     objf :: O
     tfn :: TT
     jacobian :: JT
 end
 
+function _eval_handle( fdw :: Union{AutoDiffWrapper,FiniteDiffWrapper}, ℓ = nothing )
+    if isnothing(ℓ)
+        return x -> eval_objf( fdw.objf, fdw.tfn, x )
+    else
+        return x -> eval_objf( fdw.objf, fdw.tfn, x )[ℓ]
+    end
+end
+
 # no jacobian handle set: apply finite differencing to the composed function(s)
 # F_ℓ ∘ unscale  
 function get_jacobian( fdw :: FiniteDiffWrapper{O,TT,JT}, x̂ :: Vec ) where{O,TT,JT<:Nothing}
-    return FD.finite_difference_jacobian( x -> eval_handle(fdw.objf)( adw.tfn(x) ) , x̂ )
+    return FD.finite_difference_jacobian(_eval_handle(fdw), x̂ )
 end
 
 # jacobian handle set: use the jacobian handle and apply chain rule for unscaling transformation
@@ -114,7 +123,7 @@ function get_gradient(fdw :: FiniteDiffWrapper{O,TT,JT}, x̂ :: Vec, ℓ :: Int 
 end
 
 function get_gradient( fdw :: FiniteDiffWrapper, x̂ :: Vec, ℓ :: Int = 1)
-    return FD.finite_difference_gradient( x -> eval_handle(fdw.objf)( adw.tfn(x) )[ℓ], x̂ );
+    return FD.finite_difference_gradient( _eval_handle(fdw, ℓ), x̂ );
 end
 
 #=
@@ -158,11 +167,11 @@ end
 =# # Use a GradWrapper instead 
 
 function _get_grad_func( gw, ℓ :: Int) 
-    return x -> _get_gradient( gw, x, ℓ)
+    return x -> get_gradient( gw, x, ℓ)
 end
 
 function get_hessian( hw :: HessFromGrads{<:AutoDiffWrapper}, x̂ :: Vec, ℓ :: Int = 1 )
-    return get_hessian( hw.gw, x̂, ℓ)
+    AD.jacobian( _get_grad_func( hw.gw, ℓ), x̂ )
 end
 
 function get_hessian( hw :: HessFromGrads{<:FiniteDiffWrapper}, x̂ :: Vec, ℓ :: Int = 1 )

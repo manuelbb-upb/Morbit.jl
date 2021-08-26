@@ -1,502 +1,558 @@
+# # Lagrange Polynomial Models
+
+# ## Intro and Prerequisites
+
+# Polyoniaml interpolation models are a common choice for surrogate modeling.
+# In our setting we want to construct models for ``n``-variate objectives and 
+# use polynomials of degree 1 or 2.
+# We hence need a basis for the space ``Π_n^d`` of polynomials.
+# Given a point set that is suited for interpolation (a *poised* set) we can 
+# use the Lagarange basis ``\{l_i}`` with ``l_i(x_j) = δ_{i,j}`` to easily
+# find the coefficients for vector valued models.
+
+# We use `DynamicPolynomials` for polynomial arithmetic, `NLopt` to optimize
+# polynomials and some more packages:
 using DynamicPolynomials
+import NLopt
+import Combinatorics
 
-using FileIO;
+# ## Surrogate Interface Implementations
 
-@with_kw mutable struct LagrangePoly 
-    p :: AbstractPolynomialLike 
-    grad_poly :: Union{Nothing, Vector{<:AbstractPolynomialLike}} = nothing
-    res :: AbstractResult = init_res(Result)  
-    # TODO check if `res` is a reference (good) or copy (bad for memory)
-    # if the latter, store only values at interpolation sites                                
+# The model itself is defined only by its vector of Lagrange basis polynomials
+# and the coefficients.
+
+@with_kw struct LagrangeModel{
+        B <: AbstractArray{<:AbstractPolynomialLike},
+        G <: AbstractArray{<:AbstractArray{<:AbstractPolynomialLike}},
+        V <: AbstractVector{<:AbstractVector{<:AbstractFloat} } } <: SurrogateModel
+    basis :: B
+    grads :: G
+    coeff :: V 
+    fully_linear :: Bool = false
 end
-Broadcast.broadcastable(lp :: LagrangePoly ) = Ref(lp);
 
-@with_kw mutable struct LagrangeModel <: SurrogateModel
-    n_vars :: Int;  # stored for convenience
-    n_out :: Int;
-    basis :: Vector{LagrangePoly} = LagrangePoly[];
-    vals :: RVecArr = RVec[];
-    fully_linear :: Bool = false;
-    out_indices :: Vector{Int} = Int[];
-end
+fully_linear( lm :: LagrangeModel ) = lm.fully_linear
+
+# There is a multitude of configuration parameters, most of which will
+# be explained later:
 
 @with_kw mutable struct LagrangeConfig <: SurrogateConfig
-    degree :: Int = 2;
-    θ_enlarge :: Real = 2;
+    
+    "Degree of the surrogate model polynomials."
+    degree :: Int = 2
+    
+    "Enlargement parameter to consider more points for inclusion."
+    θ_enlarge :: Real = 2
+    
+    "Quality parameter in Λ-Poisedness Algorithm."
+    LAMBDA :: Real = 1.5
 
-    "Acceptance Parameter in first Poisedness-Algorithm."
-    ε_accept :: Real = 1e-8;
-    "Quality Parameter in Λ-Poisedness Algorithm."
-    Λ :: Real = 1.5;
+    "Whether or not the interpolation sets must be Λ-poised (and the models fully linear)."
+    allow_not_linear :: Bool = false
 
-    allow_not_linear :: Bool = false;
-
-    optimized_sampling :: Bool = true;
+    "Whether or not to try to construct a new interpolation set in each iteration."
+    optimized_sampling :: Bool = true
 
     # # if optimized_sampling = false, shall we try to use saved sites?
-    save_path :: Union{AbstractString, Nothing} = nothing;
-    io_lock :: Union{Nothing, ReentrantLock, Threads.SpinLock} = nothing;
+    save_path :: String = ""
+    io_lock :: Union{Nothing, Threads.ReentrantLock} = nothing
 
-    algo1_max_evals :: Union{Nothing,Int} = nothing;    # nothing = automatic
-    algo2_max_evals :: Union{Nothing,Int} = nothing;
+    algo1_max_evals :: Int = -1
+    algo2_max_evals :: Int = -1
 
-    algo1_solver :: Symbol = :LD_MMA
-    algo2_solver :: Symbol = algo1_solver;
+    algo1_solver :: Symbol = :LN_BOBYQA
+    algo2_solver :: Symbol = :LN_BOBYQA
 
     max_evals :: Int64 = typemax(Int64);
+
+    @assert 1 <= degree <= 2 "Only linear and quadratic models are supported."
+    @assert LAMBDA > 1 "`LAMBDA` must be > 1."
 end
 
 # overwrite lock and unlock so we can use `nothing` as a lock
 function Base.lock(::Nothing) end
 function Base.unlock(::Nothing) end
 
-max_evals( cfg::LagrangeConfig)::Int=cfg.max_evals;
+# The required method implementations are straightforward.
+# Note, thate we allow the models to be combined to vector functions if they 
+# share the same configuration to avoid redundant efforts whilst constructing models.
 
-fully_linear( lm::LagrangeModel ) :: Bool = lm.fully_linear;
+max_evals( cfg :: LagrangeConfig ) :: Int = cfg.max_evals
+combinable( cfg :: LagrangeConfig ) :: Bool = true
 
-combinable(::LagrangeConfig) ::Bool = true;
-
-function combine(cfg1 :: LagrangeConfig, cfg2 :: LagrangeConfig) :: LagrangeConfig
-    cfg1
+# We also need to introduce our own implementation for `isequal` and `hash` for 
+# `LagrangeConfig`s to be combinable, see [the docs too](https://docs.julialang.org/en/v1/base/base/).
+function Base.hash( cfg :: LagrangeConfig, h :: UInt )
+	return hash( getfield.( cfg, Tuple( fn for fn ∈ fieldnames(LagrangeConfig) ) ), h )
+end
+function Base.isequal( cfg1 :: LagrangeConfig, cfg2 :: LagrangeConfig )
+	all( isequal( getfield(cfg1, fn), getfield(cfg2, fn) ) for fn in fieldnames( LagrangeConfig) )
 end
 
-@with_kw mutable struct LagrangeMeta <: SurrogateMeta
-    interpolation_indices :: Vector{<:Union{Nothing,Int}} = Union{Nothing,Int}[];
-    #lagrange_basis :: Vector{Any} = [];
+# The `LagrangeMeta` simply holds the database indices of the results
+# we want to interpolate at.
+# We also store the output indices of the model for convenience and carry 
+# polynomials that act on ``[0,1]^n``.
+
+@with_kw struct LagrangeMeta{
+        CB <: Union{Nothing, Vector{<:AbstractPolynomialLike}},
+        LB <: Union{Nothing, Vector{<:AbstractPolynomialLike}},
+        P <: Union{Nothing, AbstractVector{<:AbstractVector{<:Real}}}
+    } <: SurrogateMeta
+    interpolation_indices :: Vector{Int} = []
+    out_indices :: Vector{Int} = []
+    canonical_basis :: CB = nothing
+    lagrange_basis :: LB = nothing
+    stamp_points :: P = nothing
+    fully_linear :: Bool = false
 end
 
-function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective,
-    mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig ) :: Tuple{LagrangeModel, LagrangeMeta}
-    lm = LagrangeModel(; 
-        n_vars = num_vars(objf),
-        n_out = num_outputs(objf),
-        out_indices = copy(output_indices( objf, mop)),
-        basis = _canonical_basis( num_vars( mop ), cfg.degree ),
-    );
-    # prepare initial basis of polynomial space 
-    lmeta = LagrangeMeta();
-    return update_model(lm, objf, lmeta, mop, id, ac;
-        ensure_fully_linear = true)
+saveable_type( T :: LagrangeMeta ) = LagrangeMeta{Nothing,Nothing}
+saveable( meta :: LagrangeMeta ) = LagrangeMeta(;
+    interpolation_indices = meta.interpolation_indices, out_indices = meta.output_indices )
+
+export LagrangeConfig, LagrangeMeta, LagrangeModel
+
+# ## Construction
+
+# ### A Bit of Theory
+# The canonical basis is obtained by calculating the non-negative 
+# integral solutions to the euqation
+# ```math
+# x_1 + … + x_n \le d.
+# ```
+# These solutions can be found using the `Combinatorics` 
+# package via `multiexponents(n,d)` (`d` must be successively increased).
+
+function non_negative_ineq_solutions(deg, n_vars)
+	Iterators.flatten( ( collect( Combinatorics.multiexponents( n_vars, d )) for d = 0 : deg ) )
 end
 
-function _eval_new_sites!( lm :: LagrangeModel, lmeta :: LagrangeMeta, 
-        mop :: AbstractMOP, id :: AbstractIterData )  :: Nothing
-
-    basis_results = [lp.res for lp ∈ lm.basis];
-    _eval_and_store_new_results!(id, basis_results, mop);
-    #@show  [ get_id(res) for res ∈ basis_results ];
-    lmeta.interpolation_indices = [ convert(Union{Int,Nothing},get_id(res)) for res ∈ basis_results ];
-    nothing 
+function get_poly_basis( deg, n_vars)
+	exponents = non_negative_ineq_solutions(deg, n_vars )
+	polys = let
+		@polyvar x[1:n_vars]
+		[ prod(x.^e) for e in exponents ]
+	end
+	return polys
 end
 
-function _set_gradient!(lp :: LagrangePoly) :: Nothing
-    lp.grad_poly = differentiate.(lp.p, DynamicPolynomials.variables(lp.p));
-    nothing
+# We are going to use the canonical basis to 
+# determine a **poised set** of points.
+# This does in fact work with any polynomial basis for ``Π_n^d``. \
+# In the process of doing so, we also modify (a copy of?) 
+# the basis so that it becomes the Lagrange basis for the returned point set.
+# 
+# The Larange basis is formed by normalizing and orthogonalizing with respect to the point set:
+
+function orthogonalize_polys( poly_arr, x, i )
+	# normalize i-th polynomial with respect to `x`
+	p_i = poly_arr[i] / poly_arr[i](x)
+	
+	# orthogoalize 
+	return [ j != i ? poly_arr[j] - ( poly_arr[j](x) * p_i ) : p_i for j = eachindex( poly_arr ) ]
 end
 
-function _update_model_optimized( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
-    mop :: AbstractMOP, id :: AbstractIterData, :: AbstractConfig; 
-    ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
-    cfg = model_cfg(objf) :: LagrangeConfig;
-    
-    make_basis_poised!( 
-        lm.basis, id, mop ; 
-        Δ_factor = cfg.θ_enlarge, ε_accept = cfg.ε_accept,
-        max_solver_evals = cfg.algo1_max_evals,
-        solver = cfg.algo1_solver
-    );
-    
-    if ensure_fully_linear || !cfg.allow_not_linear
-        make_basis_lambda_poised!(
-            lm.basis, id, mop;
-            Δ_factor = cfg.θ_enlarge, Λ = cfg.Λ, max_solver_evals = cfg.algo2_max_evals, 
-            solver = cfg.algo2_solver
-        );
-        lm.fully_linear = true;
-    end
-    
-    _eval_new_sites!( lm, lmeta, mop, id);
-    _set_gradient!.(lm.basis);
+# We use Algorithm 6.2 and Algorithm 6.3 from the book 
+# "Introduction to Derivative-Free Optimization"
+# by Conn et. al. \
+# Algorithm 6.2 makes the set poised (suited for interpolation) and 
+# returns the corresponding Lagrange basis.
+# Algorithm 6.3 takes the poised set and the Lagrange basis and 
+# tries to make it ``Λ``-poised. ``Λ`` must be greater 1 and 
+# a smaller value makes the set more suited for good models.
 
-    return lm, lmeta;
-end 
-
-@memoize ThreadSafeDict function _get_unit_basis( n_vars :: Int, cfg :: LagrangeConfig ) :: Vector{LagrangePoly}
-    return _get_unit_basis( Val(!isnothing( cfg.save_path ) ) , n_vars, cfg ) 
-end
-
-function _get_unit_basis( use_saved :: Val{true}, n_vars :: Int, cfg :: LagrangeConfig )
-    load_successful = true;
-    unit_sites = [];
-    lock(cfg.io_lock) 
-    try 
-        file_dict = load(cfg.save_path);
-        unit_sites = file_dict["sites"];
-    catch
-        stacktrace( catch_backtrace() )
-        @warn "Could not load files from file. Calculating a poised set."
-        load_successful = false;
-    end
-    
-    if load_successful
-        # check if the sites are any goodif length( unit_sites[1] ) != n_vars || 
-        length( unit_sites ) != binomial( n_vars + cfg.degree, n_vars )
-        if any( any( ( s .< 0 ) .| ( s .> 1 ) ) for s ∈ unit_sites )
-            @warn "Loaded sites not suited for interpolation."
-            load_successful = false;
-        end
-    end
-
-    if !load_successful
-        unit_basis = _get_unit_basis( Val(false), n_vars, cfg )
-    else 
-        @logmsg loglevel4 "Loaded sites from $(cfg.save_path)"
-        unit_basis = copy( _canonical_basis( n_vars, cfg.degree ) );
-        for (i,x) ∈ enumerate(unit_sites)
-            unit_basis[i].res = init_res( Result, x );
-            _normalize!(unit_basis[i]);
-            _orthogonalize!(unit_basis, i);
-        end
-    end
-
-    unlock(cfg.io_lock)
-        
-    return unit_basis;
-end
-
-function _get_unit_basis( use_saved :: Val{false}, n_vars :: Int, cfg :: LagrangeConfig )
-    unit_basis = _unit_basis( n_vars, cfg.degree; 
-        solver1 = cfg.algo1_solver, solver2 = cfg.algo2_solver,
-        max_evals1 = cfg.algo1_max_evals, max_evals2 = cfg.algo2_max_evals,
-        Λ = cfg.Λ
-    );
-    if !isnothing( cfg.save_path )
-        #lock(cfg.io_lock) 
-        # better wrap the outer call in io_lock for parallelization
-        try 
-            unit_sites = [ get_site(ub.res) for ub ∈ unit_basis ];
-            save(cfg.save_path, Dict( "sites" => unit_sites ) );
-        catch
-            stacktrace( catch_backtrace() )
-            @warn "Could not save unit sites."
-        end
-        #unlock(cfg.io_lock);
-    end
-    return unit_basis;
-end
-
- function _update_model_unoptimized(
-    lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
-    mop :: AbstractMOP, id :: AbstractIterData, :: AbstractConfig; 
-    ensure_fully_linear :: Bool = false ):: Tuple{LagrangeModel, LagrangeMeta}
-    
-    cfg = model_cfg(objf);
-    unit_basis = _get_unit_basis( num_vars(mop), cfg ); # this is memoized
-    lb_eff, ub_eff = local_bounds(mop, xᵗ(id), Δᵗ(id) * cfg.θ_enlarge);
-    lm.basis = _scale_unit_basis( unit_basis, lb_eff, ub_eff );
-    lm.fully_linear = true;
-
-    _eval_new_sites!( lm, lmeta, mop, id);
-    _set_gradient!.(lm.basis);
-    return  lm, lmeta ;
-end
-
-function _scale_unit_basis( unit_basis :: Vector{LagrangePoly}, lb :: RVec, ub :: RVec )
-    χ = variables( unit_basis[1].p );
-
-    # combine the polyonmial from unit_basis (working on [0,1]^n)
-    # with a poly that maps the current trust region to [0,1]^n 
-    scaling_poly = (χ .- lb) ./ (ub .- lb)
-
-    scaled_basis = LagrangePoly[];
-    for up ∈ unit_basis
-        lp = LagrangePoly(;
-            p = subs( up.p, χ => scaling_poly ),
-            # we `unscale` the sites from [0,1]^n to correspond to sites in 
-            # current trust region
-            res = init_res( Result, _unscale( get_site( up.res ), lb, ub ) )
-        );
-        push!(scaled_basis, lp);
-    end
-    return scaled_basis 
-end
-
-function update_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
-    mop :: AbstractMOP, id :: AbstractIterData, algo_config :: AbstractConfig; 
-    ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
-    
-    @logmsg loglevel3 "Building LagrangeModel with indices $(output_indices(objf, mop))."
-    cfg = model_cfg(objf);
-    if cfg.optimized_sampling
-        @info "optimized"
-        lm,lmeta = _update_model_optimized(lm,objf,lmeta,mop,id,algo_config; ensure_fully_linear);
-    else
-        lm,lmeta = _update_model_unoptimized(lm,objf,lmeta,mop,id,algo_config; ensure_fully_linear);
-    end
-    
-    # TODO remove this
-    #=
-    oi = lm.out_indices #output_indices( objf, mop )
-    for lp in lm.basis 
-        try
-            @assert eval_poly( lp, get_site(lp.res) ) ≈ 1
-            @assert all(get_value(lp.res)[oi] .≈ eval_models( lm, get_site(lp.res) ))
-        catch e
-            @warn "Imprecise Lagrange Models."
-            @info get_value(lp.res)[oi] .- eval_models( lm, get_site(lp.res) )
-        end
-    end
-    =#
-    return lm, lmeta;
-end
-
-function improve_model( lm :: LagrangeModel, objf :: AbstractObjective, lmeta :: LagrangeMeta,
-    mop :: AbstractMOP, id :: AbstractIterData, :: AbstractConfig; ensure_fully_linear :: Bool = false):: Tuple{LagrangeModel, LagrangeMeta}
-
-    @logmsg loglevel3 "Performing an improvement step for LagrangeModel with indices $(output_indices(objf, mop))."
-
-    cfg = model_cfg( objf );
-    make_basis_lambda_poised!( lm.basis, id, mop; 
-        Δ_factor = cfg.θ_enlarge, Λ = cfg.Λ, 
-        max_solver_evals = cfg.algo2_max_evals, solver = cfg.algo2_solver 
-    );
-    lm.fully_linear = true;
-    _eval_new_sites!( lm, lmeta, mop, id);
-    _set_gradient!.(lm.basis)
-    return lm, lmeta
-end
-
-function eval_models( lm :: LagrangeModel, x̂ :: RVec, ℓ :: Int ) :: Real
-    sum( get_value(lp.res)[lm.out_indices[ ℓ ]] * eval_poly(lp.p, x̂) for lp ∈ lm.basis)    
-end
-
-function eval_models( lm :: LagrangeModel, x̂ :: RVec ) :: RVec
-    sum( get_value(lp.res)[ lm.out_indices ] * eval_poly(lp.p, x̂) for lp ∈ lm.basis)    
-end
-
-function get_gradient( lm :: LagrangeModel, x̂ :: RVec, ℓ :: Int ) :: RVec
-    sum( get_value(lp.res)[lm.out_indices[ ℓ ]] * eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis )
-end
-
-function get_jacobian( lm :: LagrangeModel, x̂ :: RVec ) :: RMat
-    grad_evals = [ eval_poly(lp.grad_poly, x̂) for lp ∈ lm.basis ];
-    return Matrix(transpose( hcat(
-        [ sum( get_value(lm.basis[i].res)[ lm.out_indices[ ℓ ] ] * grad_evals[i] 
-            for i = eachindex(grad_evals) )               
-                for ℓ = 1 : lm.n_out ]... 
-    )));
-end
-
-#@memoize
-function _unit_basis( n_vars :: Int, degree :: Int ;
-        solver1 :: Symbol, solver2 :: Symbol, max_evals1 :: Union{Nothing,Int}, 
-        max_evals2 :: Union{Nothing,Int}, Λ :: Real ) :: Vector{LagrangePoly}
-    lb = zeros(n_vars);
-    ub = ones(n_vars);
-
-    basis = _canonical_basis( n_vars, degree );
-    
-    candidates = [init_res(Result, lb .+ .5 .* (ub .- lb) ),];
-    _make_poised!( basis, lb, ub, candidates; ε_accept = 0, max_solver_evals = max_evals1, solver = solver1 );
-    _make_lambda_poised!( basis, lb, ub; Λ = Λ, max_solver_evals = max_evals2, solver = solver2);
-    return basis
-end
-
-function _make_poised!( basis :: Vector{LagrangePoly}, lb :: RVec, ub :: RVec, candidates :: Vector{<:AbstractResult};
-    ε_accept ::Real, solver :: Symbol, max_solver_evals :: Union{Nothing,Int}, loop_start :: Int = 1 ) :: Nothing
-    n_vars = length(lb);
-    if isnothing( max_solver_evals)
-        max_solver_evals = 300*(n_vars+1);   # TODO is sensible?
-    end
-    p = length( basis )
-    for i = loop_start : p 
-        X = get_site.( candidates );
-        l_max, j = isempty( X ) ? (0, 0) : findmax( abs.( eval_poly.( basis[i], X) ) );
-        if l_max > ε_accept
-            @logmsg loglevel4 " 1.$(i)) Recycling a point from the database."
-            res = candidates[j];
-            deleteat!( candidates, j);
-        else
-            @logmsg loglevel4 " 1.$(i)) Computing a poised point by Optimization."
-            opt = NLopt.Opt( solver , n_vars )
-            opt.lower_bounds = lb;
-            opt.upper_bounds = ub;
-            opt.maxeval = max_solver_evals;
-            opt.xtol_rel = 1e-3;
-            opt.max_objective = (x,g) -> abs( eval_poly( basis[i], x) )
-            x₀ = _rand_box_point(lb, ub);
-            (_, x, ret) = NLopt.optimize(opt, x₀)
-        
-            res = init_res(Result, x);
-        end
-        basis[i].res = res;
-        _normalize!(basis[i]);
-        _orthogonalize!(basis, i);
-    end
-    nothing;
-end 
-
-function make_basis_poised!( basis :: Vector{LagrangePoly}, id :: AbstractIterData, mop :: AbstractMOP;
-    Δ_factor :: Real = 1, ε_accept :: Real = 1e-8, solver :: Symbol = :GN_AGS, max_solver_evals :: Union{Int,Nothing} = nothing )
-    @logmsg loglevel4 "Finding a poised set..."
-    
-    x = xᵗ( id );
-    N = length(x);
-    
-    # always include current iterate
-    @assert xᵗ_index( id ) isa XInt
-    basis[1].res = get_result( id, xᵗ_index(id));
-    _normalize!(basis[1]);
-    _orthogonalize!(basis, 1);
-
-    # find all points in database in current trust region
-    lb_eff, ub_eff = local_bounds(mop, x, Δᵗ(id) * Δ_factor);
-    box_indices = find_points_in_box(
-        id, lb_eff, ub_eff;
-        exclude_indices = [xᵗ_index(id)] 
-    );
-    
-    _make_poised!( basis, lb_eff, ub_eff, get_result.(id, box_indices); ε_accept, solver, max_solver_evals, loop_start = 2 );
-    nothing
-end
-
-function _make_lambda_poised!( basis :: Vector{LagrangePoly}, lb :: RVec, ub :: RVec;
-    Λ :: Real, max_solver_evals :: Union{Int,Nothing}, solver :: Symbol ) :: Nothing
-    
-    N = length(lb);
-    if isnothing( max_solver_evals)
-        max_solver_evals = 300*(N+1);   # TODO is sensible?
-    end
-
-    iter_counter = 1;
-    while !isinf(Λ)
-        # determine a swap index iₖ, 1 ≤ iₖ ≤ length(basis):
-        # maximize absolute value of each basis polynomial within trust region
-        # if we find a maximizer xᵢ with |lᵢ| > Λ then we can replace the
-        # site with index i with xᵢ 
-        # iₖ is set so as to favor the argmax of all |lᵢ|
-        # or to correspond to unevaluated sites and not the current iterate if possible
-        iₖ = -1;
-        xₖ = similar(lb);
-        Λ_max = -Inf;
-        swap_id = nothing;
-        for (i,lp) = enumerate(basis)
-            opt = NLopt.Opt( solver, N);
-            opt.lower_bounds = lb;
-            opt.upper_bounds = ub;
-            opt.maxeval = max_solver_evals;
-            opt.xtol_rel = 1e-3;
-            opt.max_objective = (x,g) -> abs( eval_poly( lp, x) )
-            x₀ = _rand_box_point(lb, ub);
-            (abs_lᵢ, xᵢ, _) = NLopt.optimize(opt, x₀);
-            
-            if abs_lᵢ > Λ # found a potential swap candidate
-                res_id = get_id(lp.res)
-                if isa(swap_id, XInt) || abs_lᵢ > Λ_max || isnothing( res_id )
-                    Λ_max = abs_lᵢ 
-                    iₖ = i;
-                    xₖ[:] = xᵢ;
-                    swap_id = res_id
-                    if isnothing(res_id)
-                        # break if we have a suitable swapping point that is not yet 
-                        # in the database (i.e. not evaluated yet)
-                        break;
-                    end
-                end
-            end
-        end#for 
-        if iₖ > 0
-            # perform a point swap and normalize
-            @logmsg loglevel4 " 2.$(iter_counter)) Replacing point at index $(iₖ)."
-            basis[iₖ].res = init_res(Result, xₖ);
-            _normalize!(basis[iₖ])            
-            _orthogonalize!(basis, iₖ);
-       else
-            # finished, there is no poly with abs value > Λ 
-            return nothing
-        end#if
-        iter_counter += 1;
-    end#while
-    nothing
-end
-
-function make_basis_lambda_poised!( basis :: Vector{LagrangePoly}, id :: AbstractIterData, mop :: AbstractMOP;
-        Δ_factor :: Real = 1, Λ :: Real = 1.5, max_solver_evals :: Union{Int,Nothing} = nothing,
-        solver :: Symbol = :GN_AGS ) :: Nothing
-    @logmsg loglevel4 "Making the set $(Λ)-poised..."
-    
-    lb_eff, ub_eff = local_bounds(mop, xᵗ(id), Δᵗ(id) * Δ_factor);
-    _make_lambda_poised!( basis, lb_eff, ub_eff; Λ, max_solver_evals, solver );
-end
-
-
-# helper function to easily evaluate polynomial
-function eval_poly(p :: AbstractPolynomialLike, x :: RVec)
-    return p( variables(p) => x ) 
-end
-
-function eval_poly( lp :: LagrangePoly, x :: RVec )
-    eval_poly( lp.p, x )
-end
-
-function _orthogonalize!( basis :: Vector{LagrangePoly}, i :: Int ) :: Nothing
-    p = length(basis)
-    y = get_site( basis[i].res );
-    for j=1:p
-        if j≠i 
-            basis[j].p -= (eval_poly( basis[j], y )* basis[i].p )
-        end
-    end
-    nothing 
-end
-
-function _normalize!( lp :: LagrangePoly ) :: Nothing
-    x = get_site(lp.res);
-    @assert !isempty(x);
-    lp.p /= eval_poly( lp, x);
-    nothing 
-end
-
-# helper function to easily evaluate polynomial array for gradient
-function eval_poly(p::Vector{<:AbstractPolynomialLike}, x :: RVec)
-    [g( variables(p) => x ) for g ∈ p]
-end
-
-# helper function for initial monomial basis
-@doc """
-Return array of solution vectors [x_1, …, x_len] to the equation
-``x_1 + … + x_len = rhs``
-where the variables must be non-negative integers.
 """
-function non_negative_solutions( rhs :: Int, len :: Int )
-    if len == 1
-        return rhs
-    else
-        solutions = [];
-        for i = 0 : rhs
-            for shorter_solution ∈ non_negative_solutions( i, len - 1)
-                push!( solutions, [ rhs-i; shorter_solution ] )
-            end
-        end
-        return solutions
-    end
+    get_poised_set( basis, points; solver = :LN_BOBYQA, max_solver_evals = -1 )
+
+Compute a point set suited for polynomial interpolation.
+
+Input:
+* `basis`: A vector of polynomials constituting a basis for the polynomial space.
+* `points`: (optional) A set of candidate points to be tried for inclusion into the poised set.
+* `solver`: NLopt solver to use. Should be derivative-free.
+* `max_solver_evals`: Maximum number of evaluations in each optimization run. 
+
+Return:
+* `poised_points :: Vector{T}` where `T` is either a `Vector{F}` or an `SVector{n_vars, F}` and `F` is the precision of the points in `points`, but at least `Float32`. 
+* `lagrange_basis :: Vector{<:AbstractPolynomialLike}`: The Lagrange basis corresponding to `poised_points`.
+* `point_indices`: An array indicating which points from `points` are also in `poised_points`. A positive entry corresponds to the index of a poised point in `points`. If a poised point is new, then the entry is `-1`.
+"""
+function get_poised_set( basis, points :: AbstractArray{T} = Vector{MIN_PRECISION}[]; 
+		solver = :LN_BOBYQA, max_solver_evals = -1 ) where {
+		T <: AbstractArray{<:Real}
+	}
+	
+	p = length(basis)
+	@assert p > 0 "`basis` must not be an empty array."
+
+	vars = variables( basis[end] )
+	n_vars = length(vars)
+	@assert n_vars > 0 "The number of variables must be positive."
+	
+	if max_solver_evals < 0
+		max_solver_evals = 2000 * n_vars
+	end
+
+	F = promote_type( eltype( T ), MIN_PRECISION )
+	#P_type = n_vars > 100 ? Vector{Vector{F}} : Vector{SVector{n_vars, F}}
+    P_type = Vector{Vector{F}}
+	ZERO_TOL = min(eps(F) * 100, eps(Float16) * 10)
+	
+	## indicates which points from points have been accepted
+	point_indices = fill(-1, p)
+	not_accepted_indices = collect( eachindex( points ) )
+	## return array of points that form a poised set
+	poised_points = P_type(undef, p)
+		
+	new_basis = basis
+	for i = 1 : p
+		_points = points[not_accepted_indices]
+		
+		## find the point that maximizes the i-th polynomial 
+		## if the polynomial is constant, then the first remaining point is used (j = 1)
+		l_max, j = if isempty(_points)
+			0.0, 0
+		else
+			findmax( abs.( [ new_basis[i]( x ) for x in _points ] ) )
+		end
+		
+		if l_max > ZERO_TOL
+			## accept the `j`-th point from `_points`
+			poised_points[i] = _points[j]
+			### indicate what the actual point index was  
+			point_indices[i] = not_accepted_indices[j]
+			### delete from further consideration
+			deleteat!(not_accepted_indices, j)
+		else
+			## no point was suitable to add to the set
+			## trying to find the maximizer for a | l_i(x) |
+			opt = NLopt.Opt( solver, n_vars ) 
+			opt.lower_bounds = zeros(F, n_vars )
+            opt.upper_bounds = ones(F, n_vars )
+            opt.maxeval = max_solver_evals
+            opt.xtol_rel = 1e-3
+            opt.max_objective = (x,g) -> abs( new_basis[i](x) )
+			
+			x₀_tmp = [ rand(F, n_vars) for i = 1 : 50 * n_vars ]
+            x₀ = x₀_tmp[argmax( abs.(new_basis[i].(x₀_tmp)) ) ] 
+            
+			_, ξ, ret = NLopt.optimize(opt, x₀)
+			
+			poised_points[i] = ξ
+		end		
+		
+		new_basis = orthogonalize_polys( new_basis, poised_points[i], i )
+	end
+	
+	return poised_points, new_basis, point_indices
 end
 
+"""
+    make_set_lambda_poised( basis, points; 
+        LAMBDA = 1.5, solver = :LN_BOBYQA, max_solver_evals = -1, max_loops = -1, skip_indices = [1,] )
 
-@doc "Factorial of a multinomial."
-_multifactorial( arr :: Vector{Int} ) =  prod( factorial(α) for α in arr )
+Make the output of `get_poised_set` even better suited for interpolation.
 
-# @memoize
-# TODO memoization caused a lot of trouble here in parallel usage.
-# if important: use IdDicts and Memoization.jl
-function _canonical_basis( n_vars :: Int, degree :: Int ) :: Vector{LagrangePoly}
-    basis = LagrangePoly[];
-    @polyvar χ[1:n_vars]
-    for d = 0 : degree
-        for multi_exponent ∈ non_negative_solutions( d, n_vars )
-            poly = 1 / _multifactorial( multi_exponent ) * prod( χ.^multi_exponent );
-            push!(basis, LagrangePoly(; p = poly ));
+Input:
+* `basis`: A vector of polynomials constituting a Lagrange basis for the polynomial space.
+* `points`: The vector of points belonging to the Lagrange basis.
+* `LAMBDA :: Real > 1`: Determines the quality of the interpolation. 
+* `solver`: NLopt solver to use. Should be derivative-free.
+* `max_solver_evals`: Maximum number of evaluations in each optimization run. 
+* `max_loops`: Maximum number of loops that try to make the set Λ-poised.
+* `skip_indices`: Inidices of points to discard last.
+
+Return:
+* `poised_points :: Vector{T}` where `T` is either a `Vector{F}` or an `SVector{n_vars, F}` and `F` is the precision of the points in `points`, but at least `Float32`. 
+* `lagrange_basis :: Vector{<:AbstractPolynomialLike}`: The Lagrange basis corresponding to `poised_points`.
+* `point_indices`: An array indicating which points from `points` are also in `poised_points`. A positive entry corresponds to the index of a poised point in `points`. If a poised point is new, then the entry is `-1`.
+"""
+function make_set_lambda_poised( basis, points :: AbstractArray{T}; 
+		LAMBDA :: Real = 1.5, solver = :LN_BOBYQA, max_solver_evals = -1,
+		max_loops = -1, skip_indices = [1,] ) where {
+		T <: AbstractArray{<:Real}
+	}
+	
+	@assert length(basis) == length(points) "Polynomial array `basis` and point array `points` must have the same length."
+	if length(points) > 0
+		n_vars = length(points[1])
+		@assert n_vars > 0 "The number of variables must be positive."
+		
+		F = promote_type( eltype( T ), MIN_PRECISION )
+		#P_type = n_vars > 100 ? Vector{Vector{F}} : Vector{SVector{n_vars, F}}
+        P_type = Vector{Vector{F}}
+
+		if max_loops < 0 
+			max_loops = length(basis) * 100
+		end
+
+		if max_solver_evals < 0
+			max_solver_evals = 2000 * n_vars
+		end
+
+       	@logmsg loglevel3 "Trying $(max_loops) times to make a set poised with Λ = $(LAMBDA)."
+
+		iₖ = -1
+		xₖ = points[1]
+
+		new_basis = basis
+		new_points = P_type(points)
+		point_indices = collect(eachindex(new_points))
+
+		for k = 1 : max_loops
+			for (i, polyᵢ) in enumerate(basis)
+				opt = NLopt.Opt( solver, n_vars )
+				opt.lower_bounds = zeros(F, n_vars)
+				opt.upper_bounds = ones(F, n_vars)
+				opt.maxeval = max_solver_evals
+				opt.xtol_rel = 1e-3
+				opt.max_objective = (x,g) -> abs( polyᵢ( x ) ) 
+
+				x₀_tmp = [ rand(F, n_vars) for i = 1 : 50 * n_vars ]
+				x₀ = x₀_tmp[argmax( abs.(new_basis[i].(x₀_tmp)) ) ] 
+
+				abs_lᵢ, xᵢ, _ = NLopt.optimize(opt, x₀)
+
+				if abs_lᵢ > LAMBDA
+					iₖ = i
+					xₖ = xᵢ
+					if iₖ ∉ skip_indices
+						## i is not prioritized we can brake here
+						break
+					end#if
+				end#if
+			end#for
+
+			if iₖ > 0
+                @logmsg loglevel4 "Discarding point $(iₖ)."
+				## perform a point swap
+				new_points[iₖ] = xₖ
+				point_indices[iₖ] = -1
+				## adapt coefficients of lagrange basis
+				new_basis = orthogonalize_polys( new_basis, xₖ, iₖ )
+			else
+				## we are done, the set is lambda poised
+				break
+			end#if
+		end#for
+
+		return new_points, new_basis, point_indices
+	else
+		return points, basis, collect(eachindex(points))
+	end
+	
+end
+
+# And a convenient function that combines both steps:
+
+function get_lambda_poised_set( basis, points; solver1 = :LN_BOBYQA, solver2 = :LN_BOBYQA, max_solver_evals1 = -1, max_solver_evals2 = -1, LAMBDA = 1.5, max_lambda_loops = -1 )
+	lagrange_points, lagrange_basis, lagrange_indices = get_poised_set( 
+		basis, points; solver = solver1, max_solver_evals = max_solver_evals1 )
+	lambda_points, lambda_basis, lambda_indices = make_set_lambda_poised( 
+		lagrange_basis, lagrange_points; LAMBDA, max_loops = max_lambda_loops,
+		solver = solver2, max_solver_evals = max_solver_evals2 )
+	combined_indices = [ i < 0 ? i : lagrange_indices[j] for (j,i) in enumerate( lambda_indices ) ]
+	return lambda_points, lambda_basis, combined_indices
+end
+
+# We actually only try to find points suitable points in the hypercube ``[0,1]^n``.
+# The points can be (un)scaled with the usual methods.
+# But for polynomial we can actually use substition to make evaluation more effective.
+
+"Return vector of polynomials that unscales variables from [0,1]^n to [lb,ub]."
+function get_unscaling_poly( vars, lb, ub )
+    w = ub .- lb
+    #return [ isinf(w[i]) ? vars[i] : (vars[i] + lb[i]) * w[i] for i = eachindex(w) ] 
+    return vars .* w .+ lb
+end
+
+"Return vector of polynomials that scales variables from [lb, ub] to [0,1]^n."
+function get_scaling_poly( vars, lb, ub )
+    w = ub .- lb
+    #return [ isinf(w[i]) ? vars[i] : (vars[i] - lb[i]) / w[i] for i = eachindex(w) ] 
+    return ( vars .- lb ) ./ w
+end
+
+# ### Method Implementations
+
+# We will use the functions from above in the `prepare_XXX` routines:\
+# The initial `prepare_init_model` function should return a meta object that can be used
+# to build an initial surrogate model.
+# We delegate the work to `prepare_update_model`.
+function prepare_init_model( cfg :: LagrangeConfig, objf :: AbstractObjective, mop :: AbstractMOP, 
+	id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
+	ensure_fully_linear = true, kwargs...)
+    
+    n_vars = num_vars( mop )
+
+	meta = LagrangeMeta(;
+        canonical_basis = get_poly_basis( cfg.degree, n_vars ),
+        out_indices = output_indices(objf, mop)
+    )
+	return prepare_update_model(nothing, objf, meta, mop, id, db, ac; ensure_fully_linear, kwargs... )
+end
+
+# Usually, `prepare_update_model` would only accept a model as its first argument.
+# Because of the trick from above, we actually allow `nothing`, too.
+function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractObjective,
+    meta :: LagrangeMeta,  mop :: AbstractMOP, iter_data :: AbstractIterData, 
+    db :: AbstractDB, algo_config :: AbstractConfig; 
+    ensure_fully_linear = true, kwargs... )
+
+    x = get_x( iter_data )
+    fx = get_fx( iter_data )
+    F = eltype(fx)
+    x_index = get_x_index( iter_data )
+    n_vars = length(x)
+    Δ = get_Δ( iter_data )
+
+    cfg = model_cfg(objf)
+    lb, ub = local_bounds(mop, x, Δ * cfg.θ_enlarge )
+    
+    if cfg.optimized_sampling
+        ## Find points in current trust region …
+        candidate_indices = [x_index; results_in_box_indices( db, lb, ub, [x_index,] )]
+        ## … and scale them to [0,1]^n
+        candidate_points = [_scale(ξ, lb, ub) for ξ in get_site.(db, candidate_indices)]
+
+        ## Get a poised set and lagrange basis 
+        poised_points, poised_basis, poised_indices = get_poised_set( 
+            meta.canonical_basis, candidate_points; 
+            solver = cfg.algo1_solver, max_solver_evals = cfg.algo1_max_evals 
+        )
+
+        fully_linear = false
+        ## Make set even better
+        if ensure_fully_linear || !cfg.allow_not_linear
+            ### We would like to keep x if possible
+            skip_indices = let l = findfirst( i -> i == 1, poised_indices );
+                isnothing(l) ? [] : [l,]
+            end
+
+            poised_points, poised_basis, indices_2 = make_set_lambda_poised(
+                poised_basis, poised_points;
+                LAMBDA = cfg.LAMBDA, solver = cfg.algo2_solver,
+                max_solver_evals = cfg.algo2_max_evals, skip_indices
+            )
+            poised_indices = [ i < 0 ? i : poised_indices[j] for (j,i) in enumerate( indices_2 ) ]
+            fully_linear = true
+        end
+
+        interpolation_indices = Int[]
+        for (i,ind) in enumerate(poised_indices)
+            if ind < 0
+                ## we need an additional new site 
+                new_db_id = new_result!(db, _unscale(poised_points[i], lb, ub), F[] )
+                push!(interpolation_indices, new_db_id)
+            else
+                ## we could recycle a candidate point 
+                push!(interpolation_indices, candidate_indices[ind])
+            end
+        end
+
+        poly_vars = variables( poised_basis[1] )
+        scaling_poly = get_scaling_poly( poly_vars, lb, ub )
+
+        zero_pol = sum( 0 .* poly_vars )
+
+        scaled_basis = [ subs(p, poly_vars => scaling_poly) + zero_pol for p in poised_basis ]
+     
+        return LagrangeMeta(;
+            interpolation_indices, 
+            out_indices = meta.out_indices,
+            canonical_basis = meta.canonical_basis,
+            lagrange_basis = scaled_basis,
+            fully_linear
+        )
+
+    else
+        ## unoptimized sampling: we only look for a good point set once 
+        ## in the very first iteration and store the basis and the points
+        ## in the meta data which is then passed through in subsequent iterations
+        if isnothing(meta.lagrange_basis)
+            candidate_points = [ fill(.5, n_vars) ]
+            lagrange_points, lagrange_basis, indices = get_lambda_poised_set( 
+                meta.canonical_basis, candidate_points;
+                solver1 = cfg.algo1_solver, solver2 = cfg.algo2_solver, 
+                max_solver_evals1 = cfg.algo1_max_evals, max_solver_evals2 = cfg.algo2_max_evals,
+                LAMBDA = cfg.LAMBDA )
+            
+            poly_vars = variables( lagrange_basis[1] )
+            scaling_poly = get_scaling_poly( poly_vars, lb, ub )
+
+            zero_pol = sum( 0 .* poly_vars )
+
+            return LagrangeMeta(;
+                out_indices = meta.out_indices,
+                lagrange_basis = [ subs(p, poly_vars => scaling_poly) + zero_pol for p in lagrange_basis ],
+                stamp_points = lagrange_points,
+                fully_linear = true
+            )
+        else
+            return meta
         end
     end
-    return basis
-end 
+end#function 
+
+# The improvement preparation enforces a Λ-poised set:
+function prepare_improve_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractObjective, meta :: LagrangeMeta, 
+    mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; 
+    kwargs... )
+    return prepare_update_model( mod, objf, meta, mop, iter_data, db, algo_config; ensure_fully_linear = true, kwargs...)
+end
+
+# Now, in the 2-phase construction process, first all `prepare_` functions are called for all surrogate models.
+# Then, the unevaluated results are evaluated and we can proceed with the model building.
+# As before, `_init_model` simply delegates work to `update_model`. \
+# Not much is left to do, only to retrieve the correct values from the database to use as 
+# coefficients.
+# We also store the gradient (vector of polynomials) for each basis polynomial.
+
+function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective, mop :: AbstractMOP,
+	iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig, meta :: LagrangeMeta; kwargs... )
+	return update_model( nothing, objf, meta, mop, iter_data, db, ac; kwargs... )
+end
+
+function update_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractObjective,
+    meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
+	kwargs... ) 
+
+    coeff = [ c[ meta.out_indices ] for c in get_value.(db, meta.interpolation_indices) ]
+
+    return LagrangeModel(; 
+        coeff, fully_linear = meta.fully_linear,
+        basis = meta.lagrange_basis,
+        grads = [ differentiate( p, variables(p) ) for p in meta.lagrange_basis ]
+    ), meta
+end
+
+function improve_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractObjective,
+    meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
+	kwargs... ) 
+    return update_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...)
+end
+
+# ## Evaluation 
+# The evaluation of some output is 
+# ```math
+# \sum_{i=1}^p c_i l_i( x ),
+# ```
+# where ``p = \dim Π_n^d``.
+function eval_models( lm :: LagrangeModel, x̂ :: Vec, ℓ :: Int)
+    return sum( c[ℓ] * p(x̂) for (c,p) in zip( lm.coeff, lm.basis ) )
+end
+
+function eval_models( lm :: LagrangeModel, x̂ :: Vec )
+    return sum( c * p(x̂) for (c,p) in zip( lm.coeff, lm.basis ) )
+end
+
+function get_gradient( lm :: LagrangeModel, x̂ :: Vec, ℓ :: Int )
+    sum( c[ℓ] * p(x̂) for (c,p) in zip( lm.coeff, lm.grads ) )
+end
+
+function get_jacobian( lm :: LagrangeModel, x̂ :: Vec )
+    grad_evals = [ p(x̂) for p in lm.grads ]
+    no_out = length(lm.coeff[1])
+    return transpose( hcat( (sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) ) for ℓ = 1 : no_out)... ) )
+end

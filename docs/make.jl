@@ -1,4 +1,4 @@
-# include("make_literate.jl")
+include("make_literate.jl")
 
 using Pkg
 current_env = Base.load_path()[1]
@@ -17,7 +17,7 @@ makedocs(;
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://manuelbb-upb.github.io/Morbit.jl",
-        assets=String["assets/iframeResizer.min.js"],
+        #assets=["/custom_assets/iframeResizer.min.js",],
     ),
     pages=[
         "Home" => "index.md",
@@ -28,6 +28,7 @@ makedocs(;
         ],
         "Models" => [
             "RbfModels" => "RbfModel.md",
+            "TaylorModels" => "TaylorModel.md"
         ],
         "Random Notebooks" => [
             "Finite Differences" => "notebook_finite_differences.md",

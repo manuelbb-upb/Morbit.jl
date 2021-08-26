@@ -29,6 +29,10 @@ const AD = ForwardDiff
 import Logging: LogLevel, @logmsg
 import Logging
 
+export MixedMOP, RbfConfig, ExactConfig, TaylorConfig, TaylorApproximateConfig, TaylorCallbackConfig
+export add_objective!, add_vector_objective!
+export optimize
+
 include("custom_logging.jl")
 
 include("shorthands.jl");
@@ -101,7 +105,7 @@ end
 
 # we expect mop :: MixedMOP, but should work for static MOP if everything 
 # is set up properly 
-function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float32[]; 
+function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = MIN_PRECISION[]; 
     algo_config :: Union{AbstractConfig, Nothing} = nothing, 
     populated_db :: Union{AbstractDB, Nothing} = nothing )
     
@@ -126,6 +130,8 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float32[];
 		MOI.add_variables(mop, length(x0))
 	end
 
+	@assert length(x0) == num_vars( mop ) "Number of variables in `mop` does not match length of `x0`."
+
 	# make problem static 
 	smop = StaticMOP(mop)
 
@@ -140,8 +146,8 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = Float32[];
 		fx_sorted = apply_internal_sorting( fx0, smop );
 	end 
 
-	# ensure at least half-precision
-	F = Base.promote_eltype( x_scaled, fx_sorted, Float32 )
+	# ensure at least single-precision
+	F = Base.promote_eltype( x_scaled, fx_sorted, MIN_PRECISION )
 	x = F.(x_scaled)
 	fx = F.(fx_sorted)
 

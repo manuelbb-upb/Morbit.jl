@@ -19,7 +19,7 @@ M.add_objective!(mop, f1, M.TaylorConfig())
 M.add_objective!(mop, f2, M.TaylorConfig())
 
 algo_config = AlgoConfig(;
-	max_iter = 3
+	max_iter = 10
 )
 populated_db = nothing
 
@@ -27,5 +27,5 @@ x0 = rand(2)
 fx0 = []
 #%%
 #mop, id, db, sc, ac = M.initialize_data(mop,x0);
-#%%
+
 X, FX, ret, db = Morbit.optimize( mop, x0; algo_config )
