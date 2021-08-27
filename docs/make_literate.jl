@@ -14,7 +14,6 @@ function replace_comments( content )
     return content
 end    
 
-
 #%% Functions to convert notebook
 function make_notebook_html( notebook_jl_path; execute = true )
     out_dir = joinpath(@__DIR__, "src", "custom_assets") 
@@ -86,7 +85,7 @@ Literate.markdown(
     joinpath( example_dir, "example_two_parabolas.jl"), 
     joinpath( @__DIR__, "src" );    
     preprocess = replace_comments,
-    codefence = "````julia" => "````",  # disables execution; REMOVE when it works again
+#    codefence = "````julia" => "````",  # disables execution; REMOVE when it works again
     )
 
 Literate.markdown(
@@ -104,6 +103,12 @@ Literate.markdown(
 
 
 Literate.markdown(
+    joinpath( src_dir, "LagrangeModel.jl"), 
+    joinpath( @__DIR__, "src" );    
+    codefence = "````julia" => "````",
+)
+
+Literate.markdown(
     joinpath( src_dir, "RbfModel.jl"), 
     joinpath( @__DIR__, "src" );    
     codefence = "````julia" => "````",
@@ -117,6 +122,7 @@ Literate.markdown(
 
 #%%
 #make_notebook_md( joinpath( example_dir, "notebook_finite_differences.jl" ); execute = true )
+#make_notebook_md( joinpath( example_dir, "notebook_polynomial_interpolation.jl" ); execute = true )
 
 #%%
 Pkg.activate(current_env)

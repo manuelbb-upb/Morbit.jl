@@ -366,7 +366,7 @@ function update_model( mod :: Union{Nothing,TaylorModel}, objf :: AbstractObject
 
         num_out = num_outputs( objf )
         g = [ get_gradient(meta.gw , x , ℓ ) for ℓ = 1 : num_out ]
-
+       
         if !isnothing(meta.hw)
             H = [ get_hessian(meta.hw, x, ℓ) for ℓ = 1 : num_out ]
         else

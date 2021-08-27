@@ -32,15 +32,9 @@
 using Pkg #src
 Pkg.activate(@__DIR__) #src
 using Test #src
-import Logging #src 
-
-Logging.global_logger( Logging.ConsoleLogger( #src
-    stderr,                          #src
-    Morbit.loglevel4; #src
-    meta_formatter = Morbit.morbit_formatter  #src
-) ) #src
 
 using Morbit
+Morbit.print_all_logs()
 
 f₁ = x -> sum( (x .- 1).^2 )
 f₂ = x -> sum( (x .+ 1).^2 )
@@ -57,8 +51,8 @@ x₀ = [ -π ;  2.71828 ]
 #~ set maximum number of iterations 
 ac = AlgoConfig( max_iter = 20)
 #~ `optimize` will return parameter and result vectors as well 
-#~ as an `Morbit.IterData` object.
-x, fx, id = optimize( mop, x₀; algo_config = ac );
+#~ as an return code and the evaluation database:
+x, fx, ret_code, db = optimize( mop, x₀; algo_config = ac );
 x
 
 # Hopefully, `x` is critical, i.e., `x[1] ≈ x[2]`.
@@ -72,20 +66,19 @@ x
     global_logger( ConsoleLogger( stderr, Morbit.loglevel4; 
         meta_formatter = Morbit.morbit_formatter ) )
     ```
-    `loglevel4` is the most detailed and `loglevel1` is least detailed.
+    `loglevel4` is the most detailed and `loglevel1` is least detailed. 
+    `Morbit.print_all_logs()` is a convenient shorthand.
 =#
 
 #%% #src
 # ### Plotting Iteration Sites 
-# We can retrieve iteration data from `id` and the database `Morbit.db(id)`
-db = Morbit.db(id);
-
 # Let's retrieve the iteration sites.
 # We convert to Tuples for easier plotting.
-it_sites = Tuple.(Morbit.get_iterate_sites(db));
+iteration_indices = [ iter_.x_index for iter_ in db.iter_info]
+it_sites = Tuple.(Morbit.get_site.(db, iteration_indices))
 
 # For Plotting we use CairoMakie
-using CairoMakie
+using Makie, CairoMakie
 
 #~ Pareto Set ≙ line from (-1,-1) to (1,1)
 fig, ax, _ = lines( [(-1,-1),(1,1)]; color = :blue, linewidth = 2,
@@ -135,11 +128,12 @@ add_objective!(mop_rbf, f₂, rbf_cfg )
 
 #~ only perform 10 iterations
 ac = AlgoConfig( max_iter = 10 )
-x, fx, id = optimize( mop, x₀; algo_config = ac ) 
+x, fx, _, db = optimize( mop, x₀; algo_config = ac ) 
 x
 
 #src Setup and save plot for docs.
-it_sites_rbf = Tuple.(Morbit.get_iterate_sites(Morbit.db(id))) #hide
+iteration_indices_rbf = [ iter_.x_index for iter_ in db.iter_info]
+it_sites_rbf = Tuple.(Morbit.get_site.(db, iteration_indices_rbf))
 lines!(it_sites); #hide
 scatter!(it_sites; color = :orange); #hide
 
@@ -189,11 +183,9 @@ start_fin_points = Dict();
 db₀ = nothing # initial database can be `nothing`
 for x₀ ∈ X
     global db₀
-    x_fin, fx_fin, idat = optimize( mop_rbf, x₀; algo_config = ac, populated_db = db₀ )
+    x_fin, fx_fin, _, db0 = optimize( mop_rbf, x₀; algo_config = ac, populated_db = db₀ )
     #~ add points to dict
     start_fin_points[x₀] = x_fin
-    #~ merge databases for recycling
-    db₀ = Morbit.merge( db₀, Morbit.db(idat) )
 end
 
 # Plotting: 

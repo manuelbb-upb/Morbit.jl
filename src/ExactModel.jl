@@ -81,7 +81,7 @@ end
 
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."
 function eval_models( em :: ExactModel, x̂ :: Vec )
-    return eval_objf( em.objf, x̂ )
+    return eval_objf( em.objf, em.tfn, x̂ )
     # using `eval_objf` will increase the evaluation count of `em.objf`
     # That is why this count might be very high when using backtracking.
     # eval_handle( em.objf )(x̂) would not increase the count.

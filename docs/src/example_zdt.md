@@ -2,6 +2,8 @@
 EditURL = "<unknown>/examples/example_zdt.jl"
 ```
 
+**This example is out of date and won't work.**
+
 # ZDT3 Problem
 
 ## Setup

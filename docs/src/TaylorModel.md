@@ -249,35 +249,45 @@ function _init_model( cfg :: TaylorConfig, objf :: AbstractObjective, mop :: Abs
     iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig, meta :: TaylorIndexMeta; kwargs... )
     return update_model( nothing, objf, meta, mop, iter_data, db, algo_config; kwargs...)
 end
+````
 
+Note, that we only perform updates if the iterate has changed, `x != mod.x0`, because
+we don't change the differencing parameters.
+
+````julia
 function update_model( mod :: Union{Nothing, TaylorModel}, objf :: AbstractObjective, meta :: TaylorIndexMeta,
     mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; kwargs...)
 
-    all_leave_vals = get_value.( db, meta.database_indices )
+    x = get_x(iter_data)
+    if isnothing(mod) || (x != mod.x0)
+        all_leave_vals = get_value.( db, meta.database_indices )
 
-    if !isnothing( meta.hess_wrapper )
-        hess_leave_vals = all_leave_vals[ meta.hess_setter_indices ]
-        RFD.set_leave_values!( meta.hess_wrapper, hess_leave_vals )
-        H = [ RFD.hessian( meta.hess_wrapper; output_index = ℓ ) for ℓ = 1 : num_outputs(objf) ]
+        if !isnothing( meta.hess_wrapper )
+            hess_leave_vals = all_leave_vals[ meta.hess_setter_indices ]
+            RFD.set_leave_values!( meta.hess_wrapper, hess_leave_vals )
+            H = [ RFD.hessian( meta.hess_wrapper; output_index = ℓ ) for ℓ = 1 : num_outputs(objf) ]
+        else
+            H = nothing
+        end
+
+        # calculate gradients
+        if meta.hess_wrapper != meta.grad_wrapper
+            grad_leave_vals = all_leave_vals[ meta.grad_setter_indices ]
+            RFD.set_leave_values!( meta.grad_wrapper, grad_leave_vals )
+        end
+
+        # if hessians have been calculated before and `grad_wrapper == hess_wrapper` we profit from caching
+        J = RFD.jacobian( meta.grad_wrapper )
+        g = copy.( eachrow( J ) )
+
+        return TaylorModel(;
+            x0 = x,
+            fx0 = get_fx( iter_data ),
+            g, H
+        ), meta
     else
-        H = nothing
+        return mod,meta
     end
-
-    # calculate gradients
-    if meta.hess_wrapper != meta.grad_wrapper
-        grad_leave_vals = all_leave_vals[ meta.grad_setter_indices ]
-        RFD.set_leave_values!( meta.grad_wrapper, grad_leave_vals )
-    end
-
-    # if hessians have been calculated before and `grad_wrapper == hess_wrapper` we profit from caching
-    J = RFD.jacobian( meta.grad_wrapper )
-    g = copy.( eachrow( J ) )
-
-    return TaylorModel(;
-        x0 = get_x( iter_data ),
-        fx0 = get_fx( iter_data ),
-        g, H
-    ), meta
 end
 ````
 
@@ -315,7 +325,7 @@ the gradient of one of the outputs.
     @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
     @assert !(isnothing(gradients) && isnothing(jacobian)) "Provide either `gradients` or `jacobian`."
     @assert isa( gradients, AbstractVector ) && !isempty( gradients ) || !isnothing(jacobian) "Provide either `gradients` or `jacobian`."
-    @assert !(isnothing(gradients) || isnothing(hessians)) || length(gradients) == length(hessians) "Provide same number of gradients and hessians."
+    @assert !(isnothing(gradients)) && ( isnothing(hessians) || length(gradients) == length(hessians) ) "Provide same number of gradients and hessians."
 end
 
 """
@@ -399,22 +409,27 @@ function _init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}
     return update_model(nothing, objf, meta, mop, iter_data, db, algo_config; kwargs...)
 end
 
-function update_model( ::Union{Nothing,TaylorModel}, objf :: AbstractObjective, meta :: TaylorMetaCallbacks,
+function update_model( mod :: Union{Nothing,TaylorModel}, objf :: AbstractObjective, meta :: TaylorMetaCallbacks,
     mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; kwargs...)
 
     x = get_x(iter_data)
-    fx = get_fx( iter_data )
+    if isnothing(mod) || (x != mod.x0)
+        fx = get_fx( iter_data )
 
-    num_out = num_outputs( objf )
-    g = [ get_gradient(meta.gw , x , ℓ ) for ℓ = 1 : num_out ]
+        num_out = num_outputs( objf )
+        g = [ get_gradient(meta.gw , x , ℓ ) for ℓ = 1 : num_out ]
 
-    if !isnothing(meta.hw)
-        H = [ get_hessian(meta.hw, x, ℓ) for ℓ = 1 : num_out ]
+        if !isnothing(meta.hw)
+            H = [ get_hessian(meta.hw, x, ℓ) for ℓ = 1 : num_out ]
+        else
+            H = nothing
+        end
+
+        return TaylorModel(; x0 = x, fx0 = fx, g, H ), meta
     else
-        H = nothing
+        return mod, meta
     end
 
-    return TaylorModel(; x0 = x, fx0 = fx, g, H ), meta
 end
 ````
 
@@ -481,7 +496,7 @@ end
 1. The recommended way to use Finite Difference Taylor models is to define them
    with TaylorConfig, i.e.,
    ```julia
-   add_objective!(mop, f, TaylorConfig)
+   add_objective!(mop, f, TaylorConfig())
    ```
 2. To use `FiniteDiff.jl` instead, do
    ```julia

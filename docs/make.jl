@@ -28,10 +28,12 @@ makedocs(;
         ],
         "Models" => [
             "RbfModels" => "RbfModel.md",
-            "TaylorModels" => "TaylorModel.md"
+            "TaylorModels" => "TaylorModel.md",
+            "LagrangeModels" => "LagrangeModel.md"
         ],
         "Random Notebooks" => [
             "Finite Differences" => "notebook_finite_differences.md",
+            "Lagrange Interpolation" => "notebook_polynomial_interpolation.md"
         ],
     ],
 )

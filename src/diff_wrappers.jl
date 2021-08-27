@@ -33,7 +33,7 @@ function get_gradient( gw :: GradWrapper, x̂ :: Vec, ℓ :: Int = 1)
 end
 
 # prefer user defined handle over gradient iteration
-function get_jacobian( gw :: GradWrapper, x̂ :: Vec )
+function get_jacobian( gw :: GradWrapper{TT,FT,JT}, x̂ :: Vec ) where{TT,FT,JT<:Function}
     Jtfn = _jacobian_unscaling( gw.tfn, x̂ )
     return Jtfn'gw.jacobian_handle( gw.tfn(x̂) )
 end

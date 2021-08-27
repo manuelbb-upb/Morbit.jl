@@ -1,4 +1,4 @@
-
+# **This example is out of date and won't work.**
 using Pkg #src
 Pkg.activate(@__DIR__) #src
 

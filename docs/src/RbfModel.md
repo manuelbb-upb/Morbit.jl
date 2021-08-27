@@ -27,16 +27,6 @@ Wild et. al.[^wild_diss]
 include("AffinelyIndependentPoints.jl")
 ````
 
-We also need this little helper, to restrict ourselves to points from a current box trust region only:
-
-````julia
-"Return indices of results in `db` that lie in a box with corners `lb` and `ub`."
-function results_in_box_indices(db, lb, ub, exclude_indices = Int[] )
-	return [ id for id = eachindex(db) if
-		id ∉ exclude_indices && all(lb .<= get_site(db,id) .<= ub ) ]
-end
-````
-
 ## Surrogate Interface Implementations
 
 The model used in our algorithm simply wraps an interpolation model from the `RBF` package.
@@ -234,7 +224,8 @@ Usually, `prepare_update_model` would only accept a model as its first argument.
 Because of the trick from above, we actually allow `nothing`, too.
 
 ````julia
-function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: RbfMeta, mop, iter_data, db, algo_config;
+function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: AbstractObjective, meta :: RbfMeta,
+	mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig;
 	ensure_fully_linear = false, force_rebuild = false, meta_array = nothing )
 
 	!force_rebuild && @logmsg loglevel2 "Trying to find results for fitting an RBF model."
@@ -249,7 +240,7 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf, meta :: Rb
 	F = eltype(x)
 	n_vars = length(x)
 
-	# Can we skip the first rounds?
+	# Can we skip the first rounds? (Because we already found interpolation sets for other RBFModels?)
 	all_objfs = list_of_objectives(mop)
 	skip_first_rounds = false
 	for (i,other_meta) in enumerate(meta_array)
@@ -591,8 +582,9 @@ end
 An improvement step consists of adding a new site to the database, along an improving direction:
 
 ````julia
-function prepare_improve_model( mod :: Union{Nothing, RbfModel}, objf, meta :: RbfMeta,
-	mop, iter_data, db, algo_config; kwargs... )
+function prepare_improve_model( mod :: Union{Nothing, RbfModel}, objf :: AbstractObjective,
+	meta :: RbfMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB,
+	algo_config :: AbstractConfig; kwargs... )
 	if !meta.fully_linear
 		if isempty(meta.improving_directions)
 			@warn "RBF model is not fully linear, but there are no improving directions."
