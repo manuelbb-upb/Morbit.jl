@@ -51,9 +51,9 @@ prepare_improve_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs.
 eval_models( sm :: SurrogateModel, x̂ :: Vec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
 
 function improve_model( mod :: SurrogateModel, objf:: AbstractObjective, meta :: SurrogateMeta,
-    mop :: AbstractMOP, id :: AbstractIterData, ac :: AbstractConfig;
+    mop :: AbstractMOP, id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig;
     ensure_fully_linear = false)
-    return mod, meta 
+    return mod, meta
 end
 
 # check if surrogate configurations are equal (only really needed if combinable)

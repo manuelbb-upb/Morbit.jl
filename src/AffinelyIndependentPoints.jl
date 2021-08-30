@@ -95,7 +95,7 @@ function Base.iterate( filter :: AffinelyIndependentPointFilter{F,VF,SV}, num_fo
 		end
 	end
 
-	@info "No point was sufficiently linearly independent."
+	@debug "No point was sufficiently linearly independent."
 	return nothing
 end
 

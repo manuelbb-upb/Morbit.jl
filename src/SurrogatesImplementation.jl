@@ -116,7 +116,8 @@ function update_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP,
 end
 
 function improve_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP, 
-    id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; ensure_fully_linear :: Bool = false ) :: Nothing 
+    id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
+    ensure_fully_linear :: Bool = false, kwargs... ) :: Nothing 
     @logmsg loglevel2 "Improving surrogate models."
 
     meta_array = SurrogateMeta[]
@@ -126,8 +127,8 @@ function improve_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP,
     eval_missing!(db, mop)
 
     for (si,sw) ∈ enumerate(sc.surrogates)
-        meta_dat = meta_array[si]
-        new_model, new_meta = improve_model( sw.model, sw.objf, meta_dat, mop, id, ac; ensure_fully_linear )
+        @show meta_dat = meta_array[si]
+        new_model, new_meta = improve_model( sw.model, sw.objf, meta_dat, mop, id, db, ac; ensure_fully_linear, kwargs... )
         new_sw = SurrogateWrapper( 
             sw.objf,
             new_model, 

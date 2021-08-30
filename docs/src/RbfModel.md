@@ -109,7 +109,7 @@ They have individual docstrings attached.
 	# Some sanity checks for the shape parameters
     @assert kernel != :thin_plate_spline || ( isnan(shape_parameter) || shape_parameter % 1 == 0 && shape_parameter >= 1 ) "Invalid shape_parameter for :thin_plate_spline."
 	@assert kernel != :cubic || ( isnan(shape_parameter) || shape_parameter % 1 == 0 && shape_parameter % 2 == 1 ) "Invalid shape_parameter for :cubic."
-	@assert isnan(shape_parameter) || shape_parameter > 0 "Shape parameter must be strictly positive."
+	@assert (isa( shape_parameter, String ) || isnan(shape_parameter)) || shape_parameter > 0 "Shape parameter must be strictly positive."
     # @assert θ_enlarge_1 >=1 && θ_enlarge_2 >=1 "θ's must be >= 1."
 end
 ````
@@ -142,11 +142,12 @@ using a verbose string, we need this little helper function, which evaluates the
 ````julia
 function parse_shape_param_string( Δ :: F, expr_str) :: F where F
     ex = Meta.parse(expr_str)
-    return @eval begin
+    sp = @eval begin
         let Δ=$Δ
             $ex
         end
     end
+	return sp
 end
 ````
 
@@ -214,7 +215,6 @@ We delegate the work to `prepare_update_model`.
 function prepare_init_model( cfg :: RbfConfig, objf :: AbstractObjective, mop :: AbstractMOP,
 	id :: AbstractIterData{F}, db :: AbstractDB, ac :: AbstractConfig;
 	ensure_fully_linear = true, kwargs...) where F<:AbstractFloat
-
 	meta = RbfMeta{F}()
 	return prepare_update_model(nothing, objf, meta, mop, id, db, ac; ensure_fully_linear = true, kwargs... )
 end
@@ -548,7 +548,7 @@ function _get_kernel_params( Δ , cfg )
 	F = eltype(Δ)
 
 	sp = if cfg.shape_parameter isa String
-		parse_shape_param_string( Δ, sp )
+		parse_shape_param_string( Δ, cfg.shape_parameter )
 	else
 		F(cfg.shape_parameter)
 	end
@@ -590,15 +590,22 @@ function prepare_improve_model( mod :: Union{Nothing, RbfModel}, objf :: Abstrac
 			@warn "RBF model is not fully linear, but there are no improving directions."
 		else
 			cfg = model_cfg(objf)
-			piv_val_1 = F.(get_Δ(iter_data) * cfg.θ_enlarge_1 * cfg.θ_pivot)
+			x = get_x(iter_data)
+			fx = get_fx(iter_data)
+			F = typeof(fx)
+			Δ = get_Δ(iter_data)
+			Δ_1 = Δ * cfg.θ_enlarge_1
+			lb_1, ub_1 = local_bounds(mop, x, Δ_1)
+			piv_val_1 = Δ_1 * cfg.θ_pivot
+
 
 			success = false
 			dir = popfirst!( meta.improving_directions )
-			len = intersect_bounds( x, dir, lb_1, ub_2; return_vals = :absmax )
+			len = intersect_bounds( x, dir, lb_1, ub_1; return_vals = :absmax )
 			offset = len .* dir
 			if norm( offset, Inf ) > piv_val_1
-				new_id = new_result!( db, x .+ offset, F[] )
-				push!(new_indices, new_id)
+				new_id = new_result!( db, x .+ offset, F() )
+				push!(meta.round1_indices, new_id)
 				success = true
 			end
 
@@ -644,6 +651,7 @@ function update_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, m
 
 	inner_model = RBF.RBFInterpolationModel( training_sites, training_values, cfg.kernel, kernel_params; save_matrices = false )
 
+	@logmsg loglevel3 "The model is $(meta.fully_linear ? "" : "not ")fully linear."
 	return RbfModel( inner_model, meta.fully_linear ), meta
 
 end

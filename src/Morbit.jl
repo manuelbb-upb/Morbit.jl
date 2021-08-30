@@ -218,7 +218,6 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 	β = _beta( algo_config )
 	ε_c = _eps_crit( algo_config )
 	γ_c = _gamma_crit( algo_config )
-	count_non_lin_it_flag = count_nonlinear_iterations( algo_config )
 
     # set iteration counter
     if it_stat(iter_data) != MODELIMPROVING || count_nonlinear_iterations( algo_config )
@@ -241,7 +240,7 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 
     # update surrogate models
     if num_iterations(iter_data) > 1
-        if it_stat == MODELIMPROVING 
+        if it_stat(iter_data) == MODELIMPROVING 
             improve_surrogates!( sc, mop, iter_data, data_base, algo_config; ensure_fully_linear = false );
         else
             update_surrogates!( sc, mop, iter_data, data_base, algo_config; ensure_fully_linear = false );

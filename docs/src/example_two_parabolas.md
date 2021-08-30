@@ -122,23 +122,23 @@ mop_rbf = MixedMOP()
 
 #  Define the RBF surrogates
 rbf_cfg = RbfConfig(
-    kernel = :multiquadric,
-    shape_parameter = "20/Δ"
+    kernel = :cubic,
+    #shape_parameter = "1/Δ"
 )
 #  Add objective functions to `mop_rbf`
 add_objective!(mop_rbf, f₁, rbf_cfg )
 add_objective!(mop_rbf, f₂, rbf_cfg )
 
+x₀ = X[5];# [-3.775315499879552, 3.8150054323309064]
 #  only perform 10 iterations
-ac = AlgoConfig( max_iter = 10 )
-x, fx, _, db = optimize( mop, x₀; algo_config = ac )
+ac = AlgoConfig( max_iter = 1 )
+x, fx, _, db = optimize( mop_rbf, x₀; algo_config = ac )
 x
 
 iteration_indices_rbf = [ iter_.x_index for iter_ in db.iter_info]
 it_sites_rbf = Tuple.(Morbit.get_site.(db, iteration_indices_rbf))
-lines!(it_sites); #hide
-scatter!(it_sites; color = :orange); #hide
-nothing #hide
+lines!(it_sites_rbf) #hide
+scatter!(it_sites_rbf; color = :orange) #hide
 ````
 
 The iteration sites are the orange circles:
@@ -153,16 +153,6 @@ The method could converge to different points depending on the starting point.
 We can pass the evaluation data from previous runs to facilitate the construction of surrogate models:
 
 ````@example example_two_parabolas
-ac = AlgoConfig( max_iter = 10 ); #hide
-mop_rbf = MixedMOP(); #hide
-#  define the RBF surogates #hide
-rbf_cfg = RbfConfig(  #hide
-    kernel = :multiquadric, #hide
-    shape_parameter = "20/Δ"  #hide
-); #hide
-#  add objective functions to `mop_rbf` #hide
-add_objective!(mop_rbf, f₁, rbf_cfg ); #hide
-add_objective!(mop_rbf, f₂, rbf_cfg ); #hide
 #  an array of well spread points in [-4,4]² #hide
 X =[ #hide
  [-4.0, -4.0], #hide
@@ -184,9 +174,21 @@ start_fin_points = Dict();
 
 #  perform several runs:
 db₀ = nothing # initial database can be `nothing`
-for x₀ ∈ X
-    global db₀
-    x_fin, fx_fin, _, db0 = optimize( mop_rbf, x₀; algo_config = ac, populated_db = db₀ )
+for x₀ ∈ X[5:5]
+    ac = AlgoConfig( #hide
+        max_iter = 10 #hide
+        ); #hide
+    mop_rbf = MixedMOP(); #hide
+    #  define the RBF surogates #hide
+    rbf_cfg = RbfConfig(  #hide
+        kernel = :cubic, #hide
+    ); #hide
+    #  add objective functions to `mop_rbf` #hide
+    add_objective!(mop_rbf, f₁, rbf_cfg ); #hide
+    add_objective!(mop_rbf, f₂, rbf_cfg ); #hidemop_rbf = MixedMOP()
+
+    global db₀, start_fin_points
+    x_fin, fx_fin, _, _ = optimize( mop_rbf, x₀; algo_config = ac)# populated_db = db₀ )
     #  add points to dict
     start_fin_points[x₀] = x_fin
 end

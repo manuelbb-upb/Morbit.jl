@@ -148,8 +148,8 @@ function transform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing
 end
 function untransform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing 
     if is_transformed(db)
-        unscale!( db, mop);
-        reverse_internal_sorting!( db, mop );
+        unscale!( db, mop)
+        reverse_internal_sorting!( db, mop )
         set_transformed!(db, false)
     end
     nothing
