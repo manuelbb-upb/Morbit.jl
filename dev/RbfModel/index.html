@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>RbfModels · Morbit.jl</title><script data-outdated-warner src="../assets/warner.js"></script><link rel="canonical" href="https://manuelbb-upb.github.io/Morbit.jl/RbfModel/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.039/juliamono-regular.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">Morbit.jl</a></span></div><form class="docs-search" action="../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../custom_logging/">Debug Info</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../example_two_parabolas/">Two Parabolas</a></li><li><a class="tocitem" href="../example_zdt/">ZDT3</a></li></ul></li><li><span class="tocitem">Models</span><ul><li class="is-active"><a class="tocitem" href>RbfModels</a><ul class="internal"><li><a class="tocitem" href="#Intro-and-Prerequisites"><span>Intro and Prerequisites</span></a></li><li><a class="tocitem" href="#Surrogate-Interface-Implementations"><span>Surrogate Interface Implementations</span></a></li><li><a class="tocitem" href="#Construction"><span>Construction</span></a></li><li><a class="tocitem" href="#Evaluation"><span>Evaluation</span></a></li></ul></li><li><a class="tocitem" href="../TaylorModel/">TaylorModels</a></li><li><a class="tocitem" href="../LagrangeModel/">LagrangeModels</a></li></ul></li><li><span class="tocitem">Random Notebooks</span><ul><li><a class="tocitem" href="../notebook_finite_differences/">Finite Differences</a></li><li><a class="tocitem" href="../notebook_polynomial_interpolation/">Lagrange Interpolation</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Models</a></li><li class="is-active"><a href>RbfModels</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>RbfModels</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/manuelbb-upb/Morbit.jl/blob/master/src/RbfModel.jl" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="Radial-Basis-Function-Surrogate-Models"><a class="docs-heading-anchor" href="#Radial-Basis-Function-Surrogate-Models">Radial Basis Function Surrogate Models</a><a id="Radial-Basis-Function-Surrogate-Models-1"></a><a class="docs-heading-anchor-permalink" href="#Radial-Basis-Function-Surrogate-Models" title="Permalink"></a></h1><h2 id="Intro-and-Prerequisites"><a class="docs-heading-anchor" href="#Intro-and-Prerequisites">Intro and Prerequisites</a><a id="Intro-and-Prerequisites-1"></a><a class="docs-heading-anchor-permalink" href="#Intro-and-Prerequisites" title="Permalink"></a></h2><p>We want to offer radial basis function (RBF) surrogate models (implementing the <code>SurrogateModel</code> interface). To this end, we leverage the package <a href="https://github.com/manuelbb-upb/RadialBasisFunctionModels.jl"><code>RadialBasisFunctionModels.jl</code></a>. A scalar RBF model consists of a <span>$n$</span>-variate Polynomial and linear combination of shifted radial kernels. For more information, see <a href="https://manuelbb-upb.github.io/RadialBasisFunctionModels.jl/stable">the documentation of <code>RadialBasisFunctionModels.jl</code></a>.</p><pre><code class="language-julia hljs">import RadialBasisFunctionModels as RBF
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>RbfModels · Morbit.jl</title><script data-outdated-warner src="../assets/warner.js"></script><link rel="canonical" href="https://manuelbb-upb.github.io/Morbit.jl/RbfModel/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.039/juliamono-regular.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">Morbit.jl</a></span></div><form class="docs-search" action="../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../example_two_parabolas/">Two Parabolas</a></li><li><a class="tocitem" href="../example_zdt/">ZDT3</a></li></ul></li><li><span class="tocitem">Models</span><ul><li><a class="tocitem" href="../ExactModel/">ExactModels</a></li><li class="is-active"><a class="tocitem" href>RbfModels</a><ul class="internal"><li><a class="tocitem" href="#Intro-and-Prerequisites"><span>Intro and Prerequisites</span></a></li><li><a class="tocitem" href="#Surrogate-Interface-Implementations"><span>Surrogate Interface Implementations</span></a></li><li><a class="tocitem" href="#Construction"><span>Construction</span></a></li><li><a class="tocitem" href="#Evaluation"><span>Evaluation</span></a></li><li><a class="tocitem" href="#Summary-and-Quick-Examples"><span>Summary &amp; Quick Examples</span></a></li></ul></li><li><a class="tocitem" href="../TaylorModel/">TaylorModels</a></li><li><a class="tocitem" href="../LagrangeModel/">LagrangeModels</a></li></ul></li><li><span class="tocitem">Random Notebooks</span><ul><li><a class="tocitem" href="../notebook_finite_differences/">Finite Differences</a></li><li><a class="tocitem" href="../notebook_polynomial_interpolation/">Lagrange Interpolation</a></li></ul></li><li><a class="tocitem" href="../custom_logging/">Pretty Printing</a></li><li><a class="tocitem" href="../dev_man/">Internals</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Models</a></li><li class="is-active"><a href>RbfModels</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>RbfModels</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/manuelbb-upb/Morbit.jl/blob/master/src/RbfModel.jl" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="Radial-Basis-Function-Surrogate-Models"><a class="docs-heading-anchor" href="#Radial-Basis-Function-Surrogate-Models">Radial Basis Function Surrogate Models</a><a id="Radial-Basis-Function-Surrogate-Models-1"></a><a class="docs-heading-anchor-permalink" href="#Radial-Basis-Function-Surrogate-Models" title="Permalink"></a></h1><h2 id="Intro-and-Prerequisites"><a class="docs-heading-anchor" href="#Intro-and-Prerequisites">Intro and Prerequisites</a><a id="Intro-and-Prerequisites-1"></a><a class="docs-heading-anchor-permalink" href="#Intro-and-Prerequisites" title="Permalink"></a></h2><p>We want to offer radial basis function (RBF) surrogate models (implementing the <code>SurrogateModel</code> interface). To this end, we leverage the package <a href="https://github.com/manuelbb-upb/RadialBasisFunctionModels.jl"><code>RadialBasisFunctionModels.jl</code></a>. A scalar RBF model consists of a <span>$n$</span>-variate Polynomial and linear combination of shifted radial kernels. For more information, see <a href="https://manuelbb-upb.github.io/RadialBasisFunctionModels.jl/stable">the documentation of <code>RadialBasisFunctionModels.jl</code></a>.</p><pre><code class="language-julia hljs">import RadialBasisFunctionModels as RBF
 using LinearAlgebra: qr, Hermitian, cholesky, inv, I, givens, diag</code></pre><p>The polyonmials will have a degree of at most 1. To construct “good” linear polynomials, we need to make sure to have construction sites, that span the decision space well. Such a set of construction sites is called Λ-poised or sufficiently affinely independent. The file <code>AffinelyIndependentPoints</code> implements some helpers to find suitable points as described by Wild et. al.<sup class="footnote-reference"><a id="citeref-wild_diss" href="#footnote-wild_diss">[wild_diss]</a></sup></p><pre><code class="language-julia hljs">include(&quot;AffinelyIndependentPoints.jl&quot;)</code></pre><h2 id="Surrogate-Interface-Implementations"><a class="docs-heading-anchor" href="#Surrogate-Interface-Implementations">Surrogate Interface Implementations</a><a id="Surrogate-Interface-Implementations-1"></a><a class="docs-heading-anchor-permalink" href="#Surrogate-Interface-Implementations" title="Permalink"></a></h2><p>The model used in our algorithm simply wraps an interpolation model from the <code>RBF</code> package.</p><pre><code class="language-julia hljs">@with_kw struct RbfModel{R} &lt;: SurrogateModel
 	model :: R
 
@@ -53,6 +53,9 @@ They have individual docstrings attached.
     max_model_points :: Int64 = -1 # is probably reset in the algorithm
     &quot;(default `false`) Sample new sites to always use the maximum number of points.&quot;
     use_max_points :: Bool = false
+
+	&quot;Whether or not to re-construct the training set in each iteration.&quot;
+	optimized_sampling = true
 
 #    &quot;(default `:orthogonal`) Algorithm to use for finding affinely independent set.&quot;
 #    sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
@@ -146,7 +149,8 @@ end</code></pre><p>Usually, <code>prepare_update_model</code> would only accept 
 		other_objf = all_objfs[i]
 		if other_meta isa RbfMeta
 			other_cfg = model_cfg(other_objf)
-			if other_cfg.θ_pivot == cfg.θ_pivot &amp;&amp; other_cfg.θ_enlarge_1 == cfg.θ_enlarge_1 &amp;&amp; other_cfg.θ_enlarge_2 == cfg.θ_enlarge_2
+			if other_cfg.θ_pivot == cfg.θ_pivot &amp;&amp; other_cfg.θ_enlarge_1 == cfg.θ_enlarge_1 &amp;&amp;
+				other_cfg.θ_enlarge_2 == cfg.θ_enlarge_2 &amp;&amp; other_cfg.optimized_sampling == cfg.optimized_sampling
 				copy_meta!( meta, other_meta )
 				skip_first_rounds = true
 			end
@@ -172,7 +176,7 @@ end</code></pre><p>Usually, <code>prepare_update_model</code> would only accept 
 
 	skip_first_rounds &amp;&amp; @goto round4
 
-	if force_rebuild
+	if force_rebuild || !cfg.optimized_sampling
 		### `force_rebuild` makes us skip the point searching procedures to …
 		### … rebuild the model along the coordinate axes.
 		filtered_indices_1 = Int[]
@@ -205,9 +209,9 @@ end</code></pre><p>Usually, <code>prepare_update_model</code> would only accept 
 	# Second round of sampling:
 	### If there are not enough sites to have a fully linear model …
 	### … try to at least find more sites in maximum allowed radius
-	n_missing = n_vars - length( filtered_indices_1 )
+	n_missing = n_vars - length( meta.round1_indices )
 
-	if n_missing == 0 || force_rebuild || ensure_fully_linear || Δ ≈ Δ_max &amp;&amp; cfg.θ_enlarge_1 == cfg.θ_enlarge_2
+	if n_missing == 0 || force_rebuild || !cfg.optimized_sampling || ensure_fully_linear || Δ ≈ Δ_max &amp;&amp; cfg.θ_enlarge_1 == cfg.θ_enlarge_2
 		@logmsg loglevel3 &quot;Skipping round 2.&quot;
 
 		meta.fully_linear = true
@@ -296,142 +300,143 @@ end</code></pre><p>Usually, <code>prepare_update_model</code> would only accept 
 	# largest possible trust region.
 	empty!(meta.round4_indices)
 
-	max_points = cfg.max_model_points &lt;= 0 ? 2 * n_vars + 1 : cfg.max_model_points
-	indices_found_so_far = _collect_indices( meta )
-	N = length(indices_found_so_far)
+	if cfg.optimized_sampling
 
-	candidate_indices_4 = results_in_box_indices( db, lb_2, ub_2, indices_found_so_far )
+		max_points = cfg.max_model_points &lt;= 0 ? 2 * n_vars + 1 : cfg.max_model_points
+		indices_found_so_far = _collect_indices( meta )
+		N = length(indices_found_so_far)
 
-	max_tries = 10 * max_points
-	num_tries = 0
+		candidate_indices_4 = results_in_box_indices( db, lb_2, ub_2, indices_found_so_far )
 
-	if N &lt; max_points &amp;&amp; ( !isempty(candidate_indices_4) || cfg.use_max_points )
-		@logmsg loglevel3 &quot;Round4: Can we find $(max_points - N) additional sites?&quot;
-		round4_indices = Int[]
+		max_tries = 10 * max_points
+		num_tries = 0
 
-		chol_pivot = cfg.θ_pivot_cholesky
+		if N &lt; max_points &amp;&amp; ( !isempty(candidate_indices_4) || cfg.use_max_points )
+			@logmsg loglevel3 &quot;Round4: Can we find $(max_points - N) additional sites?&quot;
+			round4_indices = Int[]
 
-		centers = get_site.(db, indices_found_so_far)
-		φ = _get_radial_function( Δ, cfg )
-		Φ, Π, kernels, polys = RBF.get_matrices( φ, centers; poly_deg = cfg.polynomial_degree )
+			chol_pivot = cfg.θ_pivot_cholesky
 
-		# prepare matrices as by Wild, R has to be augmented by rows of zeros
-		Q, R = qr( transpose(Π) )
-        R = [
-            R;
-            zeros( size(Q,1) - size(R,1), size(R,2) )
-        ]
-        Z = Q[:, N + 1 : end ] ## columns of Z are orthogonal to Π
+			centers = get_site.(db, indices_found_so_far)
+			φ = _get_radial_function( Δ, cfg )
+			Φ, Π, kernels, polys = RBF.get_matrices( φ, centers; poly_deg = cfg.polynomial_degree )
 
-		# Note: usually, Z, ZΦZ and L should be empty (if N == n_vars + 1)
-        ZΦZ = Hermitian(Z&#39;Φ*Z)	## make sure, it is really symmetric
-        L = cholesky( ZΦZ ).L   ## perform cholesky factorization
-        L⁻¹ = inv(L)				 ## most likely empty at this point
+			# prepare matrices as by Wild, R has to be augmented by rows of zeros
+			Q, R = qr( transpose(Π) )
+			R = [
+				R;
+				zeros( size(Q,1) - size(R,1), size(R,2) )
+			]
+			Z = Q[:, N + 1 : end ] ## columns of Z are orthogonal to Π
 
-        φ₀ = Φ[1,1]
+			# Note: usually, Z, ZΦZ and L should be empty (if N == n_vars + 1)
+			ZΦZ = Hermitian(Z&#39;Φ*Z)	## make sure, it is really symmetric
+			L = cholesky( ZΦZ ).L   ## perform cholesky factorization
+			L⁻¹ = inv(L)				 ## most likely empty at this point
 
-		@logmsg loglevel3 &quot;Round4: Considering $(length(candidate_indices_4)) candidates.&quot;
+			φ₀ = Φ[1,1]
 
-		while N &lt; max_points &amp;&amp; num_tries &lt;= max_tries
+			@logmsg loglevel3 &quot;Round4: Considering $(length(candidate_indices_4)) candidates.&quot;
 
-			if !isempty( candidate_indices_4 )
-				id = popfirst!( candidate_indices_4 )
-				### get candidate site ξ ∈ ℝⁿ
-				ξ = get_site( db, id )
-			else
-				if cfg.use_max_points
-					### there are no more sites in the db, but we **want**
-					### to use as many as possible
-					id = -1
-					ξ = _rand_box_point( lb_2, ub_2, F)
-					num_tries += 1
+			while N &lt; max_points &amp;&amp; num_tries &lt;= max_tries
+
+				if !isempty( candidate_indices_4 )
+					id = popfirst!( candidate_indices_4 )
+					### get candidate site ξ ∈ ℝⁿ
+					ξ = get_site( db, id )
 				else
-					break
+					if cfg.use_max_points
+						### there are no more sites in the db, but we **want**
+						### to use as many as possible
+						id = -1
+						ξ = _rand_box_point( lb_2, ub_2, F)
+						num_tries += 1
+					else
+						break
+					end
 				end
-			end
 
-			### apply all RBF kernels
-			φξ = kernels( ξ )
+				### apply all RBF kernels
+				φξ = kernels( ξ )
 
-			### apply polynomial basis system and augment polynomial matrix
-			πξ = polys( ξ )
-			Rξ = [ R; πξ&#39; ]
+				### apply polynomial basis system and augment polynomial matrix
+				πξ = polys( ξ )
+				Rξ = [ R; πξ&#39; ]
 
-			### perform Givens rotations to turn last row in Rξ to zeros
-			row_index = size( Rξ, 1)
-			G = Matrix(I, row_index, row_index) # whole orthogonal matrix
-			for j = 1 : size(R,2)
-				# in each column, take the diagonal as pivot to turn last elem to zero
-				g = givens( Rξ[j,j], Rξ[row_index, j], j, row_index )[1]
-				Rξ = g*Rξ;
-				G = g*G;
-			end
-
-			### now, from G we can update the other matrices
-			Gᵀ = transpose(G)
-			g̃ = Gᵀ[1 : end-1, end]
-			ĝ = Gᵀ[end, end]
-
-			Qg = Q*g̃;
-			v_ξ = Z&#39;*( Φ*Qg + φξ .* ĝ )
-			σ_ξ = Qg&#39;*Φ*Qg + (2*ĝ) * φξ&#39;*Qg + ĝ^2*φ₀
-
-			τ_ξ² = σ_ξ - norm( L⁻¹ * v_ξ, 2 )^2
-			# τ_ξ (and hence τ_ξ^2) must be bounded away from zero
-    		# for the model to remain fully linear
-			if τ_ξ² &gt; chol_pivot
-
-				if id &lt; 0
-					id = new_result!( db, ξ, F[] )
+				### perform Givens rotations to turn last row in Rξ to zeros
+				row_index = size( Rξ, 1)
+				G = Matrix(I, row_index, row_index) # whole orthogonal matrix
+				for j = 1 : size(R,2)
+					# in each column, take the diagonal as pivot to turn last elem to zero
+					g = givens( Rξ[j,j], Rξ[row_index, j], j, row_index )[1]
+					Rξ = g*Rξ;
+					G = g*G;
 				end
-				push!(round4_indices, id)	# accept the result
 
-				τ_ξ = sqrt(τ_ξ²)
+				### now, from G we can update the other matrices
+				Gᵀ = transpose(G)
+				g̃ = Gᵀ[1 : end-1, end]
+				ĝ = Gᵀ[end, end]
 
-				# zero-pad Q and multiply with Gᵗ
-				Q = [
-					Q 					zeros( size(Q,1), 1);
-					zeros(1, size(Q,2)) 1
-				] * Gᵀ
+				Qg = Q*g̃;
+				v_ξ = Z&#39;*( Φ*Qg + φξ .* ĝ )
+				σ_ξ = Qg&#39;*Φ*Qg + (2*ĝ) * φξ&#39;*Qg + ĝ^2*φ₀
 
-				Z = [
-					Z  						Qg;
-					zeros(1, size(Z,2)) 	ĝ
-				]
+				τ_ξ² = σ_ξ - norm( L⁻¹ * v_ξ, 2 )^2
+				# τ_ξ (and hence τ_ξ^2) must be bounded away from zero
+				# for the model to remain fully linear
+				if τ_ξ² &gt; chol_pivot
 
-				L = [
-					L          zeros(size(L,1), 1) ;
-					v_ξ&#39;L⁻¹&#39;   τ_ξ
-				]
+					if id &lt; 0
+						id = new_result!( db, ξ, F[] )
+					end
+					push!(round4_indices, id)	# accept the result
 
-				L⁻¹ = [
-					L⁻¹                zeros(size(L⁻¹,1),1);
-					-(v_ξ&#39;L⁻¹&#39;L⁻¹)./τ_ξ   1/τ_ξ
-				]
+					τ_ξ = sqrt(τ_ξ²)
 
-				R = Rξ
+					# zero-pad Q and multiply with Gᵗ
+					Q = [
+						Q 					zeros( size(Q,1), 1);
+						zeros(1, size(Q,2)) 1
+					] * Gᵀ
 
-				# finally, augment basis matrices and add new kernel for next iteration
-				Π = [ Π πξ ]
+					Z = [
+						Z  						Qg;
+						zeros(1, size(Z,2)) 	ĝ
+					]
 
-				Φ = [
-					Φ   φξ;
-					φξ&#39; φ₀
-				]
-				push!( kernels, RBF.make_kernel(φ, ξ) )
+					L = [
+						L          zeros(size(L,1), 1) ;
+						v_ξ&#39;L⁻¹&#39;   τ_ξ
+					]
 
-				# assert all( diag( L * L⁻¹) .≈ 1 )
-				N += 1
-			end#if
-		end#for
-		append!(meta.round4_indices, round4_indices)
-		@logmsg loglevel3 &quot;Round4: found $(length(round4_indices)) additional sites.&quot;
-	end#if
+					L⁻¹ = [
+						L⁻¹                zeros(size(L⁻¹,1),1);
+						-(v_ξ&#39;L⁻¹&#39;L⁻¹)./τ_ξ   1/τ_ξ
+					]
+
+					R = Rξ
+
+					# finally, augment basis matrices and add new kernel for next iteration
+					Π = [ Π πξ ]
+
+					Φ = [
+						Φ   φξ;
+						φξ&#39; φ₀
+					]
+					push!( kernels, RBF.make_kernel(φ, ξ) )
+
+					# assert all( diag( L * L⁻¹) .≈ 1 )
+					N += 1
+				end#if
+			end#for
+			append!(meta.round4_indices, round4_indices)
+			@logmsg loglevel3 &quot;Round4: found $(length(round4_indices)) additional sites.&quot;
+		end#if
+	end# if cfg.optimized_sampling
 
 	return meta
 end</code></pre><div class="admonition is-info"><header class="admonition-header">Note</header><div class="admonition-body"><p>At the moment, we do not store the matrices calculated in round 4 of the update procedure. This could be done to save some work when actually calculating the coefficients.</p></div></div><p>In contrast to the old RBF mechanism, the models in <code>RadialBasisFunctionModels</code> sometimes accept 2 parameters for the kernel. We use this little helper, to get defaults from the shape parameter. Note, that sanity check are performed in the RbfConfig constructor.</p><pre><code class="language-julia hljs">function _get_kernel_params( Δ , cfg )
-
-	F = eltype(Δ)
 
 	sp = if cfg.shape_parameter isa String
 		parse_shape_param_string( Δ, cfg.shape_parameter )
@@ -478,7 +483,6 @@ end</code></pre><p>An improvement step consists of adding a new site to the data
 			lb_1, ub_1 = local_bounds(mop, x, Δ_1)
 			piv_val_1 = Δ_1 * cfg.θ_pivot
 
-
 			success = false
 			dir = popfirst!( meta.improving_directions )
 			len = intersect_bounds( x, dir, lb_1, ub_1; return_vals = :absmax )
@@ -505,12 +509,6 @@ end
 function update_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, meta :: RbfMeta,
 	mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig;
 	kwargs... )
-
-	Δ = get_Δ(iter_data)
-	cfg = model_cfg(objf)
-
-	x = get_x(iter_data)
-	F = eltype(x)
 
 	kernel_params = _get_kernel_params( Δ, cfg )
 
@@ -547,4 +545,12 @@ end
 @doc &quot;Jacobian Matrix of ExactModel `em` at scaled site `x̂`.&quot;
 function get_jacobian( mod :: RbfModel, x̂ :: Vec )
     return RBF.jac( mod.model, x̂ )
-end</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p><section class="footnotes is-size-7"><ul><li class="footnote" id="footnote-wild_diss"><a class="tag is-link" href="#citeref-wild_diss">wild_diss</a>“Derivative-Free Optimization Algorithms For Computationally Expensive Functions”, Stefan M. Wild, 2009</li></ul></section></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../example_zdt/">« ZDT3</a><a class="docs-footer-nextpage" href="../TaylorModel/">TaylorModels »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.5 on <span class="colophon-date" title="Monday 30 August 2021 10:31">Monday 30 August 2021</span>. Using Julia version 1.6.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+end</code></pre><h2 id="Summary-and-Quick-Examples"><a class="docs-heading-anchor" href="#Summary-and-Quick-Examples">Summary &amp; Quick Examples</a><a id="Summary-and-Quick-Examples-1"></a><a class="docs-heading-anchor-permalink" href="#Summary-and-Quick-Examples" title="Permalink"></a></h2><ol><li>To use the default configuration for a scalar objective <code>f</code> do<pre><code class="language-julia hljs">add_objective!(mop, f, RbfConfig())</code></pre></li><li>For a vector valued objective do<pre><code class="language-julia hljs">add_vector_objective!(mop, f, RbfConfig(); n_out = 2)</code></pre></li><li>If you don&#39;t want to use a polynomial:<pre><code class="language-julia hljs">add_objective!(mop, f, RbfConfig(;kernel = :cubic, polynomial_degree = -1 ))</code></pre>This only works for certain kernels. <code>polynomial_degree = 0</code> will add a constant term.</li><li>To require sampling of the maximum number of allowed model points:<pre><code class="language-julia hljs">RbfConfig(;use_max_points = true)</code></pre></li><li>To only sample along the coordinate axis:<pre><code class="language-julia hljs">RbfConfig(;optimized_sampling = false)</code></pre>If <code>polynomial_degree == 1</code> the model will now be a linear interpolation model.</li></ol><h3 id="Complete-usage-example"><a class="docs-heading-anchor" href="#Complete-usage-example">Complete usage example</a><a id="Complete-usage-example-1"></a><a class="docs-heading-anchor-permalink" href="#Complete-usage-example" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Morbit
+Morbit.print_all_logs()
+mop = MixedMOP(3)
+
+F = x -&gt; [ sum( ( x .- 1 ).^2 ); sum( ( x .+ 1 ).^2 ) ]
+
+add_vector_objective!( mop, F, RbfConfig() )
+
+x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p><section class="footnotes is-size-7"><ul><li class="footnote" id="footnote-wild_diss"><a class="tag is-link" href="#citeref-wild_diss">wild_diss</a>“Derivative-Free Optimization Algorithms For Computationally Expensive Functions”, Stefan M. Wild, 2009</li></ul></section></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../ExactModel/">« ExactModels</a><a class="docs-footer-nextpage" href="../TaylorModel/">TaylorModels »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.5 on <span class="colophon-date" title="Monday 30 August 2021 14:44">Monday 30 August 2021</span>. Using Julia version 1.6.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
