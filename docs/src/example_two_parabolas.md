@@ -35,7 +35,6 @@ We can provide them to the solver to find a critical point:
 
 ````@example example_two_parabolas
 using Morbit
-Morbit.print_all_logs()
 
 f₁ = x -> sum( (x .- 1).^2 )
 f₂ = x -> sum( (x .+ 1).^2 )
@@ -122,16 +121,15 @@ mop_rbf = MixedMOP()
 
 #  Define the RBF surrogates
 rbf_cfg = RbfConfig(
-    kernel = :cubic,
-    #shape_parameter = "1/Δ"
+    kernel = :inv_multiquadric
 )
 #  Add objective functions to `mop_rbf`
 add_objective!(mop_rbf, f₁, rbf_cfg )
 add_objective!(mop_rbf, f₂, rbf_cfg )
 
-x₀ = X[5];# [-3.775315499879552, 3.8150054323309064]
+x₀ = [-3.775315499879552, 3.8150054323309064]
 #  only perform 10 iterations
-ac = AlgoConfig( max_iter = 1 )
+ac = AlgoConfig( max_iter = 10 )
 x, fx, _, db = optimize( mop_rbf, x₀; algo_config = ac )
 x
 
@@ -153,6 +151,18 @@ The method could converge to different points depending on the starting point.
 We can pass the evaluation data from previous runs to facilitate the construction of surrogate models:
 
 ````@example example_two_parabolas
+ac = AlgoConfig( #hide
+    max_iter = 10 #hide
+    ); #hide
+mop_rbf = MixedMOP(); #hide
+#  define the RBF surogates #hide
+rbf_cfg = RbfConfig(  #hide
+    kernel = :inv_multiquadric, #hide
+); #hide
+#  add objective functions to `mop_rbf` #hide
+add_objective!(mop_rbf, f₁, rbf_cfg ); #hide
+add_objective!(mop_rbf, f₂, rbf_cfg ); #hidemop_rbf = MixedMOP()
+
 #  an array of well spread points in [-4,4]² #hide
 X =[ #hide
  [-4.0, -4.0], #hide
@@ -174,21 +184,9 @@ start_fin_points = Dict();
 
 #  perform several runs:
 db₀ = nothing # initial database can be `nothing`
-for x₀ ∈ X[5:5]
-    ac = AlgoConfig( #hide
-        max_iter = 10 #hide
-        ); #hide
-    mop_rbf = MixedMOP(); #hide
-    #  define the RBF surogates #hide
-    rbf_cfg = RbfConfig(  #hide
-        kernel = :cubic, #hide
-    ); #hide
-    #  add objective functions to `mop_rbf` #hide
-    add_objective!(mop_rbf, f₁, rbf_cfg ); #hide
-    add_objective!(mop_rbf, f₂, rbf_cfg ); #hidemop_rbf = MixedMOP()
-
+for x₀ ∈ X
     global db₀, start_fin_points
-    x_fin, fx_fin, _, _ = optimize( mop_rbf, x₀; algo_config = ac)# populated_db = db₀ )
+    x_fin, fx_fin, _, db₀ = optimize( mop_rbf, x₀; algo_config = ac, populated_db = db₀ )
     #  add points to dict
     start_fin_points[x₀] = x_fin
 end

@@ -34,7 +34,7 @@ Pkg.activate(@__DIR__) #src
 using Test #src
 
 using Morbit
-Morbit.print_all_logs()
+Morbit.print_all_logs() #src
 
 f₁ = x -> sum( (x .- 1).^2 )
 f₂ = x -> sum( (x .+ 1).^2 )
