@@ -58,18 +58,16 @@ x
 # Hopefully, `x` is critical, i.e., `x[1] ≈ x[2]`.
 @test x[1] ≈ x[2] atol = .1 #src
 
-#=
-!!! note
-    To print more information on what the solver is doing, you can use the `Logging` module: 
-    ```julia 
-    import Logging: global_logger, ConsoleLogger
-    global_logger( ConsoleLogger( stderr, Morbit.loglevel4; 
-        meta_formatter = Morbit.morbit_formatter ) )
-    ```
-    `loglevel4` is the most detailed and `loglevel1` is least detailed. 
-    `Morbit.print_all_logs()` is a convenient shorthand.
-=#
-
+# !!! note
+#     To print more information on what the solver is doing, you can use the `Logging` module: 
+#     ```julia 
+#     import Logging: global_logger, ConsoleLogger
+#     global_logger( ConsoleLogger( stderr, Morbit.loglevel4; 
+#         meta_formatter = Morbit.morbit_formatter ) )
+#     ```
+#     `loglevel4` is the most detailed and `loglevel1` is least detailed. 
+#     `Morbit.print_all_logs()` is a convenient shorthand.
+ 
 #%% #src
 # ### Plotting Iteration Sites 
 # Let's retrieve the iteration sites.
@@ -107,58 +105,59 @@ ax.ygridvisible[] = false
 fig
 
 #%% #src
-#=
-## Solving using RBF Surrogates
 
-Suppose now that we do not have access to the objective gradients and that the objectives 
-also take some time to evaluate.
-In this situation, we could try to model them using surrogate models.
-To use radial basis function models, pass an `RbfConfig` when specifying the objective:
-=#
+# ## Solving using RBF Surrogates
+# 
+# Suppose now that we do not have access to the objective gradients and that the objectives 
+# also take some time to evaluate.
+# In this situation, we could try to model them using surrogate models.
+# To use radial basis function models, pass an `RbfConfig` when specifying the objective:
+# 
 mop_rbf = MixedMOP()
 
 #~ Define the RBF surrogates
 rbf_cfg = RbfConfig( 
-    kernel = :multiquadric, 
-    shape_parameter = "20/Δ" 
+    kernel = :inv_multiquadric 
 )
 #~ Add objective functions to `mop_rbf`
 add_objective!(mop_rbf, f₁, rbf_cfg )
 add_objective!(mop_rbf, f₂, rbf_cfg )
 
+x₀ = [-3.775315499879552, 3.8150054323309064]
 #~ only perform 10 iterations
 ac = AlgoConfig( max_iter = 10 )
-x, fx, _, db = optimize( mop, x₀; algo_config = ac ) 
+x, fx, _, db = optimize( mop_rbf, x₀; algo_config = ac ) 
 x
 
 #src Setup and save plot for docs.
 iteration_indices_rbf = [ iter_.x_index for iter_ in db.iter_info]
 it_sites_rbf = Tuple.(Morbit.get_site.(db, iteration_indices_rbf))
-lines!(it_sites); #hide
-scatter!(it_sites; color = :orange); #hide
+lines!(it_sites_rbf) #hide
+scatter!(it_sites_rbf; color = :orange) #hide
 
 # The iteration sites are the orange circles:
 fig #hide
 
 #%% #src
-#=
-## Different Starting Points and Recycling Data 
 
-The method could converge to different points depending on the starting point. 
-We can pass the evaluation data from previous runs to facilitate the construction of surrogate models:
-=#
-
+# ## Different Starting Points and Recycling Data 
+# 
+# The method could converge to different points depending on the starting point. 
+# We can pass the evaluation data from previous runs to facilitate the construction of surrogate models:
+ 
 #src Setup the problem anew, to ensure fresh start
-ac = AlgoConfig( max_iter = 10 ); #hide
+ac = AlgoConfig( #hide
+    max_iter = 10 #hide
+    ); #hide
 mop_rbf = MixedMOP(); #hide
 #~ define the RBF surogates #hide
 rbf_cfg = RbfConfig(  #hide
-    kernel = :multiquadric, #hide
-    shape_parameter = "20/Δ"  #hide
+    kernel = :inv_multiquadric, #hide
 ); #hide
 #~ add objective functions to `mop_rbf` #hide
 add_objective!(mop_rbf, f₁, rbf_cfg ); #hide
-add_objective!(mop_rbf, f₂, rbf_cfg ); #hide
+add_objective!(mop_rbf, f₂, rbf_cfg ); #hidemop_rbf = MixedMOP()
+
 #~ an array of well spread points in [-4,4]² #hide
 X =[ #hide
  [-4.0, -4.0], #hide
@@ -182,8 +181,8 @@ start_fin_points = Dict();
 #~ perform several runs:
 db₀ = nothing # initial database can be `nothing`
 for x₀ ∈ X
-    global db₀
-    x_fin, fx_fin, _, db0 = optimize( mop_rbf, x₀; algo_config = ac, populated_db = db₀ )
+    global db₀, start_fin_points
+    x_fin, fx_fin, _, db₀ = optimize( mop_rbf, x₀; algo_config = ac, populated_db = db₀ )
     #~ add points to dict
     start_fin_points[x₀] = x_fin
 end
