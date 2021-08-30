@@ -80,6 +80,9 @@ They have individual docstrings attached.
     "(default `false`) Sample new sites to always use the maximum number of points."
     use_max_points :: Bool = false
 
+	"Whether or not to re-construct the training set in each iteration."
+	optimized_sampling = true
+
 ##    "(default `:orthogonal`) Algorithm to use for finding affinely independent set."
 ##    sampling_algorithm :: Symbol = :orthogonal # :orthogonal or :monte_carlo
 
@@ -212,7 +215,8 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: Abstract
 		other_objf = all_objfs[i]
 		if other_meta isa RbfMeta
 			other_cfg = model_cfg(other_objf)
-			if other_cfg.θ_pivot == cfg.θ_pivot && other_cfg.θ_enlarge_1 == cfg.θ_enlarge_1 && other_cfg.θ_enlarge_2 == cfg.θ_enlarge_2
+			if other_cfg.θ_pivot == cfg.θ_pivot && other_cfg.θ_enlarge_1 == cfg.θ_enlarge_1 && 
+				other_cfg.θ_enlarge_2 == cfg.θ_enlarge_2 && other_cfg.optimized_sampling == cfg.optimized_sampling
 				copy_meta!( meta, other_meta )
 				skip_first_rounds = true
 			end
@@ -238,7 +242,7 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: Abstract
 
 	skip_first_rounds && @goto round4
 
-	if force_rebuild
+	if force_rebuild || !cfg.optimized_sampling
 		### `force_rebuild` makes us skip the point searching procedures to …
 		### … rebuild the model along the coordinate axes.
 		filtered_indices_1 = Int[]
@@ -272,9 +276,9 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: Abstract
 	## Second round of sampling:
 	### If there are not enough sites to have a fully linear model …
 	### … try to at least find more sites in maximum allowed radius
-	n_missing = n_vars - length( filtered_indices_1 )
+	n_missing = n_vars - length( meta.round1_indices )
 
-	if n_missing == 0 || force_rebuild || ensure_fully_linear || Δ ≈ Δ_max && cfg.θ_enlarge_1 == cfg.θ_enlarge_2
+	if n_missing == 0 || force_rebuild || !cfg.optimized_sampling || ensure_fully_linear || Δ ≈ Δ_max && cfg.θ_enlarge_1 == cfg.θ_enlarge_2
 		@logmsg loglevel3 "Skipping round 2."
 	
 		meta.fully_linear = true
@@ -363,138 +367,141 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: Abstract
 	## In round 4 we have found `n_vars + 1` training sites and try to find additional points within the 
 	## largest possible trust region.
 	empty!(meta.round4_indices)
-		
-	max_points = cfg.max_model_points <= 0 ? 2 * n_vars + 1 : cfg.max_model_points
-	indices_found_so_far = _collect_indices( meta )
-	N = length(indices_found_so_far)
-	
-	candidate_indices_4 = results_in_box_indices( db, lb_2, ub_2, indices_found_so_far )
-	
-	max_tries = 10 * max_points	
-	num_tries = 0
 
-	if N < max_points && ( !isempty(candidate_indices_4) || cfg.use_max_points )
-		@logmsg loglevel3 "Round4: Can we find $(max_points - N) additional sites?"
-		round4_indices = Int[]
-
-		chol_pivot = cfg.θ_pivot_cholesky
-
-		centers = get_site.(db, indices_found_so_far)
-		φ = _get_radial_function( Δ, cfg )
-		Φ, Π, kernels, polys = RBF.get_matrices( φ, centers; poly_deg = cfg.polynomial_degree )
-		
-		## prepare matrices as by Wild, R has to be augmented by rows of zeros
-		Q, R = qr( transpose(Π) )
-        R = [
-            R;
-            zeros( size(Q,1) - size(R,1), size(R,2) )
-        ]
-        Z = Q[:, N + 1 : end ] ## columns of Z are orthogonal to Π
-
-		## Note: usually, Z, ZΦZ and L should be empty (if N == n_vars + 1)
-        ZΦZ = Hermitian(Z'Φ*Z)	## make sure, it is really symmetric
-        L = cholesky( ZΦZ ).L   ## perform cholesky factorization
-        L⁻¹ = inv(L)				 ## most likely empty at this point
-
-        φ₀ = Φ[1,1]
-
-		@logmsg loglevel3 "Round4: Considering $(length(candidate_indices_4)) candidates."
-		
-		while N < max_points && num_tries <= max_tries
+	if cfg.optimized_sampling
 			
-			if !isempty( candidate_indices_4 )
-				id = popfirst!( candidate_indices_4 )
-				### get candidate site ξ ∈ ℝⁿ
-				ξ = get_site( db, id )
-			else
-				if cfg.use_max_points
-					### there are no more sites in the db, but we **want**
-					### to use as many as possible
-					id = -1
-					ξ = _rand_box_point( lb_2, ub_2, F)
-					num_tries += 1
-				else 
-					break 
-				end
-			end
-
-			### apply all RBF kernels
-			φξ = kernels( ξ )
+		max_points = cfg.max_model_points <= 0 ? 2 * n_vars + 1 : cfg.max_model_points
+		indices_found_so_far = _collect_indices( meta )
+		N = length(indices_found_so_far)
 		
-			### apply polynomial basis system and augment polynomial matrix
-			πξ = polys( ξ )
-			Rξ = [ R; πξ' ]
+		candidate_indices_4 = results_in_box_indices( db, lb_2, ub_2, indices_found_so_far )
+		
+		max_tries = 10 * max_points	
+		num_tries = 0
 
-			### perform Givens rotations to turn last row in Rξ to zeros
-			row_index = size( Rξ, 1)
-			G = Matrix(I, row_index, row_index) # whole orthogonal matrix
-			for j = 1 : size(R,2) 
-				## in each column, take the diagonal as pivot to turn last elem to zero
-				g = givens( Rξ[j,j], Rξ[row_index, j], j, row_index )[1]
-				Rξ = g*Rξ;
-				G = g*G;
-			end
+		if N < max_points && ( !isempty(candidate_indices_4) || cfg.use_max_points )
+			@logmsg loglevel3 "Round4: Can we find $(max_points - N) additional sites?"
+			round4_indices = Int[]
 
-			### now, from G we can update the other matrices 
-			Gᵀ = transpose(G)
-			g̃ = Gᵀ[1 : end-1, end]
-			ĝ = Gᵀ[end, end]
+			chol_pivot = cfg.θ_pivot_cholesky
 
-			Qg = Q*g̃;
-			v_ξ = Z'*( Φ*Qg + φξ .* ĝ )
-			σ_ξ = Qg'*Φ*Qg + (2*ĝ) * φξ'*Qg + ĝ^2*φ₀
+			centers = get_site.(db, indices_found_so_far)
+			φ = _get_radial_function( Δ, cfg )
+			Φ, Π, kernels, polys = RBF.get_matrices( φ, centers; poly_deg = cfg.polynomial_degree )
+			
+			## prepare matrices as by Wild, R has to be augmented by rows of zeros
+			Q, R = qr( transpose(Π) )
+			R = [
+				R;
+				zeros( size(Q,1) - size(R,1), size(R,2) )
+			]
+			Z = Q[:, N + 1 : end ] ## columns of Z are orthogonal to Π
 
-			τ_ξ² = σ_ξ - norm( L⁻¹ * v_ξ, 2 )^2 
-			## τ_ξ (and hence τ_ξ^2) must be bounded away from zero 
-    		## for the model to remain fully linear
-			if τ_ξ² > chol_pivot
+			## Note: usually, Z, ZΦZ and L should be empty (if N == n_vars + 1)
+			ZΦZ = Hermitian(Z'Φ*Z)	## make sure, it is really symmetric
+			L = cholesky( ZΦZ ).L   ## perform cholesky factorization
+			L⁻¹ = inv(L)				 ## most likely empty at this point
+
+			φ₀ = Φ[1,1]
+
+			@logmsg loglevel3 "Round4: Considering $(length(candidate_indices_4)) candidates."
+			
+			while N < max_points && num_tries <= max_tries
 				
-				if id < 0
-					id = new_result!( db, ξ, F[] )
+				if !isempty( candidate_indices_4 )
+					id = popfirst!( candidate_indices_4 )
+					### get candidate site ξ ∈ ℝⁿ
+					ξ = get_site( db, id )
+				else
+					if cfg.use_max_points
+						### there are no more sites in the db, but we **want**
+						### to use as many as possible
+						id = -1
+						ξ = _rand_box_point( lb_2, ub_2, F)
+						num_tries += 1
+					else 
+						break 
+					end
 				end
-				push!(round4_indices, id)	# accept the result
-				
-				τ_ξ = sqrt(τ_ξ²)
 
-				## zero-pad Q and multiply with Gᵗ
-				Q = [
-					Q 					zeros( size(Q,1), 1);
-					zeros(1, size(Q,2)) 1
-				] * Gᵀ
+				### apply all RBF kernels
+				φξ = kernels( ξ )
+			
+				### apply polynomial basis system and augment polynomial matrix
+				πξ = polys( ξ )
+				Rξ = [ R; πξ' ]
 
-				Z = [ 
-					Z  						Qg;
-					zeros(1, size(Z,2)) 	ĝ 
-				]
-				
-				L = [
-					L          zeros(size(L,1), 1) ;
-					v_ξ'L⁻¹'   τ_ξ 
-				]
+				### perform Givens rotations to turn last row in Rξ to zeros
+				row_index = size( Rξ, 1)
+				G = Matrix(I, row_index, row_index) # whole orthogonal matrix
+				for j = 1 : size(R,2) 
+					## in each column, take the diagonal as pivot to turn last elem to zero
+					g = givens( Rξ[j,j], Rξ[row_index, j], j, row_index )[1]
+					Rξ = g*Rξ;
+					G = g*G;
+				end
 
-				L⁻¹ = [
-					L⁻¹                zeros(size(L⁻¹,1),1);
-					-(v_ξ'L⁻¹'L⁻¹)./τ_ξ   1/τ_ξ 
-				]
+				### now, from G we can update the other matrices 
+				Gᵀ = transpose(G)
+				g̃ = Gᵀ[1 : end-1, end]
+				ĝ = Gᵀ[end, end]
 
-				R = Rξ
+				Qg = Q*g̃;
+				v_ξ = Z'*( Φ*Qg + φξ .* ĝ )
+				σ_ξ = Qg'*Φ*Qg + (2*ĝ) * φξ'*Qg + ĝ^2*φ₀
 
-				## finally, augment basis matrices and add new kernel for next iteration
-				Π = [ Π πξ ]
+				τ_ξ² = σ_ξ - norm( L⁻¹ * v_ξ, 2 )^2 
+				## τ_ξ (and hence τ_ξ^2) must be bounded away from zero 
+				## for the model to remain fully linear
+				if τ_ξ² > chol_pivot
+					
+					if id < 0
+						id = new_result!( db, ξ, F[] )
+					end
+					push!(round4_indices, id)	# accept the result
+					
+					τ_ξ = sqrt(τ_ξ²)
 
-				Φ = [ 
-					Φ   φξ;
-					φξ' φ₀
-				]
-				push!( kernels, RBF.make_kernel(φ, ξ) )
+					## zero-pad Q and multiply with Gᵗ
+					Q = [
+						Q 					zeros( size(Q,1), 1);
+						zeros(1, size(Q,2)) 1
+					] * Gᵀ
 
-				## assert all( diag( L * L⁻¹) .≈ 1 )
-				N += 1
-			end#if 
-		end#for 
-		append!(meta.round4_indices, round4_indices)
-		@logmsg loglevel3 "Round4: found $(length(round4_indices)) additional sites."
-	end#if
+					Z = [ 
+						Z  						Qg;
+						zeros(1, size(Z,2)) 	ĝ 
+					]
+					
+					L = [
+						L          zeros(size(L,1), 1) ;
+						v_ξ'L⁻¹'   τ_ξ 
+					]
+
+					L⁻¹ = [
+						L⁻¹                zeros(size(L⁻¹,1),1);
+						-(v_ξ'L⁻¹'L⁻¹)./τ_ξ   1/τ_ξ 
+					]
+
+					R = Rξ
+
+					## finally, augment basis matrices and add new kernel for next iteration
+					Π = [ Π πξ ]
+
+					Φ = [ 
+						Φ   φξ;
+						φξ' φ₀
+					]
+					push!( kernels, RBF.make_kernel(φ, ξ) )
+
+					## assert all( diag( L * L⁻¹) .≈ 1 )
+					N += 1
+				end#if 
+			end#for 
+			append!(meta.round4_indices, round4_indices)
+			@logmsg loglevel3 "Round4: found $(length(round4_indices)) additional sites."
+		end#if
+	end# if cfg.optimized_sampling
 
 	return meta
 end
@@ -508,8 +515,6 @@ end
 # accept 2 parameters for the kernel. We use this little helper, to get defaults from the shape parameter.
 # Note, that sanity check are performed in the RbfConfig constructor.
 function _get_kernel_params( Δ , cfg )
-
-	F = eltype(Δ)
 
 	sp = if cfg.shape_parameter isa String
 		parse_shape_param_string( Δ, cfg.shape_parameter )
@@ -558,7 +563,6 @@ function prepare_improve_model( mod :: Union{Nothing, RbfModel}, objf :: Abstrac
 			Δ_1 = Δ * cfg.θ_enlarge_1
 			lb_1, ub_1 = local_bounds(mop, x, Δ_1)
 			piv_val_1 = Δ_1 * cfg.θ_pivot
-
 			
 			success = false
 			dir = popfirst!( meta.improving_directions )
@@ -592,12 +596,6 @@ end
 function update_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, meta :: RbfMeta, 
 	mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
 	kwargs... ) 
-
-	Δ = get_Δ(iter_data)
-	cfg = model_cfg(objf)
-
-	x = get_x(iter_data)
-	F = eltype(x)
 
 	kernel_params = _get_kernel_params( Δ, cfg )
 
@@ -644,5 +642,44 @@ end
 function get_jacobian( mod :: RbfModel, x̂ :: Vec )
     return RBF.jac( mod.model, x̂ )
 end
+
+# ## Summary & Quick Examples 
+
+# 1. To use the default configuration for a scalar objective `f` do
+#    ```julia
+#    add_objective!(mop, f, RbfConfig())
+#    ```
+# 2. For a vector valued objective do 
+#    ```julia
+#    add_vector_objective!(mop, f, RbfConfig(); n_out = 2)
+#    ```
+# 3. If you don't want to use a polynomial:  
+#    ```julia
+#    add_objective!(mop, f, RbfConfig(;kernel = :cubic, polynomial_degree = -1 ))
+#    ```
+#    This only works for certain kernels. `polynomial_degree = 0` will add a constant term.
+# 4. To require sampling of the maximum number of allowed model points:  
+#    ```julia 
+#    RbfConfig(;use_max_points = true)
+#    ```
+# 5. To only sample along the coordinate axis:
+#    ```julia 
+#    RbfConfig(;optimized_sampling = false)
+#    ```
+#    If `polynomial_degree == 1` the model will now be a linear interpolation model.
+
+# ### Complete usage example 
+# ```julia
+# using Morbit
+# Morbit.print_all_logs()
+# mop = MixedMOP(3)
+#
+# F = x -> [ sum( ( x .- 1 ).^2 ); sum( ( x .+ 1 ).^2 ) ]
+#
+# add_vector_objective!( mop, F, RbfConfig() )
+#
+# x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])
+# ```
+
 
 # [^wild_diss]: “Derivative-Free Optimization Algorithms For Computationally Expensive Functions”, Stefan M. Wild, 2009

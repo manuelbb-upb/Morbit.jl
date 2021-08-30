@@ -123,7 +123,6 @@ rbf_cfg = RbfConfig(
 add_objective!(mop_rbf, f₁, rbf_cfg )
 add_objective!(mop_rbf, f₂, rbf_cfg )
 
-x₀ = [-3.775315499879552, 3.8150054323309064]
 #~ only perform 10 iterations
 ac = AlgoConfig( max_iter = 10 )
 x, fx, _, db = optimize( mop_rbf, x₀; algo_config = ac ) 
@@ -156,7 +155,7 @@ rbf_cfg = RbfConfig(  #hide
 ); #hide
 #~ add objective functions to `mop_rbf` #hide
 add_objective!(mop_rbf, f₁, rbf_cfg ); #hide
-add_objective!(mop_rbf, f₂, rbf_cfg ); #hidemop_rbf = MixedMOP()
+add_objective!(mop_rbf, f₂, rbf_cfg ); #hide
 
 #~ an array of well spread points in [-4,4]² #hide
 X =[ #hide

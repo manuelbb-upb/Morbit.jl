@@ -1,14 +1,23 @@
 # Morbit
 
-## Warning
-**I am currently doing a large refactoring!**
-I hope to be finished at the end of ~~July~~ August (2021), after my 3 week vacation. 
-In my opinion, the package will be much better afterwards, but there will be ~~some~~ many breaking changes.
-Up until then, you can still use version 2.1.8, but keep in mind, that some scripts won't work anymore once the next version releases (and I found some bugs that I won't fix for the 2.1.X versions). 
-I have also made it so that any new documentation is hosted here: [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/dev)
-* There you can see the re-implementation of the RBFModels and
-* a notebook on how I plan to redo the Taylor Models.
-* Lagrange models will be redone soon.
+## Version 3
+Version 3 signifies a big re-write of nearly everything.
+Most importantly, most types are no longer "weakly typed".
+Instead they now have type parameters which will hopefully benefit running performance.
+
+There are many breaking changes (compared to version 2) and this version is not fully feature complete yet:
+
+* The signature of the main `optimize` function now is
+  ```julia
+  ret_x, ret_fx, RETURN_CODE, data_base = optimize( mop, x0, fx0; 
+     algo_config = nothing, populated_db = nothing )
+  ```
+* `AlgoConfig` still is the user configurable settings object, but some settings have moved to other locations, e.g.:  
+  * `descent_method` now takes an object of type `SteepestDescentConfig` or `PascolettSerafiniConfig`.
+  These provide further descent configuration options.
+  You can also use symbols such as `:steepest_descent` or `pascoletti_serafini`.
+  * Most fields no longer use Unicode greek letters but their names, e.g. `delta_max` instead of `Δ_max` and `omega_tol_abs` instead of `ω_tol_abs`.
+  * `AlgoConfig` has two type parameters: `AlgoConfig{F,D}`. The first one is the floating point precision used throughout the algorithm and defaults to `Float64`. `D` is the descent type (or `Symbol`).
 
 ## README
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/stable)
@@ -79,6 +88,12 @@ Box constraints can easily be defined at initialization of the `MixedMOP`:
 lb = fill(-4, 2)
 ub = -lb
 mop_con = MixedMOP(lb, ub)
+```
+
+Of course, vector-valued objectives are also supported:
+```julia
+F = x -> [f1(x); f2(x)]
+add_vector_objective!(mop, F, rbf_cfg; n_out = 2)
 ```
 
 There are many options to configure both the algorithm behavior and the 

@@ -16,7 +16,11 @@ This was my first project using Julia and there have been many messy rewrites.
 Nonetheless, the solver should now work sufficiently well to tackle most problems. 
 I hope to rewrite the custom types soonish. At the moment they are weakly typed and the performance suffers.
 
-**To get started, see the examples, e.g. [Two Parabolas](@ref).
+**To get started, see the examples, e.g. [Two Parabolas](@ref).**
+
+There are also some documentation pages for the different model types.
+These were auto-generated from source code using `Literate.jl`.
+Hence, they are very detailed but not user-oriented, except for some usage examples at the bottom.
 
 This project was founded by the European Region Development Fund.
 
@@ -26,11 +30,4 @@ This project was founded by the European Region Development Fund.
 
 ```@raw html
 <img src="https://www.efre.nrw.de/fileadmin/Logos/Programm_EFRE.NRW/Ziel2NRW_RGB_1809_jpg.jpg" width="45%"/>
-```
-
-```@index
-```
-
-```@autodocs
-Modules = [Morbit]
 ```

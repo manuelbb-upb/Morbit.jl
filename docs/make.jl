@@ -21,12 +21,12 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
-        "Debug Info" => "custom_logging.md",
         "Examples" => [
             "Two Parabolas" => "example_two_parabolas.md",
             "ZDT3" => "example_zdt.md"
         ],
         "Models" => [
+            "ExactModels" => "ExactModel.md",
             "RbfModels" => "RbfModel.md",
             "TaylorModels" => "TaylorModel.md",
             "LagrangeModels" => "LagrangeModel.md"
@@ -35,6 +35,8 @@ makedocs(;
             "Finite Differences" => "notebook_finite_differences.md",
             "Lagrange Interpolation" => "notebook_polynomial_interpolation.md"
         ],
+        "Pretty Printing" => "custom_logging.md",
+        "Internals" => "dev_man.md"
     ],
 )
 

@@ -659,7 +659,7 @@ end
    ```julia
    add_objective!(mop, f, LagrangeConfig(;degree=1))
    ```
-4. By default, a new interpolation set is built in everey iteration.
+4. By default, a new interpolation set is built in every iteration.
    To use a "stamp" instead, turn of optimized sampling:
    ```julia
    add_objective!(mop, f, LagrangeConfig(;optimized_sampling=true))

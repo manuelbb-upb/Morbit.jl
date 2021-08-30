@@ -43,12 +43,12 @@ max_iter( :: AbstractConfig ) :: Int = 50;
 ( f_tol_abs( :: AbstractConfig{F} ) ::Union{F, AbstractVector{F}} ) where F = F(-1);
 ( x_tol_abs( :: AbstractConfig{F} ) ::Union{F, AbstractVector{F}} ) where F = F(-1);
 
-# stop if ω ≤ ω_tol_rel && Δ .≤ Δ_tol_rel
-( ω_tol_rel( :: AbstractConfig{F} ) :: F ) where F = F(1e-3);
+# stop if ω ≤ omega_tol_rel && Δ .≤ Δ_tol_rel
+( omega_tol_rel( :: AbstractConfig{F} ) :: F ) where F = F(1e-3);
 ( Δ_tol_rel( :: AbstractConfig{F} ) ::Union{F, AbstractVector{F}} ) where F = F(1e-2);
 
-# stop if ω <= ω_tol_abs 
-( ω_tol_abs(ac :: AbstractConfig{F} ) :: F ) where F = F(-1);
+# stop if ω <= omega_tol_abs 
+( omega_tol_abs(ac :: AbstractConfig{F} ) :: F ) where F = F(-1);
 
 # stop if Δ .<= Δ_tol_abs 
 ( Δ_tol_abs(ac :: AbstractConfig{F} ) ::Union{F, AbstractVector{F}} ) where F = F(1e-6);

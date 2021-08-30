@@ -60,11 +60,6 @@ function morbit_formatter(level::LogLevel, _module, group, id, file, line)
 	global printDict
     if level in keys(printDict)
         color, prefix = printDict[ level ]
-````
-
-suffix ::String = ""
-
-````julia
         return color, prefix, ""
     else
         return Logging.default_metafmt( level, _module, group, id, file, line )

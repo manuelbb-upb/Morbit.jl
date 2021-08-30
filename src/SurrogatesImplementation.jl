@@ -127,7 +127,7 @@ function improve_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP,
     eval_missing!(db, mop)
 
     for (si,sw) ∈ enumerate(sc.surrogates)
-        @show meta_dat = meta_array[si]
+        meta_dat = meta_array[si]
         new_model, new_meta = improve_model( sw.model, sw.objf, meta_dat, mop, id, db, ac; ensure_fully_linear, kwargs... )
         new_sw = SurrogateWrapper( 
             sw.objf,

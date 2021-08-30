@@ -38,8 +38,8 @@ use_db( ::DefaultConfig ) = ArrayDB;
 
     count_nonlinear_iterations :: Bool = count_nonlinear_iterations( default_config( _F_ ) );
     
-    Δ_0 :: Union{F, Vector{F}} = Δ⁰(default_config( _F_ ));
-    Δ_max :: Union{F, Vector{F}} = Δᵘ(default_config( _F_ ));
+    delta_0 :: Union{F, Vector{F}} = Δ⁰(default_config( _F_ ));
+    delta_max :: Union{F, Vector{F}} = Δᵘ(default_config( _F_ ));
         
     # relative stopping 
     # stop if ||Δf|| ≤ ε ||f||
@@ -51,12 +51,12 @@ use_db( ::DefaultConfig ) = ArrayDB;
     f_tol_abs ::Union{F, Vector{F}}  = f_tol_abs(default_config( _F_ ))
     x_tol_abs ::Union{F, Vector{F}}  = x_tol_abs(default_config( _F_ ));
 
-    # stop if ω ≤ ω_tol_rel && Δ .≤ Δ_tol_rel
-    ω_tol_rel :: F = ω_tol_rel(default_config( _F_ ));
+    # stop if ω ≤ omega_tol_rel && Δ .≤ Δ_tol_rel
+    omega_tol_rel :: F = omega_tol_rel(default_config( _F_ ));
     Δ_tol_rel ::Union{F, Vector{F}} = Δ_tol_rel(default_config( _F_ ));
 
-    # stop if ω <= ω_tol_abs 
-    ω_tol_abs :: F = ω_tol_abs(default_config( _F_ ));
+    # stop if ω <= omega_tol_abs 
+    omega_tol_abs :: F = omega_tol_abs(default_config( _F_ ));
 
     # stop if Δ .<= Δ_tol_abs 
     Δ_tol_abs ::Union{F, Vector{F}} = Δ_tol_abs(default_config( _F_ ));
@@ -79,14 +79,12 @@ use_db( ::DefaultConfig ) = ArrayDB;
 end
 
 for fn in fieldnames(AlgorithmConfig)
-    if fn ∉ [ :Δ_0, :Δ_max, :use_db ]
+    if fn ∉ [ :use_db, ]
         @eval $fn( ac :: AlgorithmConfig ) = getfield( ac, Symbol($fn) )
     end
 end
 
-use_db( ac :: AlgorithmConfig ) = ac.db;
-Δ⁰( ac :: AlgorithmConfig ) = ac.Δ_0;
-Δᵘ( ac :: AlgorithmConfig ) = ac.Δ_max;
+use_db( ac :: AlgorithmConfig ) = ac.db
 
 #####################################################
 # outer constructors for the lazy user and backwards compatibility

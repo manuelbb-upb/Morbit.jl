@@ -4,7 +4,6 @@ current_env = Base.load_path()[1]
 Pkg.activate(@__DIR__)
 
 using Literate
-using PlutoSliderServer
 
 example_dir = joinpath(@__DIR__, "..", "examples")
 src_dir = joinpath(@__DIR__, "..", "src")
@@ -15,6 +14,7 @@ function replace_comments( content )
 end    
 
 #%% Functions to convert notebook
+using PlutoSliderServer
 function make_notebook_html( notebook_jl_path; execute = true )
     out_dir = joinpath(@__DIR__, "src", "custom_assets") 
     if execute
@@ -103,6 +103,12 @@ Literate.markdown(
 
 
 Literate.markdown(
+    joinpath( src_dir, "ExactModel.jl"), 
+    joinpath( @__DIR__, "src" );    
+    codefence = "````julia" => "````",
+)
+
+Literate.markdown(
     joinpath( src_dir, "LagrangeModel.jl"), 
     joinpath( @__DIR__, "src" );    
     codefence = "````julia" => "````",
@@ -121,6 +127,7 @@ Literate.markdown(
 )
 
 #%%
+
 #make_notebook_md( joinpath( example_dir, "notebook_finite_differences.jl" ); execute = true )
 #make_notebook_md( joinpath( example_dir, "notebook_polynomial_interpolation.jl" ); execute = true )
 
