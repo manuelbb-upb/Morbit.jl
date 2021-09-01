@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/src/RbfModel.jl"
+EditURL = "<unknown>/../src/RbfModel.jl"
 ```
 
 # Radial Basis Function Surrogate Models

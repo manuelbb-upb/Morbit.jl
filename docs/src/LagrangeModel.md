@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/src/LagrangeModel.jl"
+EditURL = "<unknown>/../src/LagrangeModel.jl"
 ```
 
 # Lagrange Polynomial Models
@@ -328,15 +328,14 @@ function make_set_lambda_poised( basis, points :: AbstractArray{T};
 
        	@logmsg loglevel3 "Trying $(max_loops) times to make a set poised with Λ = $(LAMBDA)."
 
-		iₖ = -1
-		xₖ = points[1]
-
 		new_basis = basis
 		new_points = P_type(points)
 		point_indices = collect(eachindex(new_points))
 
 		for k = 1 : max_loops
-			for (i, polyᵢ) in enumerate(basis)
+            iₖ = -1
+		    xₖ = points[1]
+			for (i, polyᵢ) in enumerate(new_basis)
 				opt = NLopt.Opt( solver, n_vars )
 				opt.lower_bounds = zeros(F, n_vars)
 				opt.upper_bounds = ones(F, n_vars)
@@ -344,8 +343,7 @@ function make_set_lambda_poised( basis, points :: AbstractArray{T};
 				opt.xtol_rel = 1e-3
 				opt.max_objective = (x,g) -> abs( polyᵢ( x ) )
 
-				x₀_tmp = [ rand(F, n_vars) for i = 1 : 50 * n_vars ]
-				x₀ = x₀_tmp[argmax( abs.(new_basis[i].(x₀_tmp)) ) ]
+                x₀ = points[i]
 
 				abs_lᵢ, xᵢ, _ = NLopt.optimize(opt, x₀)
 
@@ -545,7 +543,7 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: Abs
         end
 
         candidate_indices = [x_index,]
-        @show lindices = fill(-1, length(lpoints))
+        lindices = fill(-1, length(lpoints))
 
         # check if x (scaled to [0,1] wrt trust region bounds) is center of `lpoints`
         #src TODO does using `≈` make problems for small trust region radii? `==` always fails

@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/src/AbstractIterDataInterface.jl"
+EditURL = "<unknown>/../src/AbstractIterDataInterface.jl"
 ```
 
 # Iter Data Interface

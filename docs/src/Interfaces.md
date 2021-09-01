@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/src/Interfaces.jl"
+EditURL = "<unknown>/../src/Interfaces.jl"
 ```
 
 # Interfaces

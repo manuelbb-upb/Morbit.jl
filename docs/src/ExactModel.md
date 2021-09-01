@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/src/ExactModel.jl"
+EditURL = "<unknown>/../src/ExactModel.jl"
 ```
 
 Exact models

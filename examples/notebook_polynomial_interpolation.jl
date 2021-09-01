@@ -219,15 +219,14 @@ function make_set_lambda_poised( basis, points :: AbstractArray{T};
 			max_solver_evals = 2000 * n_vars
 		end
 
-		iₖ = -1
-		xₖ = points[1]
-
 		new_basis = basis
 		new_points = P_type(points)
 		point_indices = collect(eachindex(new_points))
 
 		for k = 1 : max_loops
-			for (i, polyᵢ) in enumerate(basis)
+			iₖ = -1
+			xₖ = points[1]
+			for (i, polyᵢ) in enumerate(new_basis)
 				opt = NLopt.Opt( solver, n_vars )
 				opt.lower_bounds = zeros(F, n_vars)
 				opt.upper_bounds = ones(F, n_vars)
