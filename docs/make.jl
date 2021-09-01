@@ -36,7 +36,13 @@ makedocs(;
             "Lagrange Interpolation" => "notebook_polynomial_interpolation.md"
         ],
         "Pretty Printing" => "custom_logging.md",
-        "Internals" => "dev_man.md"
+        "Internals" => [
+            "DocStrings" => "dev_man.md",
+            "Interfaces" => "Interfaces.md",
+            "`AbstractResult` Interface" => "AbstractResultInterface.md",
+            "`AbstractIteraData` Interface" => "AbstractIterDataInterface.md",
+            "`AbstractDB` Interface" => "AbstractDBInterface.md",
+        ]
     ],
 )
 

@@ -19,13 +19,13 @@ function _get_gradient( :: Val{true}, gw :: GradWrapper, x̂ :: Vec, ℓ :: Int 
     Jtfn = _jacobian_unscaling( gw.tfn, x̂ )
     g = gw.list_of_grads[ℓ](gw.tfn(x̂))
     @assert length(g) == length(x̂) "Gradient $(ℓ) must have length $(length(x̂))."
-    return vec(Jtfn'g);
+    return ensure_vec(Jtfn'g);
 end 
 
 # false =̂ list_of_grads empty but jacobian handle provided
 function _get_gradient( :: Val{false}, gw :: GradWrapper, x̂ :: Vec, ℓ :: Int = 1)
     Jtfn = _jacobian_unscaling( gw.tfn, x̂ )
-    return vec( Jtfn[:,ℓ]'gw.jacobian_handle( gw.tfn(x̂) ) )
+    return ensure_vec( Jtfn[:,ℓ]'gw.jacobian_handle( gw.tfn(x̂) ) )
 end
 
 function get_gradient( gw :: GradWrapper, x̂ :: Vec, ℓ :: Int = 1)
@@ -69,7 +69,7 @@ end
 # jacobian handle set
 function get_gradient( adw :: AutoDiffWrapper{O,TT,JT}, x̂ :: Vec, ℓ :: Int = 1 ) where{O,TT,JT<:Function}
     Jtfn = _get_transformer_jacobian( adw, x̂ )
-    return vec(Jtfn[:,ℓ]'gw.jacobian_handle( adw.tfn(x̂) ))
+    return ensure_vec(Jtfn[:,ℓ]'gw.jacobian_handle( adw.tfn(x̂) ))
 end
 
 # fallbacks, if no jacobian is set; not optimized for multiple outputs
@@ -162,7 +162,7 @@ end
 
 # if gw is jacobian callback
 function _get_grad_func( gw :: Function, ℓ :: Int )
-    return x -> vec( gw(x)[ℓ, :] )
+    return x -> ensure_vec( gw(x)[ℓ, :] )
 end
 =# # Use a GradWrapper instead 
 

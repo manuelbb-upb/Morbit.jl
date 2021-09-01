@@ -30,7 +30,7 @@ model_cfg( objf :: AbstractObjective ) :: SurrogateConfig = nothing
 
 "Evaluate the objective at unscaled site `x`. and increase counter."
 function eval_objf(objf :: AbstractObjective, x :: Vec )
-    inc_evals!(objf);
+    inc_evals!(objf)
     eval_handle(objf)(x)
 end
 

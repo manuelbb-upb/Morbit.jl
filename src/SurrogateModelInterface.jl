@@ -6,7 +6,7 @@ Broadcast.broadcastable( sc::SurrogateConfig ) = Ref(sc);
 max_evals( :: SurrogateConfig ) = typemax(Int) :: Int;
 
 # return data that is stored in iter data in each iteration
-# saveable(::SurrogateMeta) = nothing :: Union{Nothing, <:SurrogateMeta};
+# get_saveable(::SurrogateMeta) = nothing :: Union{Nothing, <:SurrogateMeta};
 
 fully_linear( :: SurrogateModel ) = false :: Bool;
 
@@ -41,8 +41,8 @@ get_jacobian( :: SurrogateModel, :: Vec ) :: Mat = nothing
 
 # DEFAULTS
 
-saveable_type( :: SurrogateMeta ) = Nothing 
-saveable( :: SurrogateMeta ) = nothing
+get_saveable_type( :: SurrogateMeta ) = Nothing 
+get_saveable( :: SurrogateMeta ) = nothing
 
 prepare_update_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...) = meta
 prepare_improve_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...) = meta
@@ -67,3 +67,20 @@ end
 
 # only needed if combinable
 combine( cfg :: SurrogateConfig, :: SurrogateConfig  ) = cfg
+
+## derived 
+
+@doc """
+Return a function handle to be used with `NLopt` for output `ℓ` of `model`.
+That is, if `model` is a surrogate for two scalar objectives, then `ℓ` must 
+be either 1 or 2.
+"""
+function _get_optim_handle( model :: SurrogateModel, ℓ :: Int )
+    # Return an anonymous function that modifies the gradient if present
+    function (x :: Vec, g :: Vec)
+        if !isempty(g)
+            g[:] = get_gradient( model, x, ℓ)
+        end
+        return eval_models( model, x, ℓ)
+    end
+end

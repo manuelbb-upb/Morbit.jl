@@ -1,16 +1,16 @@
 @with_kw mutable struct ArrayDB{
-		F <:AbstractFloat, RT <: AbstractResult{F}, 
-		IT <: Union{Nothing,AbstractIterSaveable} } <: AbstractDB{F}
+	R <: AbstractResult, I <: NothingOrSaveable} <: AbstractDB{R,I}
 	
-	res :: Vector{RT} = RT[]
+	res :: Vector{R} = R[]
+	iter_info :: Vector{I} = I[]
 
 	# counter of entries 
 	num_entries :: Int = 0
 
+	# transformed results indicator
 	transformed :: Bool = false
 	
-	iter_info :: Vector{IT} = IT[]
-
+	# list of ids for unevaluated results
 	unevaluated_ids :: Vector{Int} = []
 
 	@assert length(res) == num_entries "Number of entries does not match `num_entries`."
@@ -18,9 +18,9 @@ end
 
 Base.length( db :: ArrayDB ) = db.num_entries
 
-function init_db(:: Type{<:ArrayDB}, F :: Type{<:AbstractFloat},
-		IT :: Union{Type{<:AbstractIterSaveable},Type{<:Nothing}} )
-	return ArrayDB{F, Result{F}, IT}()
+function init_db(:: Type{<:ArrayDB}, R :: Type{<:Result},
+		I :: Type{<:NothingOrSaveable})
+	return ArrayDB{R, I}()
 end
 
 is_transformed( db :: ArrayDB ) = db.transformed
@@ -30,7 +30,7 @@ function set_transformed!( db :: ArrayDB, val :: Bool )
 	return nothing 
 end
 
-Base.eachindex( db :: ArrayDB ) ::Vector{Int} = Base.eachindex( db.res )
+get_ids( db :: ArrayDB ) = Base.eachindex( db.res )
 
 function get_result( db :: ArrayDB, id :: Int)
 	return db.res[id]
@@ -40,39 +40,32 @@ function next_id( db :: ArrayDB) :: Int
 	return db.num_entries + 1
 end
 
-function new_result!( db :: ArrayDB{F,RT,IT}, x :: Vec, y :: Vec, id :: Int = -1 ) where{F,RT,IT}
-	new_id = id < 0 ? next_id(db) : id
-	new_result = init_res( RT, x, y, new_id )
-	append!(db.res, new_result)
-	if !has_valid_value(new_result) 
-		push!(db.unevaluated_ids, new_id)
-	end
-	db.num_entries += 1
-	return new_id
+function set_evaluated_flag!( db :: ArrayDB, id :: Int, state = true)
+	if state == false 
+		push!( db.unevaluated_ids, id)
+	else
+		pos = findfirst( i -> i == id, db.unevaluated_ids )
+		if !isnothing(pos)
+			deleteat!( db.unevaluated_ids, pos )
+		end
+	end	
+	return nothing
+end
+
+function _add_result!( db :: ArrayDB{R,I}, res :: R ) where{R,I}
+	push!(db.res, res)
+	return nothing
 end
 
 function _missing_ids(db :: ArrayDB)
 	return db.unevaluated_ids
 end
 
-function set_evaluated_flag!( db :: ArrayDB, id :: Int )
-	if has_valid_value( get_result(db, id) )
-		for (i,_id) in enumerate(db.unevaluated_ids)
-			if _id == id
-				deleteat!(db.unevaluated_ids,i)
-				break
-			end
-		end
-	end
-	nothing
-end
-
-
-function stamp!( db :: ArrayDB, ids :: AbstractIterSaveable ) :: Nothing 
+function stamp!( db :: ArrayDB{R,I}, ids :: I) :: Nothing where{R <: AbstractResult,I<:NothingOrSaveable}
 	push!(db.iter_info, ids)
 	return nothing
 end
 
 ###########################################
-struct MockDB{F<:AbstractFloat} <: AbstractDB{F} end
-init_db( :: MockDB, :: F, args... ) where F = MockDB{F}()
+struct MockDB{R,I} <: AbstractDB{R,I} end
+init_db( :: MockDB, R, I, args... ) = MockDB{R,I}()

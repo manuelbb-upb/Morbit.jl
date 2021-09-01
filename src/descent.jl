@@ -35,15 +35,16 @@ end
 
 # STEEPEST DESCENT AND BACKTRACKING
 
-@with_kw struct SteepestDescentConfig{F<:AbstractFloat}
+@with_kw struct SteepestDescentConfig <: AbstractDescentConfig
 
     "Require a descent in all model objective components."
     strict_backtracking :: Bool = true 
 
-    armijo_const_rhs :: F = 1e-3
-    armijo_const_shrink :: F = .5 
+    armijo_const_rhs :: Float64 = 1e-3
+    armijo_const_shrink :: Float64 = .5 
 
-    min_stepsize :: F = eps(F)
+    max_loops :: Int = 30
+    min_stepsize :: Float64 = -1.0
 end
 
 "Provided `x` and the (surrogate) jacobian `∇F` at `x`, as well as bounds `lb` and `ub`, return steepest multi descent direction."
@@ -88,9 +89,10 @@ Perform a backtracking loop starting at `x` with an initial step of
 `step_size .* dir` and return trial point `x₊`, the surrogate value-vector `m_x₊`
 and the final step `s = x₊ .- x`.
 """
-function _backtrack( x, dir, ω, sc, cfg )
+function _backtrack( x :: AbstractVector{F}, dir, ω, sc, cfg ) where F<:AbstractFloat
 
-    MIN_STEPSIZE = cfg.min_stepsize
+    MIN_STEPSIZE = cfg.min_stepsize >= 0 ? cfg.min_stepsize : eps(F)
+    MAX_LOOPS = cfg.max_loops
     strict_backtracking = cfg.strict_backtracking 
     α = cfg.armijo_const_shrink
     c = cfg.armijo_const_rhs
@@ -103,7 +105,10 @@ function _backtrack( x, dir, ω, sc, cfg )
     x₊ = x .+ step_size .* dir
     mx₊ = eval_models( sc, x₊ )
 
-    while !_armijo_condition( Val(strict_backtracking), mx, mx₊, step_size, ω, c )
+    for i = 1 : MAX_LOOPS 
+        if _armijo_condition( Val(strict_backtracking), mx, mx₊, step_size, ω, c )
+            break
+        end
         if step_size <= MIN_STEPSIZE 
             @warn "Could not find a descent by backtracking."
             break
@@ -136,7 +141,7 @@ function compute_descent_step( desc_cfg :: SteepestDescentConfig , mop, iter_dat
     @logmsg loglevel4 "Calculating steepest stepsize."
 
     x = get_x( iter_data )
-    Δ = get_Δ( iter_data )
+    Δ = get_delta( iter_data )
 
     # scale direction for backtracking as in paper
     norm_d = norm(d, Inf)
@@ -165,7 +170,7 @@ end
 # PASCOLETTI-SERAFINI
 # TODO would it matter to allow single precision reference_point?
 # Does NLopt honour precision?
-@with_kw struct PascolettiSerafiniConfig
+@with_kw struct PascolettiSerafiniConfig <: AbstractDescentConfig
     
     "Local utopia point to guide descent search in objective space."
     reference_point :: Vector{Float64} = Float64[]
@@ -238,7 +243,7 @@ function get_criticality( desc_cfg :: PascolettiSerafiniConfig, mop, iter_data, 
     @logmsg loglevel3 "Calculating Pascoletti-Serafini descent."
     x = get_x( iter_data )
     fx = get_fx( iter_data )
-    Δ = get_Δ( iter_data )
+    Δ = get_delta( iter_data )
     n_vars = length( x )
     n_out = num_objectives(mop);
     
@@ -462,7 +467,7 @@ TODO Re-enable Directed Search
 
 function _cfg_from_symbol( desc_cfg :: Symbol, F :: Type )
     if desc_cfg == :steepest || desc_cfg == :sd || desc_cfg == :steepest_descent
-        return SteepestDescentConfig{F}()
+        return SteepestDescentConfig()
     elseif desc_cfg == :ps || desc_cfg == :pascoletti_serafini 
         return PascolettiSerafiniConfig()
     end

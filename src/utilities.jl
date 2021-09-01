@@ -65,14 +65,14 @@ end
 
 function ω_Δ_rel_test( ω :: Real, Δ :: VecOrNum, ac :: AbstractConfig )
     ω_tol = omega_tol_rel( ac )
-    Δ_tol = Δ_tol_rel( ac )
+    Δ_tol = delta_tol_rel( ac )
     ret = ω <= ω_tol && all( Δ .<= Δ_tol )
     ret && @logmsg loglevel1 "Realtive criticality stopping criterion fulfilled."
     ret
 end
 
 function Δ_abs_test( Δ :: VecOrNum, ac :: AbstractConfig )
-    tol = Δ_tol_abs( ac )
+    tol = delta_tol_abs( ac )
     ret = all( Δ .<= tol )
     ret && @logmsg loglevel1 "Absolute radius stopping criterion fulfilled."
     ret
@@ -99,8 +99,8 @@ function _stop_info_str( ac :: AbstractConfig, mop :: Union{AbstractMOP,Nothing}
     ret_str *= @sprintf("• ‖ x - x⁺ ‖ ≤ %g ⋅ ‖ x ‖,\n", x_tol_rel(ac) )
     ret_str *= @sprintf("• ‖ fx - fx⁺ ‖ ≤ %g,\n", f_tol_abs(ac) )
     ret_str *= @sprintf("• ‖ x - x⁺ ‖ ≤ %g,\n", x_tol_abs(ac) )
-    ret_str *= @sprintf("• ω ≤ %g AND Δ ≤ %g,\n", omega_tol_rel(ac), Δ_tol_rel(ac))
-    ret_str *= @sprintf("• Δ ≤ %g OR", Δ_tol_abs(ac))
+    ret_str *= @sprintf("• ω ≤ %g AND Δ ≤ %g,\n", omega_tol_rel(ac), delta_tol_rel(ac))
+    ret_str *= @sprintf("• Δ ≤ %g OR", delta_tol_abs(ac))
     ret_str *= @sprintf(" ω ≤ %g.", omega_tol_abs(ac))
 end
 
@@ -120,7 +120,7 @@ function _fin_info_str(data_base, iter_data :: AbstractIterData, mop, stopcode =
         |--------------------------------------------
         | FINISHED ($stopcode)
         |--------------------------------------------
-        | No. iterations:  $(num_iterations(iter_data)) 
+        | No. iterations:  $(get_num_iterations(iter_data)) 
     """ * (isnothing(mop) ? "" :
         "    | No. evaluations: $(num_evals(mop))" ) *
     """ 

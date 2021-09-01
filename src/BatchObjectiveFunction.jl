@@ -7,13 +7,13 @@ end
 
 # evaluation of a BatchObjectiveFunction
 function (objf::BatchObjectiveFunction)(x :: Vec)
-    vec(objf.function_handle(x))
+    return ensure_vec(objf.function_handle(x))
 end
 
 # overload broadcasting for BatchObjectiveFunction's
 # that are assumed to handle arrays themselves
 function Broadcast.broadcasted( objf::BatchObjectiveFunction, X :: VecVec)
-    vec.( objf.function_handle( X ) )
+    ensure_vec.( objf.function_handle( X ) )
 end
 
 function _new_batch( func1 :: F, func2 :: T ) where{ F <:Function ,T <: Function }

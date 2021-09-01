@@ -119,8 +119,8 @@ end
 The end user won't be interested in the wrappers, so we put `nothing` in there:
 
 ````julia
-saveable_type( :: TaylorIndexMeta ) = TaylorIndexMeta{Nothing, Nothing}
-saveable( meta :: TaylorIndexMeta ) = TaylorIndexMeta(;
+get_saveable_type( :: TaylorIndexMeta ) = TaylorIndexMeta{Nothing, Nothing}
+get_saveable( meta :: TaylorIndexMeta ) = TaylorIndexMeta(;
     grad_setter_indices = meta.grad_setter_indices,
     hess_setter_indices = meta.hess_setter_indices
 )

@@ -101,7 +101,6 @@ Literate.markdown(
     codefence = "````julia" => "````",
 )
 
-
 Literate.markdown(
     joinpath( src_dir, "ExactModel.jl"), 
     joinpath( @__DIR__, "src" );    
@@ -126,6 +125,29 @@ Literate.markdown(
     codefence = "````julia" => "````",
 )
 
+Literate.markdown(
+    joinpath( src_dir, "Interfaces.jl"), 
+    joinpath( @__DIR__, "src" );  
+    codefence = "````julia" => "````",
+)
+
+Literate.markdown(
+    joinpath( src_dir, "AbstractResultInterface.jl"), 
+    joinpath( @__DIR__, "src" );  
+    codefence = "````julia" => "````",
+)
+
+Literate.markdown(
+    joinpath( src_dir, "AbstractIterDataInterface.jl"), 
+    joinpath( @__DIR__, "src" );  
+    codefence = "````julia" => "````",
+)
+
+Literate.markdown(
+    joinpath( src_dir, "AbstractDBInterface.jl"), 
+    joinpath( @__DIR__, "src" );  
+    codefence = "````julia" => "````",
+)
 #%%
 
 #make_notebook_md( joinpath( example_dir, "notebook_finite_differences.jl" ); execute = true )

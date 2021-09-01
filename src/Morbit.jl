@@ -1,6 +1,8 @@
 
 module Morbit
 
+using DocStringExtensions
+
 using Printf: @sprintf
 
 # steepest descent and directed search
@@ -32,6 +34,7 @@ import Logging
 export MixedMOP, RbfConfig, ExactConfig, TaylorConfig, TaylorApproximateConfig, TaylorCallbackConfig
 export add_objective!, add_vector_objective!
 export optimize
+export SteepestDescentConfig, PascolettiSerafiniConfig
 
 include("custom_logging.jl")
 
@@ -41,7 +44,7 @@ include("diff_wrappers.jl");
 
 # implementations (order should not matter)
 include("VectorObjectiveFunction.jl");
-include("MixedMOP.jl");
+include("MixedMOP.jl")
 include("StaticMOP.jl")
 
 include("ResultImplementation.jl")
@@ -95,12 +98,12 @@ end
 
 "Grow radius according to `min( Δ_max, γ * Δ )`."
 function grow_radius( ::Val{:standard}, ac, Δ, steplength )
-	return min( Δᵘ(ac), _gamma_grow(ac) * Δ )
+	return min( get_delta_max(ac), _gamma_grow(ac) * Δ )
 end 
 
 "Grow radius according to `min( Δ_max, (γ + ||s||/Δ) * Δ )`"
 function grow_radius( ::Val{:steplength}, ac, Δ, steplength )
-	return min( Δᵘ(ac), ( _gamma_grow(ac) .+ steplength ./ Δ ) .* Δ )
+	return min( get_delta_max(ac), ( _gamma_grow(ac) .+ steplength ./ Δ ) .* Δ )
 end 
 
 # we expect mop :: MixedMOP, but should work for static MOP if everything 
@@ -119,7 +122,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = MIN_PRECIS
     |--------------------------------------------
 	"""	
 	
-	@warn "The evaluation counter of `mop` is reset."
+	@logmsg loglevel1 "The evaluation counter of `mop` is reset."
 	reset_evals!( mop )
 	# initialize first iteration site
 	@assert !isempty( x0 ) "Please provide a non-empty feasible starting point `x0`."
@@ -136,39 +139,47 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = MIN_PRECIS
 	smop = StaticMOP(mop)
 
 	# scale bound vars to unit hypercube
-	x_scaled = scale( x0, smop );
+	x_scaled = scale( x0, smop )
+	# ensure at least single-precision
+	XTe = Base.promote_eltype( x_scaled, MIN_PRECISION )
+	x = XTe.(x_scaled)
+	XT = typeof(x)
 
 	# initalize first objective vector 
 	if isempty( fx0 )
 		# if no starting function value was provided, eval objectives
-		fx_sorted = eval_all_objectives( smop, x_scaled );
+		fx_sorted = eval_all_objectives( smop, x )
 	else
-		fx_sorted = apply_internal_sorting( fx0, smop );
+		fx_sorted = apply_internal_sorting( fx0, smop )
 	end 
 
-	# ensure at least single-precision
-	F = Base.promote_eltype( x_scaled, fx_sorted, MIN_PRECISION )
-	x = F.(x_scaled)
-	fx = F.(fx_sorted)
+	YTe = Base.promote_eltype( fx_sorted, MIN_PRECISION )
+	fx = YTe.(fx_sorted)
+	YT = typeof( fx )
 
 	if isnothing( algo_config )
-		ac = DefaultConfig{F}()
+		ac = DefaultConfig()
 	else
 		ac = algo_config
 	end
 
 	# initialize iter data obj
-	id = init_iter_data( IterData, x, fx, Δ⁰(ac) )
-	#CT = saveable_type(id)	 # type for database constructor
+	Δ_0 = let Δ = get_delta_0( ac );
+		T = promote_type( typeof(Δ), XTe )
+		T.(Δ)
+	end
+	DT = typeof(Δ_0)
+
+	id = init_iter_data( IterData, x, fx, Δ_0 )
 
 	# initialize database
 	if !isnothing(populated_db)
 		# has a database been provided? if yes, prepare (scale vars, sort values)
-		data_base = populated_db;
+		data_base = populated_db
 		transform!( data_base, mop )
 	else
-		result_type = Result{F}
-		data_base = init_db( ArrayDB, F, Nothing )
+		result_type = Result{ XT, YT }
+		data_base = init_db( ArrayDB, result_type, Nothing )
 		set_transformed!(data_base, true)
 	end
 	
@@ -178,12 +189,13 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec, fx0 :: Vec = MIN_PRECIS
 
 	# make the problem static 
 	# initialize surrogate models
-	sc = init_surrogates( smop, id, data_base, ac );
+	sc = init_surrogates(SurrogateContainer, smop, id, data_base, ac )
 
 	# now that we have meta data available, we retrive the 
 	# right saveable type and make a new database, that can handle `CT`
-	CT = saveable_type( id, sc )
-	new_data_base = copy_db(data_base, CT )
+	CT = get_saveable_type( sc )
+	saveable_type = IterSaveable{DT, CT}
+	new_data_base = copy_db(data_base; saveable_type )
 	return (smop, id, new_data_base, sc, ac)
 end
 
@@ -193,11 +205,11 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 	# read iteration data
 	x = get_x( iter_data )
 	fx = get_fx( iter_data )
-	Δ = get_Δ( iter_data )
+	Δ = get_delta( iter_data )
 
 	# check (some) stopping conditions 
 	# (rest is done at end of this function, when trial point is known)
-	if num_iterations(iter_data) >= max_iter(algo_config)
+	if get_num_iterations(iter_data) >= max_iter(algo_config)
         @logmsg loglevel1 "Stopping. Maximum number of iterations reached."
         return MAX_ITER
     end
@@ -219,17 +231,19 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 	ε_c = _eps_crit( algo_config )
 	γ_c = _gamma_crit( algo_config )
 
+	SAVEABLE_TYPE = get_saveable_type( data_base )
+
     # set iteration counter
     if it_stat(iter_data) != MODELIMPROVING || count_nonlinear_iterations( algo_config )
-        inc_iterations!(iter_data)
-        set_model_improvements!(iter_data, 0);
+        inc_num_iterations!(iter_data)
+        set_num_model_improvements!(iter_data, 0);
     else 
-        inc_model_improvements!(iter_data)
+        inc_num_model_improvements!(iter_data)
     end
     
     @logmsg loglevel1 """\n
         |--------------------------------------------
-        |Iteration $(num_iterations(iter_data)).$(num_model_improvements(iter_data))
+        |Iteration $(get_num_iterations(iter_data)).$(get_num_model_improvements(iter_data))
         |--------------------------------------------
         |  Current trust region radius is $(Δ).
         |  Current number of function evals is $(num_evals(mop)).
@@ -239,7 +253,7 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
     """
 
     # update surrogate models
-    if num_iterations(iter_data) > 1
+    if get_num_iterations(iter_data) > 1
         if it_stat(iter_data) == MODELIMPROVING 
             improve_surrogates!( sc, mop, iter_data, data_base, algo_config; ensure_fully_linear = false );
         else
@@ -288,7 +302,7 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 				end
 				# shrink radius
 				Δ = γ_c .* Δ
-				set_Δ!(iter_data, Δ)
+				set_delta!(iter_data, Δ)
 				
 				# make models fully linear on smaller trust region
 				update_surrogates!( sc, mop, iter_data, data_base, algo_config; ensure_fully_linear = true )
@@ -309,7 +323,7 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 			if num_critical_loops > 0
 			end
 		end
-		@logmsg loglevel1 "Exiting after $(num_critical_loops) loops with ω = $(ω) and Δ = $(get_Δ(iter_data))."
+		@logmsg loglevel1 "Exiting after $(num_critical_loops) loops with ω = $(ω) and Δ = $(get_delta(iter_data))."
 	end
 				
 	ω, x₊, mx₊, steplength = compute_descent_step(mop, iter_data, data_base, sc, algo_config, ω, ω_data)
@@ -364,12 +378,14 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 
 	# before updating `iter_data`, retrieve a saveable
 	# (order is important here to have current index and next index)
-	stamp_content = get_saveable( iter_data; x_trial_index = trial_index,
-		ρ = ρ, stepsize = steplength, ω = ω, sc = sc )
+	stamp_content = get_saveable( SAVEABLE_TYPE, iter_data; 
+		x_trial_index = trial_index,
+		ρ, ω, sc,
+		stepsize = steplength )
 	stamp!( data_base, stamp_content )
 
 	# update iter data 
-	set_Δ!(iter_data, Δ)
+	set_delta!(iter_data, Δ)
 	if it_stat(iter_data) in [SUCCESSFULL, ACCEPTABLE]
 		set_x!(iter_data, x₊)
 		set_fx!(iter_data, fx₊)
@@ -381,7 +397,7 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractDB, mop :
 		The iteration is $(it_stat(iter_data)).
 		Moreover, the radius was updated as below:
 		old radius : $(Δ_old)
-		new radius : $(get_Δ(iter_data)) ($(round(get_Δ(iter_data)/Δ_old * 100; digits=1)) %)
+		new radius : $(get_delta(iter_data)) ($(round(get_delta(iter_data)/Δ_old * 100; digits=1)) %)
 	"""
 
 	if ( x_tol_rel_test( x, x₊, algo_config  ) || x_tol_abs_test( x, x₊, algo_config ) ||

@@ -1,94 +1,78 @@
 
 ####### IterData
-@with_kw mutable struct IterData{
-        F<:AbstractFloat } <: AbstractIterData{F}
-    x :: Vector{F} = F[]
-    fx :: Vector{F} = F[]
-    Δ :: Union{F, Vector{F}} = zero(F)
+@with_kw mutable struct IterData{ XT, YT, DT } <: AbstractIterData{XT,YT,DT}
+    x :: XT = MIN_PRECISION[]
+    fx :: YT = MIN_PRECISION[]
+    Δ :: DT = zero(MIN_PRECISION)
     
     x_index :: Int = -1
     num_iterations :: Int = 0
     num_model_improvements :: Int = 0
     it_stat :: ITER_TYPE = SUCCESSFULL
-
 end
 
+# getters 
 get_x( id :: IterData ) = id.x
 get_fx( id :: IterData ) = id.fx
-get_Δ( id :: IterData ) = id.Δ
-
-# setters
-function set_x!( id :: IterData, x̂ :: Vec ) :: Nothing 
-    id.x = copy(x̂)
-    return nothing
-end
-
-function set_fx!( id :: IterData, ŷ :: Vec ) :: Nothing 
-    id.fx = copy(ŷ);
-    return nothing
-end
-
-function set_Δ!( id :: IterData, Δ :: NumOrVec ) :: Nothing
-    id.Δ = copy(Δ);
-    return nothing
-end
+get_delta( id :: IterData ) = id.Δ
 
 get_x_index( id:: IterData ) = id.x_index 
+
+it_stat( id :: IterData ) = id.it_stat
+
+# setters
+function _set_x!( id :: IterData, x :: Vec ) :: Nothing 
+    id.x = x
+    return nothing
+end
+
+function set_fx!( id :: IterData, y :: Vec ) :: Nothing 
+    id.fx = y
+    return nothing
+end
+
+function set_delta!( id :: IterData, Δ :: NumOrVec ) :: Nothing
+    id.Δ = Δ
+    return nothing
+end
+
 
 function set_x_index!( id :: IterData, N :: Int ) :: Nothing
     id.x_index = N;
     nothing
 end
 
-num_iterations( id :: IterData ) :: Int = id.num_iterations;
-num_model_improvements( id :: IterData ) :: Int = id.num_model_improvements;
+get_num_iterations( id :: IterData ) :: Int = id.num_iterations
+get_num_model_improvements( id :: IterData ) :: Int = id.num_model_improvements
 
-function inc_iterations!( id :: IterData, N :: Int = 1 ) :: Nothing
-    id.num_iterations += N;
+function set_num_iterations!( id :: IterData, N :: Int = 0 ) :: Nothing
+    id.num_iterations = N
     return nothing
 end
 
-function inc_model_improvements!( id :: IterData, N :: Int = 1 ) :: Nothing
-    id.num_model_improvements += N ;
+function set_num_model_improvements!( id :: IterData, N :: Int = 0 ) :: Nothing
+    id.num_model_improvements = N
     return nothing
 end
 
-function set_iterations!( id :: IterData, N :: Int = 0 ) :: Nothing
-    id.num_iterations = N;
-    return nothing
-end
-
-function set_model_improvements!( id :: IterData, N :: Int = 0 ) :: Nothing
-    id.num_model_improvements = N ;
-    return nothing
-end
-
-it_stat( id :: IterData ) :: ITER_TYPE = id.it_stat;
 function it_stat!( id :: IterData, t :: ITER_TYPE ) :: Nothing 
     id.it_stat = t
     return nothing
 end
 
-function init_iter_data( ::T, x :: Vec, fx :: Vec, Δ :: NumOrVec ) where T<:Type{<:IterData}
-    F = Base.promote_eltype(x,fx,Δ)
-    return IterData(; x = F.(x), fx = F.(fx), Δ = F.(Δ))
+function init_iter_data( ::Type{<:IterData}, x :: Vec, fx :: Vec, Δ :: NumOrVec )
+    return IterData(; x, fx, Δ )
 end
 
 ####### IterSaveable
-function _surrogate_container_saveable_type( sc )
-    return Tuple{ (saveable_type(sw.meta) for sw in sc.surrogates)... }
-end
-_surrogate_container_saveable_type(::Nothing) = Nothing
 
-_surrogate_container_saveable(sc) = Tuple( saveable(sw.meta) for sw in sc.surrogates )
-_surrogate_container_saveable(::Nothing) = nothing
+# Note: I don't save x,fx, so i set some arbritrary types for XT and YT
+# Also, I store all additional meta data as Float64, input gets automatically converted.
+struct IterSaveable{
+        DT <: NumOrVecF, C <: ContainerSaveable } <: AbstractIterSaveable{Vec64,Vec64,DT,C}
+    
+    Δ :: DT
 
-function saveable_type( :: IterData{F}, sc = nothing ) where F 
-    return IterSaveable{F, _surrogate_container_saveable_type(sc) }
-end
-
-@with_kw struct IterSaveable{F<:AbstractFloat,M} <: AbstractIterSaveable{F}
-    Δ :: Union{F, Vector{F}}
     x_index :: Int
     num_iterations :: Int
     num_model_improvements
@@ -96,25 +80,22 @@ end
 
     # additional information for stamping
     x_trial_index :: Int
-    ρ :: F
-    stepsize :: F
-    ω :: F
+    ρ :: Float64
+    stepsize :: Float64
+    ω :: Float64
     
-    model_meta :: M = nothing
+    model_meta :: C
 end
 
-function get_saveable( id :: IterData{F}; x_trial_index, ρ, stepsize, ω, sc = nothing ) where F
-    iter_saveable = IterSaveable(;
-        Δ = get_Δ(id),
-        x_index = get_x_index(id),
-        num_iterations = num_iterations(id),
-        num_model_improvements = num_model_improvements(id),
-        it_stat = it_stat(id),
-        x_trial_index,
-        ρ = F(ρ),
-        stepsize = F(stepsize),
-        ω = F.(ω),
-        model_meta = _surrogate_container_saveable(sc)
+function get_saveable( :: Type{<:IterSaveable}, id :: AbstractIterData;
+    x_trial_index, ρ, stepsize, ω, sc = nothing, kwargs... )
+    return IterSaveable(
+        get_delta(id),
+        get_x_index(id),
+        get_num_iterations(id),
+        get_num_model_improvements(id),
+        it_stat(id),
+        x_trial_index, ρ,stepsize, ω,
+        get_saveable(sc)
     )
-    return iter_saveable
 end

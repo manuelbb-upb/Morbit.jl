@@ -170,8 +170,8 @@ of (potentially unevaluated) results that are later used for fitting the model.
 end
 
 
-saveable_type( meta :: T ) where {T<:RbfMeta} = T
-saveable( meta :: RbfMeta ) = deepcopy(meta)
+get_saveable_type( meta :: T ) where {T<:RbfMeta} = T
+get_saveable( meta :: RbfMeta ) = deepcopy(meta)
 ````
 
 A little helper to retrieve all those indices:
@@ -216,8 +216,9 @@ We delegate the work to `prepare_update_model`.
 
 ````julia
 function prepare_init_model( cfg :: RbfConfig, objf :: AbstractObjective, mop :: AbstractMOP,
-	id :: AbstractIterData{F}, db :: AbstractDB, ac :: AbstractConfig;
-	ensure_fully_linear = true, kwargs...) where F<:AbstractFloat
+	id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig;
+	ensure_fully_linear = true, kwargs...)
+	F = eltype( get_x(id) )
 	meta = RbfMeta{F}()
 	return prepare_update_model(nothing, objf, meta, mop, id, db, ac; ensure_fully_linear = true, kwargs... )
 end
@@ -234,8 +235,8 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: Abstract
 	!force_rebuild && @logmsg loglevel2 "Trying to find results for fitting an RBF model."
 
 	# Retrieve current iteration information and some meta data.
-	Δ = get_Δ(iter_data)
-	Δ_max = Δᵘ(algo_config)
+	Δ = get_delta(iter_data)
+	Δ_max = get_delta_max(algo_config)
 	x = get_x(iter_data)
 	x_index = get_x_index(iter_data)
 	cfg = model_cfg( objf )
@@ -555,7 +556,7 @@ function _get_kernel_params( Δ , cfg )
 	sp = if cfg.shape_parameter isa String
 		parse_shape_param_string( Δ, cfg.shape_parameter )
 	else
-		F(cfg.shape_parameter)
+		cfg.shape_parameter
 	end
 
 	isnan(sp) && return nothing
@@ -598,7 +599,7 @@ function prepare_improve_model( mod :: Union{Nothing, RbfModel}, objf :: Abstrac
 			x = get_x(iter_data)
 			fx = get_fx(iter_data)
 			F = typeof(fx)
-			Δ = get_Δ(iter_data)
+			Δ = get_delta(iter_data)
 			Δ_1 = Δ * cfg.θ_enlarge_1
 			lb_1, ub_1 = local_bounds(mop, x, Δ_1)
 			piv_val_1 = Δ_1 * cfg.θ_pivot
@@ -637,6 +638,9 @@ end
 function update_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, meta :: RbfMeta,
 	mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig;
 	kwargs... )
+
+	Δ = get_delta(iter_data)
+	cfg = model_cfg( objf )
 
 	kernel_params = _get_kernel_params( Δ, cfg )
 

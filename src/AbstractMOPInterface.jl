@@ -198,7 +198,7 @@ function _add_objective!( mop :: AbstractMOP{true}, T :: Type{<:AbstractObjectiv
     func :: Function, model_cfg :: SurrogateConfig; n_out :: Int = 0, 
     can_batch :: Bool = false, out_type :: Union{Type{<:Vec},Nothing} = nothing )
 
-    fx = can_batch ? BatchObjectiveFunction(func) : vec ∘ func;
+    fx = can_batch ? BatchObjectiveFunction(func) : ensure_vec ∘ func;
 
     inner_objf = _wrap_func( T, fx, model_cfg, num_vars(mop), n_out )
     objf = isnothing(out_type) ? inner_objf : OutTypeWrapper(inner_objf, out_type)

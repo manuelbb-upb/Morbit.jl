@@ -1,14 +1,11 @@
 
-@with_kw mutable struct Result{F <: AbstractFloat} <: AbstractResult{F}
-    x :: Vector{F} = F[]
-    y :: Vector{F} = F[]
+@with_kw mutable struct Result{XT <: VecF, YT <: VecF} <: AbstractResult{XT,YT}
+    x :: XT = Float64[]
+    y :: YT = Float64[]
     db_id :: Int = -1
 end
 
-Base.length(::Result) = 1
-Base.iterate(r :: Result) = (r, nothing)
-Base.iterate(::Result, ::Nothing) = nothing
-
+# TODO: do i use this somewhere?
 function Base.:(==)(r1 :: Result, r2::Result)
     return (
         r1.x == r2.x &&
@@ -17,6 +14,7 @@ function Base.:(==)(r1 :: Result, r2::Result)
     )
 end
 
+# mandatory implementations
 get_site( res :: Result ) = res.x
 get_value( res :: Result ) = res.y
 get_id( res :: Result ) = res.db_id
@@ -32,8 +30,6 @@ function set_value!( res :: Result, y )
     return nothing 
 end
 
-function init_res( ::Type{<:Result{F}} , x :: Vec, y :: Vec, id :: Int ) where F
-    return Result{F}( x, y, id )
+function init_res( T::Type{<:Result{XT,YT}} , x :: Vec, y :: Vec, id :: Int ) where{XT,YT}
+    return T( x, y, id )
 end
-
-struct NoRes{F} <: AbstractResult{F} end

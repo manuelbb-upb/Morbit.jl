@@ -329,7 +329,7 @@ A `DiffWrapper` also stores the base point `x0` and the finite difference rule `
 begin
 	"Helper function to get Symbolic variables for `x_1,…,x_n` and the stepsize `h`." 
 	function _get_vars(n :: Int)
-		return Tuple(Num.(Variable.(:x, 1:n))), Num(Variable(:h))
+		return Tuple(Num.(Symbolics.variable.(:x, 1:n))), Num(Symbolics.variable(:h))
 	end
 	
 	_get_vars( x :: AbstractVector ) = _get_vars(length(x))

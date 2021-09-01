@@ -136,6 +136,7 @@ iteration_indices_rbf = [ iter_.x_index for iter_ in db.iter_info]
 it_sites_rbf = Tuple.(Morbit.get_site.(db, iteration_indices_rbf))
 lines!(it_sites_rbf) #hide
 scatter!(it_sites_rbf; color = :orange) #hide
+nothing #hide
 ````
 
 The iteration sites are the orange circles:
@@ -175,9 +176,12 @@ X =[ #hide
  [-3.9944468955728745, 0.49857343385493635], #hide
  [-1.0455585089057458, 2.735699160002545] #hide
 ]; #hide
+nothing #hide
+````
 
-#  Suppose, `X` is a list of different points in ℝ².
+Suppose, `X` is a list of different points in ℝ².
 
+````@example example_two_parabolas
 #  A dict to associate starting and end points:
 start_fin_points = Dict();
 

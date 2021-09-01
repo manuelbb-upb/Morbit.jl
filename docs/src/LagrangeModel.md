@@ -133,8 +133,8 @@ polynomials that act on ``[0,1]^n``.
     fully_linear :: Bool = false
 end
 
-saveable_type( T :: LagrangeMeta ) = LagrangeMeta{Nothing,Nothing}
-saveable( meta :: LagrangeMeta ) = LagrangeMeta(;
+get_saveable_type( T :: LagrangeMeta ) = LagrangeMeta{Nothing,Nothing}
+get_saveable( meta :: LagrangeMeta ) = LagrangeMeta(;
     interpolation_indices = meta.interpolation_indices, out_indices = meta.output_indices )
 
 export LagrangeConfig, LagrangeMeta, LagrangeModel
@@ -482,7 +482,7 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: Abs
     F = eltype(fx)
     x_index = get_x_index( iter_data )
     n_vars = length(x)
-    Δ = get_Δ( iter_data )
+    Δ = get_delta( iter_data )
 
     cfg = model_cfg(objf)
     lb, ub = local_bounds(mop, x, Δ * cfg.θ_enlarge )
