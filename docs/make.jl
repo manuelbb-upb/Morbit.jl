@@ -48,7 +48,7 @@ makedocs(;
 
 deploydocs(;
     repo="github.com/manuelbb-upb/Morbit.jl",
-    devbranch="stronger_typing" # TODO Make this "master" after merging
+    #devbranch="stronger_typing" # TODO Make this "master" after merging
 )
 
 Pkg.activate(current_env)

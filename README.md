@@ -17,7 +17,7 @@ There are many breaking changes (compared to version 2) and this version is not 
   These provide further descent configuration options.
   You can also use symbols such as `:steepest_descent` or `pascoletti_serafini`.
   * Most fields no longer use Unicode greek letters but their names, e.g. `delta_max` instead of `Δ_max` and `omega_tol_abs` instead of `ω_tol_abs`.
-  * `AlgoConfig` has two type parameters: `AlgoConfig{F,D}`. The first one is the floating point precision used throughout the algorithm and defaults to `Float64`. `D` is the descent type (or `Symbol`).
+  * `AlgoConfig` now has a type parameter `D` that is the descent type (or `Symbol`).
 
 ## README
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/stable)
@@ -74,7 +74,7 @@ add_objective!(mop, f1, :cheap )
 add_objective!(mop, f2, :cheap )
 
 x0 = [ π; -ℯ ]
-optimize(mop, x0)
+x, fx, ret_code, database = optimize(mop, x0)
 ```
 In the above case, both functions are treated as cheap and their gradients are determined using `ForwardDiff`.
 If you wanted to model a objective, say the function `f₂`, using radial basis functions, you could pass a `SurrogateConfig`:
