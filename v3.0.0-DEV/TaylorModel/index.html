@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>TaylorModels · Morbit.jl</title><script data-outdated-warner src="../assets/warner.js"></script><link rel="canonical" href="https://manuelbb-upb.github.io/Morbit.jl/TaylorModel/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.039/juliamono-regular.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">Morbit.jl</a></span></div><form class="docs-search" action="../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../example_two_parabolas/">Two Parabolas</a></li><li><a class="tocitem" href="../example_zdt/">ZDT3</a></li></ul></li><li><span class="tocitem">Models</span><ul><li><a class="tocitem" href="../ExactModel/">ExactModels</a></li><li><a class="tocitem" href="../RbfModel/">RbfModels</a></li><li class="is-active"><a class="tocitem" href>TaylorModels</a><ul class="internal"><li><a class="tocitem" href="#Model-Construction"><span>Model Construction</span></a></li><li><a class="tocitem" href="#Model-Evaluation"><span>Model Evaluation</span></a></li><li><a class="tocitem" href="#taylor_summary"><span>Summary &amp; Quick Examples</span></a></li></ul></li><li><a class="tocitem" href="../LagrangeModel/">LagrangeModels</a></li></ul></li><li><span class="tocitem">Random Notebooks</span><ul><li><a class="tocitem" href="../notebook_finite_differences/">Finite Differences</a></li><li><a class="tocitem" href="../notebook_polynomial_interpolation/">Lagrange Interpolation</a></li></ul></li><li><a class="tocitem" href="../custom_logging/">Pretty Printing</a></li><li><span class="tocitem">Internals</span><ul><li><a class="tocitem" href="../dev_man/">DocStrings</a></li><li><a class="tocitem" href="../Interfaces/">Interfaces</a></li><li><a class="tocitem" href="../AbstractResultInterface/"><code>AbstractResult</code> Interface</a></li><li><a class="tocitem" href="../AbstractIterDataInterface/"><code>AbstractIteraData</code> Interface</a></li><li><a class="tocitem" href="../AbstractDBInterface/"><code>AbstractDB</code> Interface</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Models</a></li><li class="is-active"><a href>TaylorModels</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>TaylorModels</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/manuelbb-upb/Morbit.jl/blob/master/src/TaylorModel.jl" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="Taylor-Polynomial-Models"><a class="docs-heading-anchor" href="#Taylor-Polynomial-Models">Taylor Polynomial Models</a><a id="Taylor-Polynomial-Models-1"></a><a class="docs-heading-anchor-permalink" href="#Taylor-Polynomial-Models" title="Permalink"></a></h1><p>This file is automatically generated from source code. For usage examples refer to <a href="#taylor_summary">Summary &amp; Quick Examples</a>.</p><p>We provide vector valued polynomial Taylor models of degree 1 or 2. They implement the <code>SurrogateModel</code> interface.</p><p>We allow the user to either provide gradient and hessian callback handles or to request finite difference approximations. For using callbacks, we have <code>TaylorConfigCallbacks</code>. <br/>There are two ways to use finite differences. The old (not recommended way) is to use <code>TaylorConfigFiniteDiff</code>. This uses <code>FiniteDiff.jl</code> and could potentially require more evaluations. <br/>To make use of the new 2-phase construction procedure, use <code>TaylorConfig</code> and set the fields <code>gradients</code> and <code>hessians</code> to an <code>RFD.FiniteDiffStamp</code>. If they use the same stamp (default: <code>RFD.CFDStamp(1,3) :: CFDStamp{3,Float64}</code>), it should be the most efficient, because we get the gradients for free from computing the hessians.</p><pre><code class="language-julia hljs">include(&quot;RecursiveFiniteDifferences.jl&quot;)
+
+using .RecursiveFiniteDifferences
+const RFD = RecursiveFiniteDifferences</code></pre><p>The actual model is defined only by the gradient vectors at <code>x₀</code> and the Hessians (if applicable).</p><pre><code class="language-julia hljs">@with_kw struct TaylorModel{
+    XT &lt;: AbstractVector{&lt;:Real}, FXT &lt;: AbstractVector{&lt;:Real},
+    G &lt;: AbstractVector{&lt;:AbstractVector{&lt;:Real}},
+    HT &lt;: Union{Nothing,AbstractVector{&lt;:AbstractMatrix{&lt;:Real}}},
+    } &lt;: SurrogateModel
+
+    # expansion point and value
+    x0 :: XT
+    fx0 :: FXT
+
+    # gradient(s) at x0
+    g :: G
+    H :: HT = nothing
+end
+
+fully_linear( :: TaylorModel ) = true</code></pre><p>Note, that the derivative approximations are actually constructed for the function(s)</p><p class="math-container">\[    f_ℓ ∘ s^{-1}\]</p><p>if some internal transformation <span>$s$</span> has happened before. If the problem is unbounded then <span>$s = \operatorname{id} = s^{-1}$</span>.</p><h2 id="Model-Construction"><a class="docs-heading-anchor" href="#Model-Construction">Model Construction</a><a id="Model-Construction-1"></a><a class="docs-heading-anchor-permalink" href="#Model-Construction" title="Permalink"></a></h2><p>Because of all the possibilities offered to the user, we actually have several (sub-)implementiations of <code>SurrogateConfig</code> for Taylor Models.</p><pre><code class="language-julia hljs">abstract type TaylorCFG &lt;: SurrogateConfig end</code></pre><p>We make sure, that all subtypes have a field <code>max_evals</code>:</p><pre><code class="language-julia hljs">max_evals( cfg :: TaylorCFG ) = cfg.max_evals</code></pre><h3 id="Recursive-Finite-Difference-Models"><a class="docs-heading-anchor" href="#Recursive-Finite-Difference-Models">Recursive Finite Difference Models</a><a id="Recursive-Finite-Difference-Models-1"></a><a class="docs-heading-anchor-permalink" href="#Recursive-Finite-Difference-Models" title="Permalink"></a></h3><p>Let&#39;s start by defining the recommended way of using Taylor approximations. The derivative information is approximated using a dynamic programming approach and we take care to avoid unnecessary objective evaluations.</p><pre><code class="language-julia hljs">@doc &quot;&quot;&quot;
+    TaylorConfig(; degree, gradients :: RFD.CFDStamp, hessians :: RFD.CFDStamp, max_evals)
+
+Configuration for a polynomial Taylor model using finite difference approximations of the derivatives.
+By default we have `degree = 2` and `gradients == hessians == RFD.CFDStamp(1,2)`, that is,
+a first order central difference scheme of accuracy order 3 is recursed to compute the Hessians
+and the gradients.
+In this case, the finite difference scheme is the same for both Hessians and gradients and we profit
+from caching intermediate results.
+&quot;&quot;&quot;
+@with_kw struct TaylorConfig{
+        S1 &lt;: RFD.FiniteDiffStamp,
+        S2 &lt;: Union{Nothing,RFD.FiniteDiffStamp}
+    } &lt;: TaylorCFG
+
+    degree :: Int64 = 2
+
+    gradients :: S1 = RFD.CFDStamp(1,2)
+    hessians :: S2 = gradients
+
+    max_evals :: Int64 = typemax(Int64)
+
+    @assert 1 &lt;= degree &lt;= 2 &quot;Can only construct linear and quadratic polynomial Taylor models.&quot;
+end
+
+combinable( :: TaylorConfig ) = true</code></pre><p>The new meta type only stores database indices of sites used for a finite diff approximation in the actual construction call and is filled in the <code>prepare_XXX</code> methods:</p><pre><code class="language-julia hljs">@with_kw struct TaylorIndexMeta{W1, W2} &lt;: SurrogateMeta
+    database_indices :: Vector{Int} = Int[]
+    grad_setter_indices :: Vector{Int} = Int[]
+    hess_setter_indices :: Vector{Int} = Int[]
+    hess_wrapper :: W1 = nothing
+    grad_wrapper :: W2 = nothing
+end</code></pre><p>The end user won&#39;t be interested in the wrappers, so we put <code>nothing</code> in there:</p><pre><code class="language-julia hljs">get_saveable_type( :: TaylorIndexMeta ) = TaylorIndexMeta{Nothing, Nothing}
+get_saveable( meta :: TaylorIndexMeta ) = TaylorIndexMeta(;
+    grad_setter_indices = meta.grad_setter_indices,
+    hess_setter_indices = meta.hess_setter_indices
+)</code></pre><p>The new construction process it is a bit complicated. We set up a recursive finite diff tree and need this little helper:</p><pre><code class="language-julia hljs">&quot;Return `unique_elems, indices = unique_with_indices(arr)` such that
+`unique_elems[indices] == arr` (and `unique_elems == unique(arr)`).&quot;
+function unique_with_indices( x :: AbstractVector{T} ) where T
+	unique_elems = T[]
+	indices = Int[]
+	for elem in x
+		i = findfirst( e -&gt; all( isequal.(e,elem) ), unique_elems )
+		if isnothing(i)
+			push!(unique_elems, elem)
+			push!(indices, length(unique_elems) )
+		else
+			push!(indices, i)
+		end
+	end
+	return unique_elems, indices
+end</code></pre><p>Now, if the polynomial degree equals 2 we construct a tree for the Hessian calculation. In any case, we need a tree for the gradients/jacobian. If the <code>RFD.FiniteDiffStamp</code> for the gradients is the same as for the Hessians, we can re-use the Hessian tree for this purpose. Else, we need to construct a new one.</p><pre><code class="language-julia hljs">function _get_RFD_trees( x, fx, grad_stamp, hess_stamp = nothing, deg = 2)
+    if deg &gt;= 2
+        @assert !isnothing(hess_stamp)
+        # construct tree for hessian first
+        hess_wrapper = RFD.DiffWrapper(; x0 = x, fx0 = fx, stamp = hess_stamp, order = 2 )
+    else
+        hess_wrapper = nothing
+    end
+
+    if !isnothing(hess_wrapper) &amp;&amp; grad_stamp == hess_stamp
+        grad_wrapper = hess_wrapper
+    else
+        grad_wrapper = RFD.DiffWrapper(; x0 = x, fx0 = fx, stamp = grad_stamp, order = 1 )
+    end
+
+    return grad_wrapper, hess_wrapper
+end
+
+
+function prepare_init_model(cfg :: TaylorConfig, objf :: AbstractObjective,
+    mop :: AbstractMOP, iter_data ::AbstractIterData, db :: AbstractDB, algo_cfg :: AbstractConfig; kwargs...)
+
+    return prepare_update_model( nothing, objf, TaylorIndexMeta(), mop, iter_data, db, algo_cfg; kwargs... )
+end</code></pre><p>The actual database preparations are delegated to the <code>prepare_update_model</code> function.</p><pre><code class="language-julia hljs">function prepare_update_model( mod :: Union{Nothing, TaylorModel}, objf, meta :: TaylorIndexMeta, mop,
+    iter_data, db, algo_cfg; kwargs... )
+
+    x = get_x( iter_data )
+    fx = get_fx( iter_data )
+    x_index = get_x_index( iter_data )
+
+    cfg = model_cfg( objf )
+
+    grad_wrapper, hess_wrapper = _get_RFD_trees( x, fx, cfg.gradients, cfg.hessians, cfg.degree )
+
+    XT = typeof(x)
+    FXT = typeof(fx)
+
+    lb, ub = full_bounds_internal( mop )
+
+    if cfg.degree &gt;= 2
+        RFD.substitute_leaves!(hess_wrapper)
+        # We project into the scaled variable boundaries to avoid violations:
+        hess_sites = [ _project_into_box(s,lb,ub) for s in RFD.collect_leave_sites( hess_wrapper ) ]
+    else
+        hess_sites = XT[]
+    end
+
+    # collect leave sites for gradients
+    if grad_wrapper == hess_wrapper
+        grad_sites = hess_sites
+    else
+        RFD.substitute_leaves!( grad_wrapper )
+        grad_sites = [ _project_into_box(s, lb,ub) for s in RFD.collect_leave_sites( grad_wrapper ) ]
+    end
+
+    combined_sites = [ [x,]; hess_sites; grad_sites ]
+
+    unique_new, unique_indices = unique_with_indices(combined_sites)
+    # now: `combined_sites == unique_new[unique_indices]`
+
+    num_hess_sites = length(hess_sites)
+    hess_setter_indices = unique_indices[ 2 : num_hess_sites + 1]
+    grad_setter_indices = unique_indices[ num_hess_sites + 2 : end ]
+    # now: `hess_sites == unique_new[ hess_setter_indices ]` and
+    # `grad_sites == unique_new[ grad_setter_indices ]`
+
+    db_indices = [ [x_index,]; [ new_result!(db, ξ, FXT()) for ξ in unique_new[ 2:end ] ] ]
+    # now: `unique_new == get_site.(db, db_indices)`
+
+    # we return a new meta object in each iteration, so that the node cache is reset in between.
+    return TaylorIndexMeta(;
+        database_indices = db_indices,
+        grad_setter_indices,
+        hess_setter_indices,
+        grad_wrapper,
+        hess_wrapper
+    )
+end</code></pre><p>If the meta data is set correctly, we only have to set the value vectors for the RFD trees and then ask for the right matrices:</p><pre><code class="language-julia hljs">function _init_model( cfg :: TaylorConfig, objf :: AbstractObjective, mop :: AbstractMOP,
+    iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig, meta :: TaylorIndexMeta; kwargs... )
+    return update_model( nothing, objf, meta, mop, iter_data, db, algo_config; kwargs...)
+end</code></pre><p>Note, that we only perform updates if the iterate has changed, <code>x != mod.x0</code>, because we don&#39;t change the differencing parameters.</p><pre><code class="language-julia hljs">function update_model( mod :: Union{Nothing, TaylorModel}, objf :: AbstractObjective, meta :: TaylorIndexMeta,
+    mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; kwargs...)
+
+    x = get_x(iter_data)
+    if isnothing(mod) || (x != mod.x0)
+        all_leave_vals = get_value.( db, meta.database_indices )
+
+        if !isnothing( meta.hess_wrapper )
+            hess_leave_vals = all_leave_vals[ meta.hess_setter_indices ]
+            RFD.set_leave_values!( meta.hess_wrapper, hess_leave_vals )
+            H = [ RFD.hessian( meta.hess_wrapper; output_index = ℓ ) for ℓ = 1 : num_outputs(objf) ]
+        else
+            H = nothing
+        end
+
+        # calculate gradients
+        if meta.hess_wrapper != meta.grad_wrapper
+            grad_leave_vals = all_leave_vals[ meta.grad_setter_indices ]
+            RFD.set_leave_values!( meta.grad_wrapper, grad_leave_vals )
+        end
+
+        # if hessians have been calculated before and `grad_wrapper == hess_wrapper` we profit from caching
+        J = RFD.jacobian( meta.grad_wrapper )
+        g = copy.( eachrow( J ) )
+
+        return TaylorModel(;
+            x0 = x,
+            fx0 = get_fx( iter_data ),
+            g, H
+        ), meta
+    else
+        return mod,meta
+    end
+end</code></pre><h3 id="Callback-Models-with-Derivatives,-AD-or-Adaptive-Finite-Differencing"><a class="docs-heading-anchor" href="#Callback-Models-with-Derivatives,-AD-or-Adaptive-Finite-Differencing">Callback Models with Derivatives, AD or Adaptive Finite Differencing</a><a id="Callback-Models-with-Derivatives,-AD-or-Adaptive-Finite-Differencing-1"></a><a class="docs-heading-anchor-permalink" href="#Callback-Models-with-Derivatives,-AD-or-Adaptive-Finite-Differencing" title="Permalink"></a></h3><p>The old way of defining Taylor Models was to provide an objective callback function and either give callbacks for the derivatives too or ask for automatic differencing. This is very similar to the <code>ExactModel</code>s, with the notable difference that the gradient and Hessian information is only used to construct models <span>$m_ℓ = f_0 + \mathbf g^T \mathbf h + \mathbf h^T \mathbf H \mathbf h$</span> <strong>once</strong> per iteration and then use these <span>$m_ℓ$</span> for all subsequent model evaluations/differentiation.</p><pre><code class="language-julia hljs">&quot;&quot;&quot;
+    TaylorCallbackConfig(;degree=1,gradients,hessians=nothing,max_evals=typemax(Int64))
+
+Configuration for a linear or quadratic Taylor model where there are callbacks provided for the
+gradients and -- if applicable -- the Hessians.
+The `gradients` keyword point to an array of callbacks where each callback evaluates
+the gradient of one of the outputs.
+&quot;&quot;&quot;
+@with_kw struct TaylorCallbackConfig{
+        G &lt;:Union{Nothing,AbstractVector{&lt;:Function}},
+        J &lt;:Union{Nothing,Function},
+        H &lt;:Union{Nothing,AbstractVector{&lt;:Function}},
+    } &lt;: TaylorCFG
+
+    degree :: Int64 = 1
+    gradients :: G
+    jacobian :: J = nothing
+    hessians :: H = nothing
+
+    max_evals :: Int64 = typemax(Int64)
+
+    @assert 1 &lt;= degree &lt;= 2 &quot;Can only construct linear and quadratic polynomial Taylor models.&quot;
+    @assert !(isnothing(gradients) &amp;&amp; isnothing(jacobian)) &quot;Provide either `gradients` or `jacobian`.&quot;
+    @assert isa( gradients, AbstractVector ) &amp;&amp; !isempty( gradients ) || !isnothing(jacobian) &quot;Provide either `gradients` or `jacobian`.&quot;
+    @assert !(isnothing(gradients)) &amp;&amp; ( isnothing(hessians) || length(gradients) == length(hessians) ) &quot;Provide same number of gradients and hessians.&quot;
+end
+
+&quot;&quot;&quot;
+    TaylorApproximateConfig(;degree=1,mode=:fdm,max_evals=typemax(Int64))
+
+Configure a linear or quadratic Taylor model where the gradients and Hessians are constructed
+either by finite differencing (`mode = :fdm`) or automatic differencing (`mode = :autodiff`).
+&quot;&quot;&quot;
+@with_kw struct TaylorApproximateConfig &lt;: TaylorCFG
+    degree :: Int64 = 1
+
+    mode :: Symbol = :fdm
+
+    max_evals :: Int64 = typemax(Int64)
+
+    @assert 1 &lt;= degree &lt;= 2 &quot;Can only construct linear and quadratic polynomial Taylor models.&quot;
+    @assert mode in [:fdm, :autodiff] &quot;Use `mode = :fdm` or `mode = :autodiff`.&quot;
+end</code></pre><p>For these models, it is not advisable to combine objectives:</p><pre><code class="language-julia hljs">combinable( :: Union{TaylorCallbackConfig, TaylorApproximateConfig}) = false</code></pre><p>In both cases we transfer the finalized callbacks to the same meta structs. In fact, <code>GW</code> and <code>HW</code> are <code>DiffFn</code>s as defined in <code>src/diff_wrappers.jl</code> (or <code>nothing</code>):</p><pre><code class="language-julia hljs">struct TaylorMetaCallbacks{GW, HW} &lt;: SurrogateMeta
+    gw :: GW
+    hw :: HW
+end</code></pre><p>Again, we have a <code>tfn::TransformerFn</code> that represents the (un)scaling. <br/>If callbacks are provided, then we use the <code>GradWrapper</code> and the <code>HessWrapper</code>.</p><pre><code class="language-julia hljs">function init_meta( cfg :: TaylorCallbackConfig, objf, tfn )
+    gw = GradWrapper( tfn, cfg.gradients, cfg.jacobian )
+    hw = cfg.degree == 2 ? isa( cfg.hessians, AbstractVector{&lt;:Function} ) ?
+        HessWrapper(tfn, cfg.hessians ) : nothing : nothing;
+    return TaylorMetaCallbacks( gw, hw )
+end</code></pre><p>If no callbacks are provided, we inspect the <code>mode</code> and use the corresponding wrappers:</p><pre><code class="language-julia hljs">function init_meta( cfg :: TaylorApproximateConfig, objf, tfn )
+    if cfg.mode == :fdm
+        gw = FiniteDiffWrapper(objf, tfn, nothing)
+    else
+        gw = AutoDiffWrapper( objf, tfn, nothing )
+    end
+    hw = cfg.degree == 2 ? HessFromGrads(gw) : nothing
+    return TaylorMetaCallbacks( gw, hw )
+end</code></pre><p>The initialization for the legacy config types is straightforward as they don&#39;t use the new 2-phase process:</p><pre><code class="language-julia hljs">function prepare_init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractObjective,
+    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig; kwargs...)
+    tfn = TransformerFn(mop)
+    return init_meta( cfg, objf, tfn )
+end</code></pre><p>The model construction happens in the <code>update_model</code> method and makes use of the <code>get_gradient</code> and <code>get_hessian</code> methods for the wrappers stored in <code>meta</code>:</p><pre><code class="language-julia hljs">function _init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractObjective,
+    mop :: AbstractMOP, iter_data ::AbstractIterData, db ::AbstractDB, algo_config :: AbstractConfig,
+    meta :: TaylorMetaCallbacks; kwargs...)
+    return update_model(nothing, objf, meta, mop, iter_data, db, algo_config; kwargs...)
+end
+
+function update_model( mod :: Union{Nothing,TaylorModel}, objf :: AbstractObjective, meta :: TaylorMetaCallbacks,
+    mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; kwargs...)
+
+    x = get_x(iter_data)
+    if isnothing(mod) || (x != mod.x0)
+        fx = get_fx( iter_data )
+
+        num_out = num_outputs( objf )
+        g = [ get_gradient(meta.gw , x , ℓ ) for ℓ = 1 : num_out ]
+
+        if !isnothing(meta.hw)
+            H = [ get_hessian(meta.hw, x, ℓ) for ℓ = 1 : num_out ]
+        else
+            H = nothing
+        end
+
+        return TaylorModel(; x0 = x, fx0 = fx, g, H ), meta
+    else
+        return mod, meta
+    end
+
+end</code></pre><h2 id="Model-Evaluation"><a class="docs-heading-anchor" href="#Model-Evaluation">Model Evaluation</a><a id="Model-Evaluation-1"></a><a class="docs-heading-anchor-permalink" href="#Model-Evaluation" title="Permalink"></a></h2><p>The evaluation of a Taylor model of form</p><p class="math-container">\[    m_ℓ(\mathbf x) = f_ℓ(\mathbf x_0) +
+    \mathbf g^T ( \mathbf x - \mathbf x_0 ) + ( \mathbf x - \mathbf x_0 )^T \mathbf H_ℓ ( \mathbf x - \mathbf x_0)\]</p><p>is straightforward:</p><pre><code class="language-julia hljs">&quot;Evaluate (internal) output `ℓ` of TaylorModel `tm`, provided a difference vector `h = x - x0`.&quot;
+function _eval_models( tm :: TaylorModel, h :: Vec, ℓ :: Int )
+    ret_val = tm.fx0[ℓ] + tm.g[ℓ]&#39;h
+    if !isnothing(tm.H)
+        ret_val += .5 * h&#39;tm.H[ℓ]*h
+    end
+    return ret_val
+end
+
+&quot;Evaluate (internal) output `ℓ` of `tm` at scaled site `x̂`.&quot;
+function eval_models( tm :: TaylorModel, x̂ :: Vec, ℓ :: Int )
+    h = x̂ .- tm.x0
+    return _eval_models( tm, h, ℓ)
+ end</code></pre><p>For the vector valued model, we iterate over all (internal) outputs:</p><pre><code class="language-julia hljs">function eval_models( tm :: TaylorModel, x̂ :: Vec )
+    h = x̂ .- tm.x0
+    return [ _eval_models(tm, h, ℓ) for ℓ = eachindex(tm.g)]
+end</code></pre><p>The gradient of <span>$m_ℓ$</span> can easily be determined:</p><pre><code class="language-julia hljs">function get_gradient( tm :: TaylorModel, x̂ :: Vec, ℓ :: Int)
+    if isnothing(tm.H)
+        return tm.g[ℓ]
+    else
+        h = x̂ .- tm.x0
+        return tm.g[ℓ] .+ .5 * ( tm.H[ℓ]&#39; + tm.H[ℓ] ) * h
+    end
+end</code></pre><p>And for the Jacobian, we again iterate:</p><pre><code class="language-julia hljs">function get_jacobian( tm :: TaylorModel, x̂ :: Vec )
+    grad_list = [ get_gradient(tm, x̂, ℓ) for ℓ=eachindex( tm.g ) ]
+    return transpose( hcat( grad_list... ) )
+end</code></pre><h2 id="taylor_summary"><a class="docs-heading-anchor" href="#taylor_summary">Summary &amp; Quick Examples</a><a id="taylor_summary-1"></a><a class="docs-heading-anchor-permalink" href="#taylor_summary" title="Permalink"></a></h2><ol><li>The recommended way to use Finite Difference Taylor models is to define them with TaylorConfig, i.e.,<pre><code class="language-julia hljs">add_objective!(mop, f, TaylorConfig())</code></pre></li><li>To use <code>FiniteDiff.jl</code> instead, do<pre><code class="language-julia hljs">add_objective!(mop, f, TaylorApproximateConfig(; mode = :fdm))</code></pre></li><li>Have callbacks for the gradients and the Hessians? Great!<pre><code class="language-julia hljs">add_objective!(mop, f, TaylorCallbackConfig(; degree = 1, gradients = [g1,g2]))</code></pre></li><li>No callbacks, but you want the correct matrices anyways? <code>ForwardDiff</code> to the rescue:<pre><code class="language-julia hljs">add_objective!(mop, f, TaylorApproximateConfig(; degree = 2, mode = :autodiff)</code></pre></li></ol><h3 id="Complete-usage-example"><a class="docs-heading-anchor" href="#Complete-usage-example">Complete usage example</a><a id="Complete-usage-example-1"></a><a class="docs-heading-anchor-permalink" href="#Complete-usage-example" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Morbit
+Morbit.print_all_logs()
+mop = MixedMOP(3)
+
+add_objective!( mop, x -&gt; sum( ( x .- 1 ).^2 ), Morbit.TaylorApproximateConfig(;degree=2,mode=:fdm) )
+add_objective!( mop, x -&gt; sum( ( x .+ 1 ).^2 ), Morbit.TaylorApproximateConfig(;degree=2,mode=:autodiff) )
+
+x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../RbfModel/">« RbfModels</a><a class="docs-footer-nextpage" href="../LagrangeModel/">LagrangeModels »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.5 on <span class="colophon-date" title="Thursday 2 September 2021 11:08">Thursday 2 September 2021</span>. Using Julia version 1.6.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>AbstractResult Interface · Morbit.jl</title><script data-outdated-warner src="../assets/warner.js"></script><link rel="canonical" href="https://manuelbb-upb.github.io/Morbit.jl/AbstractResultInterface/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.039/juliamono-regular.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">Morbit.jl</a></span></div><form class="docs-search" action="../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../example_two_parabolas/">Two Parabolas</a></li><li><a class="tocitem" href="../example_zdt/">ZDT3</a></li></ul></li><li><span class="tocitem">Models</span><ul><li><a class="tocitem" href="../ExactModel/">ExactModels</a></li><li><a class="tocitem" href="../RbfModel/">RbfModels</a></li><li><a class="tocitem" href="../TaylorModel/">TaylorModels</a></li><li><a class="tocitem" href="../LagrangeModel/">LagrangeModels</a></li></ul></li><li><span class="tocitem">Random Notebooks</span><ul><li><a class="tocitem" href="../notebook_finite_differences/">Finite Differences</a></li><li><a class="tocitem" href="../notebook_polynomial_interpolation/">Lagrange Interpolation</a></li></ul></li><li><a class="tocitem" href="../custom_logging/">Pretty Printing</a></li><li><span class="tocitem">Internals</span><ul><li><a class="tocitem" href="../dev_man/">DocStrings</a></li><li><a class="tocitem" href="../Interfaces/">Interfaces</a></li><li class="is-active"><a class="tocitem" href><code>AbstractResult</code> Interface</a><ul class="internal"><li><a class="tocitem" href="#Mandatory-Methods"><span>Mandatory Methods</span></a></li><li><a class="tocitem" href="#Derived-Methods"><span>Derived Methods</span></a></li></ul></li><li><a class="tocitem" href="../AbstractIterDataInterface/"><code>AbstractIteraData</code> Interface</a></li><li><a class="tocitem" href="../AbstractDBInterface/"><code>AbstractDB</code> Interface</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Internals</a></li><li class="is-active"><a href><code>AbstractResult</code> Interface</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href><code>AbstractResult</code> Interface</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/manuelbb-upb/Morbit.jl/blob/master/src/AbstractResultInterface.jl" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="Result-Interface"><a class="docs-heading-anchor" href="#Result-Interface">Result Interface</a><a id="Result-Interface-1"></a><a class="docs-heading-anchor-permalink" href="#Result-Interface" title="Permalink"></a></h1><p>This file describes the methods that should or can be implemented for subtypes of <code>AbstractResult</code>.</p><p>First of all, we make it so that any <code>AbstractResult</code> is broadcasted wholly:</p><pre><code class="language-julia hljs">Broadcast.broadcastable( res :: AbstractResult ) = Ref(res)</code></pre><h2 id="Mandatory-Methods"><a class="docs-heading-anchor" href="#Mandatory-Methods">Mandatory Methods</a><a id="Mandatory-Methods-1"></a><a class="docs-heading-anchor-permalink" href="#Mandatory-Methods" title="Permalink"></a></h2><p>The following getter methods should be implemented:</p><pre><code class="language-julia hljs">&quot;&quot;&quot;
+    get_site( res :: AbstractResult{XT,YT} )
+
+Return evaluation site of type `XT` associated with `res`.
+&quot;&quot;&quot;
+function get_site( :: AbstractResult{XT,YT} ) :: XT where {XT,YT}
+	return XT()
+end
+
+&quot;&quot;&quot;
+    get_value( res :: AbstractResult{XT,YT} )
+
+Return evaluation value vector of type `YT` associated with `res`.
+&quot;&quot;&quot;
+function get_value( :: AbstractResult{XT,YT} ) :: YT where {XT,YT}
+	return YT()
+end
+
+&quot;&quot;&quot;
+	get_id( res :: AbstractResult ) :: Int
+
+Return the `id` of a result such that for the database `db`
+containing `res` it holds that `get_result(db, id) == res`.
+&quot;&quot;&quot;
+get_id( :: AbstractResult ) :: Int = -1</code></pre><p>Also define these setters:</p><pre><code class="language-julia hljs">set_site!(r :: AbstractResult, x) :: Nothing = nothing
+set_value!(r :: AbstractResult, y) :: Nothing = nothing</code></pre><p>An <code>AbstractResult</code> is created with the <code>init_res</code> constructor taking an evaluation site <code>x</code>, a value vector <code>y</code> and a database id.</p><pre><code class="language-julia hljs">&quot;&quot;&quot;
+    init_res( res_type, x, y, id)
+
+Return of result of type `res_type` with site `x`, value `y` and database id `id`.
+&quot;&quot;&quot;
+function init_res( :: Type{&lt;:AbstractResult}, :: Vec, :: Vec, :: Int )
+	return nothing
+end</code></pre><h2 id="Derived-Methods"><a class="docs-heading-anchor" href="#Derived-Methods">Derived Methods</a><a id="Derived-Methods-1"></a><a class="docs-heading-anchor-permalink" href="#Derived-Methods" title="Permalink"></a></h2><p>Based on the above definitions, there are some useful defaults defined. These can be overwritten for specific types but you don&#39;t have to:</p><pre><code class="language-julia hljs">&quot;&quot;&quot;
+	_equal_vals( r1 :: AbstractResult, r2 :: AbstractResult )
+
+Return `true` if both the site and the value vectors of `r1` and `r2` are equal.
+&quot;&quot;&quot;
+function _equal_vals( r1 :: AbstractResult, r2 :: AbstractResult )
+	return get_site(r1) == get_site(r2) &amp;&amp; get_value(r1) == get_value(r2)
+end
+
+&quot;&quot;&quot;
+    has_valid_site( r :: AbstractResult )
+
+Return `true` if the site vector of `r` is neither empty nor NaN.
+&quot;&quot;&quot;
+function has_valid_site( r :: AbstractResult )
+	site = get_site(r)
+	return !(isempty(site) || any( isnan.(site) ))
+end
+
+&quot;&quot;&quot;
+    has_valid_value( r :: AbstractResult )
+
+Return `true` if the value vector of `r` is neither empty nor NaN.
+&quot;&quot;&quot;
+function has_valid_value( r :: AbstractResult )
+	value = get_value(r)
+	isempty(value) &amp;&amp; return false
+	any( isnan.(value) ) &amp;&amp; return false
+	return true
+end</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../Interfaces/">« Interfaces</a><a class="docs-footer-nextpage" href="../AbstractIterDataInterface/"><code>AbstractIteraData</code> Interface »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.5 on <span class="colophon-date" title="Thursday 2 September 2021 11:08">Thursday 2 September 2021</span>. Using Julia version 1.6.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
