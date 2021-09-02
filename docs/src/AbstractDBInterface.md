@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/../src/AbstractDBInterface.jl"
+EditURL = "<unknown>/src/AbstractDBInterface.jl"
 ```
 
 # Database Interface

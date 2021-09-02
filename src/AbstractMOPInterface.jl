@@ -3,10 +3,10 @@ Broadcast.broadcastable( mop :: AbstractMOP ) = Ref( mop );
 
 # MANDATORY methods
 "Return full vector of lower variable vectors for original problem."
-full_lower_bounds( :: AbstractMOP ) ::Vec = nothing 
+full_lower_bounds( :: AbstractMOP ) :: Vec = nothing 
 
 "Return full vector of upper variable vectors for original problem."
-full_upper_bounds( :: AbstractMOP ) ::Vec = nothing
+full_upper_bounds( :: AbstractMOP ) :: Vec = nothing
 
 "Return a list of `AbstractVectorObjective`s."
 list_of_objectives( :: AbstractMOP ) :: Union{AbstractVector{<:AbstractObjective}, Tuple{Vararg{<:AbstractObjective}}} = nothing 

@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/../src/AbstractResultInterface.jl"
+EditURL = "<unknown>/src/AbstractResultInterface.jl"
 ```
 
 # Result Interface
