@@ -20,10 +20,12 @@ There are many breaking changes (compared to version 2) and this version is not 
   * `AlgoConfig` now has a type parameter `D` that is the descent type (or `Symbol`).
 
 ## README
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/stable)
+
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/dev)
 [![Build Status](https://github.com/manuelbb-upb/Morbit.jl/workflows/CI/badge.svg)](https://github.com/manuelbb-upb/Morbit.jl/actions)
 [![Coverage](https://codecov.io/gh/manuelbb-upb/Morbit.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/manuelbb-upb/Morbit.jl)
+
+Stable docs [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/stable) are currently outdated for this repository.
 
 The package `Morbit.jl` provides a local derivative-free solver for multiobjective optimization problems with possibly expensive objectives.
 It is meant to find a **single** Pareto-critical point, not a good covering of the global Pareto Set.
