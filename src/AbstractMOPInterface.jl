@@ -162,10 +162,10 @@ end
 
 "Return smallest positive and biggest negative and `σ₊` and `σ₋` so that `x .+ σ± .* d` stays within bounds."
 function _intersect_bounds( x :: Vec, d :: Vec, lb :: Vec, ub :: Vec ) 
-   d_normed = d ./ norm( d, Inf )
-
-   σ_pos = norm( _project_into_box( x .+ d_normed, lb, ub ) - x, 2 )
-   σ_neg = norm( _project_into_box( x .- d_normed, lb, ub ) - x, 2 )
+   d_scaled = (ub .- lb ) .* d ./ norm( d, Inf )
+   
+   σ_pos = norm( _project_into_box( x .+ d_scaled, lb, ub ) - x, 2 )
+   σ_neg = norm( _project_into_box( x .- d_scaled, lb, ub ) - x, 2 )
 
    return σ_pos, σ_neg
 end
