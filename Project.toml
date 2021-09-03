@@ -32,6 +32,7 @@ ThreadSafeDicts = "4239201d-c60e-5e0a-9702-85d713665ba7"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [compat]
+Combinatorics = "1"
 DynamicPolynomials = "0.3.16"
 FileIO = "1.6"
 FiniteDiff = "2.7"
