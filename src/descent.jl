@@ -8,7 +8,7 @@
 #
 # For the individual descent step methods a method with signature 
 # `get_criticality( :: typeof{desc_cfg}, :: AbstractMOP, ::AbstractIterData,
-#  ::AbstractDB, sc :: SurrogateContainer )`
+#  ::AbstractSuperDB, sc :: SurrogateContainer )`
 # should be defined, because this is then called internally
 # 
 # Return: a criticality measure the new trial point (same eltype as x),
@@ -16,19 +16,19 @@
 
 # method to only compute criticality
 function get_criticality( mop :: AbstractMOP, iter_data :: AbstractIterData, 
-    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
+    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
     return get_criticality( descent_method( algo_config ), mop, iter_data, data_base, sc, algo_config )
 end
 
 # methods to compute a local descent step
 function compute_descent_step( mop :: AbstractMOP, iter_data :: AbstractIterData, 
-    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, args... )
+    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, args... )
     return compute_descent_step( descent_method( algo_config ), mop, iter_data, data_base, sc, algo_config, args... )
 end
 
 # fallback, if `get_criticality` allready does the whole job: simply return `ω` and `data`
 function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, iter_data :: AbstractIterData, 
-    data_base :: AbstractDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
+    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
     ω, data = get_criticality(cfg, mop, iter_data, data_base, sc, algo_config)
     return (ω, data...)
 end
@@ -100,10 +100,10 @@ function _backtrack( x :: AbstractVector{F}, dir, ω, sc, cfg ) where F<:Abstrac
     step_size = 1 
 
     # values at iterate (required for _armijo_condition )
-    mx = eval_models(sc, x)
+    mx = eval_container_objectives_at_scaled_site(sc, x)
     # first trial point and its value vector
     x₊ = x .+ step_size .* dir
-    mx₊ = eval_models( sc, x₊ )
+    mx₊ = eval_container_objectives_at_scaled_site( sc, x₊ )
 
     for i = 1 : MAX_LOOPS 
         if _armijo_condition( Val(strict_backtracking), mx, mx₊, step_size, ω, c )
@@ -115,20 +115,19 @@ function _backtrack( x :: AbstractVector{F}, dir, ω, sc, cfg ) where F<:Abstrac
         end 
         step_size *= α
         x₊ .= x .+ step_size .* dir
-        mx₊ .= eval_models( sc, x₊ )
+        mx₊ .= eval_container_objectives_at_scaled_site( sc, x₊ )
     end
 
     step = step_size .* dir;
     return x₊, mx₊, step
 end
 
-
 function get_criticality( desc_cfg :: SteepestDescentConfig , mop, iter_data, data_base, sc, algo_config )
 
     @logmsg loglevel3 "Calculating steepest descent direction."
 
     x = get_x( iter_data )
-    ∇m = get_jacobian(sc, x)
+    ∇m = eval_container_objectives_jacobian_at_scaled_site(sc, x)
 
     lb, ub = full_bounds_internal( mop )
 
@@ -157,7 +156,7 @@ function compute_descent_step( desc_cfg :: SteepestDescentConfig , mop, iter_dat
         end
     end
     
-    return 0, copy(x), eval_models( sc, x ), 0
+    return 0, copy(x), eval_container_objectives_at_scaled_site( sc, x ), 0
 end 
 
 
@@ -168,6 +167,7 @@ end
 
 
 # PASCOLETTI-SERAFINI
+#=
 # TODO would it matter to allow single precision reference_point?
 # Does NLopt honour precision?
 @with_kw struct PascolettiSerafiniConfig <: AbstractDescentConfig
@@ -259,7 +259,7 @@ function get_criticality( desc_cfg :: PascolettiSerafiniConfig, mop, iter_data, 
 
     # If any component is not positive, we are critical
     if any( r .<= 0 )
-        return 0, copy(x), eval_models(sc, x), 0
+        return 0, copy(x), eval_container_objectives_at_scaled_site(sc, x), 0
     end
 
     # total number of sub solver evaluations
@@ -278,7 +278,7 @@ function get_criticality( desc_cfg :: PascolettiSerafiniConfig, mop, iter_data, 
         end
     end
 
-    mx = eval_models( sc, x );
+    mx = eval_container_objectives_at_scaled_site( sc, x );
     lb, ub = local_bounds(mop, x, decs_cfg.trust_region_factor * Δ)
     
     τ, χ_min, ret = _ps_optimization(sc, desc_cfg.main_algo, lb, ub,
@@ -295,11 +295,11 @@ function get_criticality( desc_cfg :: PascolettiSerafiniConfig, mop, iter_data, 
     end
 
     if (ret == :FAILURE || isinf(τ) || isnan(τ) || any(isnan.(χ_min)) )
-        return 0, copy(x), eval_models(sc, x), 0
+        return 0, copy(x), eval_container_objectives_at_scaled_site(sc, x), 0
     else
         ω = abs( τ );
         x₊ = χ_min[2 : end];
-        mx₊ = eval_models( sc, x₊ );
+        mx₊ = eval_container_objectives_at_scaled_site( sc, x₊ );
         sl = norm( x .- x₊, Inf );
 
         return ω, x₊, mx₊, sl
@@ -342,7 +342,7 @@ function _get_ps_constraint_func( sc :: SurrogateContainer, mx :: RVec, dir :: R
             g[1, :] .= -dir;
             g[2:end, :] .= transpose(get_jacobian( sc, χ[2:end]));
         end
-        return eval_models(sc, χ[2:end]) .- mx .- χ[1] .* dir
+        return eval_container_objectives_at_scaled_site(sc, χ[2:end]) .- mx .- χ[1] .* dir
     end
 end
 =#
@@ -362,7 +362,7 @@ function _get_ps_constraint_func( sc :: SurrogateContainer, mx, dir, l )
             g[1] = -dir[l]
             g[2:end] .= get_gradient(sc, χ[2:end], l)
         end
-        ret_val = eval_models(sc, χ[2:end], l) - mx[l] - χ[1] * dir[l]
+        ret_val = eval_container_objectives_at_scaled_site(sc, χ[2:end], l) - mx[l] - χ[1] * dir[l]
         return ret_val
     end
 end
@@ -379,6 +379,7 @@ function _get_ps_objective_func()
         return χ[1]
     end
 end
+=#
 
 # Directed Search
 #=
@@ -413,12 +414,12 @@ function compute_descent_step(::Val{:ds}, algo_config :: AbstractConfig,
     @logmsg loglevel4 "Local image direction is $(_prettify(r))"
 
     if any( r .>= 0 )
-        return 0, copy(x), eval_models(sc, x), 0
+        return 0, copy(x), eval_container_objectives_at_scaled_site(sc, x), 0
     end
 
     lb, ub = full_bounds_internal( mop );    
-    mx = eval_models( sc, x );
-    ∇m = get_jacobian(sc, x);
+    mx = eval_container_objectives_at_scaled_site( sc, x );
+    ∇m = eval_container_jacobian_at_scaled_site(sc, x);
 
     ∇m⁺ = pinv( ∇m )
     CONSTRAINED = !isempty(MOI.get(mop,MOI.ListOfConstraints()))
@@ -456,7 +457,7 @@ function compute_descent_step(::Val{:ds}, algo_config :: AbstractConfig,
         x₊, mx₊, step = _backtrack( x, d_normed, σ, ω, sc, strict_backtracking(algo_config) );
         return ω, x₊, mx₊, norm(step, Inf)
     else
-        return ω, copy(x), eval_models( sc, x ), 0
+        return ω, copy(x), eval_container_objectives_at_scaled_site( sc, x ), 0
     end
 end
 

@@ -21,7 +21,7 @@ Is instantiated by the corresponding `init_model` and `update_model` functions.
 """
 struct ExactModel{
         M <: TransformerFn,
-        O <: AbstractObjective,
+        O <: AbstractVecFun,
         D <: DiffFn 
     } <: SurrogateModel
     
@@ -75,7 +75,7 @@ combinable( :: ExactConfig ) = false
 
 # When `cfg.gradients` is a `Symbol` we make use of the `DiffWrapper`s defined 
 # in `src/diff_wrappers.jl`:
-function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractObjective, tfn ) where{G<:Symbol,J}
+function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractVecFun, tfn ) where{G<:Symbol,J}
     if cfg.gradients == :autodiff
         return AutoDiffWrapper( objf, tfn, nothing )
     elseif cfg.gradients == :fdm 
@@ -84,20 +84,20 @@ function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractObjective, tfn ) w
 end
 
 # Else we use a `GradWrapper`:
-function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractObjective, tfn) where{G,J}
+function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractVecFun, tfn) where{G,J}
     @assert length(cfg.gradients) == num_outputs(objf) "Provide as many gradient functions as the objective has outputs."
     return GradWrapper( tfn, cfg.gradients, cfg.jacobian )
 end
 
 # All "construction" work is done in the `_init_model` function:
-function prepare_init_model(cfg ::ExactConfig, objf :: AbstractObjective, 
+function prepare_init_model(cfg ::ExactConfig, objf :: AbstractVecFun, 
     mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig; kwargs...)
     return ExactMeta()
 end
 
 @doc "Return an ExactModel build from a VectorObjectiveFunction `objf`. 
 Model is the same inside and outside of criticality round."
-function _init_model(cfg ::ExactConfig, objf :: AbstractObjective, 
+function _init_model(cfg ::ExactConfig, objf :: AbstractVecFun, 
     mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig, emeta :: ExactMeta; kwargs...)
     tfn = TransformerFn(mop)
     diff_fn = get_DiffFn( cfg, objf, tfn )
@@ -106,13 +106,13 @@ function _init_model(cfg ::ExactConfig, objf :: AbstractObjective,
 end
 
 # All the other functions simply return the input:
-function update_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
+function update_model( em :: ExactModel, :: AbstractVecFun, meta ::ExactMeta,
     ::AbstractMOP, :: AbstractIterData, ::AbstractDB, :: AbstractConfig; 
     ensure_fully_linear :: Bool = false, kwargs... )
     return em, meta
 end
 
-function improve_model( em :: ExactModel, :: AbstractObjective, meta ::ExactMeta,
+function improve_model( em :: ExactModel, :: AbstractVecFun, meta ::ExactMeta,
     ::AbstractMOP, :: AbstractIterData, ::AbstractDB, :: AbstractConfig; 
     ensure_fully_linear :: Bool = false, kwargs ... )
     return em, meta

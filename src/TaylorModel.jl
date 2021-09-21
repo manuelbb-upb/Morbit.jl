@@ -102,7 +102,9 @@ combinable( :: TaylorConfig ) = true
 end
 
 # The end user won't be interested in the wrappers, so we put `nothing` in there:
-get_saveable_type( :: TaylorIndexMeta ) = TaylorIndexMeta{Nothing, Nothing}
+function get_saveable_type( :: TaylorConfig )
+    return TaylorIndexMeta{Nothing, Nothing}
+end
 get_saveable( meta :: TaylorIndexMeta ) = TaylorIndexMeta(; 
     grad_setter_indices = meta.grad_setter_indices,
     hess_setter_indices = meta.hess_setter_indices
@@ -152,26 +154,25 @@ function _get_RFD_trees( x, fx, grad_stamp, hess_stamp = nothing, deg = 2)
 end
 
 
-function prepare_init_model(cfg :: TaylorConfig, objf :: AbstractObjective, 
-    mop :: AbstractMOP, iter_data ::AbstractIterData, db :: AbstractDB, algo_cfg :: AbstractConfig; kwargs...)
-
-    return prepare_update_model( nothing, objf, TaylorIndexMeta(), mop, iter_data, db, algo_cfg; kwargs... )
+function prepare_init_model(cfg :: TaylorConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, 
+	id :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+	kwargs...)
+    return prepare_update_model(nothing, TaylorIndexMeta(), cfg, func_indices, mop, id, sdb, ac ; kwargs... )
 end
 
 # The actual database preparations are delegated to the `prepare_update_model` function.
-function prepare_update_model( mod :: Union{Nothing, TaylorModel}, objf, meta :: TaylorIndexMeta, mop,
-    iter_data, db, algo_cfg; kwargs... )
-    
-    x = get_x( iter_data )
-    fx = get_fx( iter_data )
-    x_index = get_x_index( iter_data )
+function prepare_update_model( mod :: Union{Nothing, TaylorModel}, meta :: TaylorIndexMeta, 
+		cfg :: TaylorConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP,
+		iter_data :: AbstractIterData, sdb :: AbstractSuperDB, algo_config :: AbstractConfig; kwargs... )
 
-    cfg = model_cfg( objf )
+    db = get_sub_db( sdb, func_indices )
+    x = get_x( iter_data )
+    x_index = get_x_index( iter_data, func_indices )
+    fx = get_value( db, x_index )
 
     grad_wrapper, hess_wrapper = _get_RFD_trees( x, fx, cfg.gradients, cfg.hessians, cfg.degree )
     
     XT = typeof(x)
-    FXT = typeof(fx)
     
     lb, ub = full_bounds_internal( mop )
 
@@ -202,9 +203,9 @@ function prepare_update_model( mod :: Union{Nothing, TaylorModel}, objf, meta ::
     ## now: `hess_sites == unique_new[ hess_setter_indices ]` and 
     ## `grad_sites == unique_new[ grad_setter_indices ]`
 
-    db_indices = [ [x_index,]; [ new_result!(db, ξ, FXT()) for ξ in unique_new[ 2:end ] ] ]
+    db_indices = [ [x_index,]; [ new_result!(db, ξ, []) for ξ in unique_new[ 2:end ] ] ]
     ## now: `unique_new == get_site.(db, db_indices)`
-
+   
     ## we return a new meta object in each iteration, so that the node cache is reset in between.
     return TaylorIndexMeta(;
         database_indices = db_indices,
@@ -217,16 +218,20 @@ end
 
 # If the meta data is set correctly, we only have to set the value vectors for the 
 # RFD trees and then ask for the right matrices:
-function _init_model( cfg :: TaylorConfig, objf :: AbstractObjective, mop :: AbstractMOP, 
-    iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig, meta :: TaylorIndexMeta; kwargs... )
-    return update_model( nothing, objf, meta, mop, iter_data, db, algo_config; kwargs...)
+function init_model(meta :: TaylorIndexMeta, cfg :: TaylorConfig, func_indices :: FunctionIndexIterable,
+	mop :: AbstractMOP,	iter_data :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
+    
+    return update_model( nothing, meta, cfg, func_indices, mop, iter_data, sdb, ac; kwargs...)
 end
 
 # Note, that we only perform updates if the iterate has changed, `x != mod.x0`, because 
 # we don't change the differencing parameters.
-function update_model( mod :: Union{Nothing, TaylorModel}, objf :: AbstractObjective, meta :: TaylorIndexMeta, 
-    mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; kwargs...)
-
+function update_model( mod::Union{Nothing,TaylorModel}, meta :: TaylorIndexMeta, cfg :: TaylorConfig,
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, iter_data :: AbstractIterData, 
+	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+	kwargs... )
+    
+    db = get_sub_db( sdb, func_indices )
     x = get_x(iter_data)
     if isnothing(mod) || (x != mod.x0)
         all_leave_vals = get_value.( db, meta.database_indices )
@@ -234,7 +239,7 @@ function update_model( mod :: Union{Nothing, TaylorModel}, objf :: AbstractObjec
         if !isnothing( meta.hess_wrapper )
             hess_leave_vals = all_leave_vals[ meta.hess_setter_indices ]
             RFD.set_leave_values!( meta.hess_wrapper, hess_leave_vals )
-            H = [ RFD.hessian( meta.hess_wrapper; output_index = ℓ ) for ℓ = 1 : num_outputs(objf) ]
+            H = [ RFD.hessian( meta.hess_wrapper; output_index = ℓ ) for ℓ = 1 : num_outputs(func_indices) ]
         else
             H = nothing
         end
@@ -258,7 +263,7 @@ function update_model( mod :: Union{Nothing, TaylorModel}, objf :: AbstractObjec
         return mod,meta
     end
 end
-
+#=
 # ### Callback Models with Derivatives, AD or Adaptive Finite Differencing 
 
 # The old way of defining Taylor Models was to provide an objective callback function 
@@ -347,7 +352,7 @@ end
 
 # The initialization for the legacy config types is straightforward as they don't use 
 # the new 2-phase process:
-function prepare_init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractObjective, 
+function prepare_init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractVecFun, 
     mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig; kwargs...)
     tfn = TransformerFn(mop)
     return init_meta( cfg, objf, tfn )
@@ -356,13 +361,13 @@ end
 # The model construction happens in the `update_model` method and makes use of the `get_gradient` and `get_hessian`
 # methods for the wrappers stored in `meta`:
 
-function _init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractObjective, 
+function _init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractVecFun, 
     mop :: AbstractMOP, iter_data ::AbstractIterData, db ::AbstractDB, algo_config :: AbstractConfig, 
     meta :: TaylorMetaCallbacks; kwargs...)
     return update_model(nothing, objf, meta, mop, iter_data, db, algo_config; kwargs...)
 end
 
-function update_model( mod :: Union{Nothing,TaylorModel}, objf :: AbstractObjective, meta :: TaylorMetaCallbacks, 
+function update_model( mod :: Union{Nothing,TaylorModel}, objf :: AbstractVecFun, meta :: TaylorMetaCallbacks, 
     mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; kwargs...)
 
     x = get_x(iter_data)
@@ -384,6 +389,7 @@ function update_model( mod :: Union{Nothing,TaylorModel}, objf :: AbstractObject
     end
 
 end
+=#
 
 # ## Model Evaluation
 

@@ -11,12 +11,18 @@ function _orthogonal_complement_matrix( Y, p = Inf )
 end 
 
 # stateful (Y,Z are stored so that I have access to them later)
-@with_kw mutable struct AffinelyIndependentPointFilter{F <: AbstractFloat, VF <: AbstractVector{F}, SV <: AbstractVector{VF}, I<:Real}
+@with_kw mutable struct AffinelyIndependentPointFilter{
+	F <: AbstractFloat, 
+	VF <: AbstractVector{F}, 
+	SV <: AbstractVector{<:AbstractVector{F}},
+	SSV <: AbstractVector{<:AbstractVector{F}}, 
+	I<:Real
+	}
 	x_0 :: VF
 
 	seeds :: SV = Vector{VF}
 	
-	shifted_seeds :: SV = [ s .- x_0 for s in seeds]
+	shifted_seeds :: SSV = [ s .- x_0 for s in seeds]
 
 	candidate_indices :: Vector{Int} = collect(eachindex(seeds))
 

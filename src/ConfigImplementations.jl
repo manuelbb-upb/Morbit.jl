@@ -59,8 +59,13 @@ use_db( ::DefaultConfig ) = ArrayDB
     gamma_grow = _gamma_grow(default_config)
     gamma_shrink = _gamma_shrink(default_config)
     gamma_shrink_much = _gamma_shrink_much(default_config)
+
+    combine_models ::Bool = _combine_models_by_type( default_config )
     
-    @assert descent_method isa AbstractDescentConfig || ( descent_method isa Symbol && descent_method ∈ [:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search] ) "`descent_method` must be one of `:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search`."
+    @assert descent_method isa AbstractDescentConfig ||
+        ( descent_method isa Symbol && descent_method ∈ 
+            [:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search] 
+        ) "`descent_method` must be one of `:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search`."
 end
 
 for fn in fieldnames(AlgorithmConfig)
@@ -75,5 +80,3 @@ use_db( ac :: AlgorithmConfig ) = ac.db
 # outer constructors for the lazy user and backwards compatibility
 EmptyConfig() = default_config
 AlgoConfig(args...; kwargs...) = AlgorithmConfig(args...; kwargs...)
-
-export EmptyConfig, AlgoConfig

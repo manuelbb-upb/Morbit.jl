@@ -1,75 +1,136 @@
-# needs `AbstractObjective` (which in turn needs the Surrogate Interface)
+# needs `AbstractVecFun` (which in turn needs the Surrogate Interface)
 Broadcast.broadcastable( mop :: AbstractMOP ) = Ref( mop );
 
 # MANDATORY methods
-"Return full vector of lower variable vectors for original problem."
-full_lower_bounds( :: AbstractMOP ) :: Vec = nothing 
+const VarIndIterable = Union{AbstractVector{<:VarInd}, Tuple{Vararg{<:VarInd}}}
 
-"Return full vector of upper variable vectors for original problem."
-full_upper_bounds( :: AbstractMOP ) :: Vec = nothing
+var_indices(:: AbstractMOP) :: AbstractVector{<:VarInd} = nothing
 
-"Return a list of `AbstractVectorObjective`s."
-list_of_objectives( :: AbstractMOP ) :: Union{AbstractVector{<:AbstractObjective}, Tuple{Vararg{<:AbstractObjective}}} = nothing 
+get_lower_bound( :: AbstractMOP, :: VarInd) :: Real = nothing 
+get_upper_bound( :: AbstractMOP, :: VarInd) :: Real = nothing 
 
-# only for user editable problems, i.e. <:AbstractMOP{true}
-"Remove an objective function from MOP."
-_del!(::AbstractMOP, ::AbstractObjective) :: Nothing = nothing
-"Add an objective function to MOP with specified output indices."
-_add!(::AbstractMOP, ::AbstractObjective, ::Union{Nothing,Vector{Int}}) :: Nothing = nothing
+get_objective_indices( :: AbstractMOP ) = ObjectiveIndex[]
+get_eq_constraint_indices( :: AbstractMOP ) = EqConstraintIndex[]
+get_ineq_constraint_indices( :: AbstractMOP ) = IneqConstraintIndex[]
 
-# MOI METHODS 
-# # add only required for AbstractMOP{true}
-MOI.add_variable( :: AbstractMOP ) :: MOI.VariableIndex = nothing 
-MOI.add_variables( :: AbstractMOP ) :: Vector{MOI.VariableIndex} = nothing 
+_get( :: AbstractMOP, :: FunctionIndex ) :: AbstractVecFun = nothing
 
-MOI.get( :: AbstractMOP, :: MOI.NumberOfVariables ) = -1;
-MOI.get( :: AbstractMOP, :: MOI.ListOfVariableIndices) = -1;
-MOI.get( :: AbstractMOP, :: MOI.ListOfConstraints )::Vector{Tuple} = nothing ;
+# optional and only for user editable problems, i.e. <:AbstractMOP{true}
+add_lower_bound!(mop :: AbstractMOP{true}, vi :: VarInd, bound :: Real ) = nothing
+add_upper_bound!(mop :: AbstractMOP{true}, vi :: VarInd, bound :: Real ) = nothing
+del_lower_bound!(mop :: AbstractMOP{true}, vi :: VarInd ) = nothing
+del_upper_bound!(mop :: AbstractMOP{true}, vi :: VarInd ) = nothing
 
-MOI.supports_constraint( ::AbstractMOP, ::Type{MOI.SingleVariable}, ::Type{MOI.Interval}) = nothing ::Bool;
-MOI.add_constraint(::AbstractMOP, func::F, set::S) where {F,S} = nothing :: MOI.ConstraintIndex{F,S} 
+"Add an objective function to MOP"
+_add_objective!(::AbstractMOP{true}, ::AbstractVecFun) :: ObjectiveIndex = nothing
+_add_eq_constraint!(::AbstractMOP{true}, ::AbstractVecFun) :: EqConstraintIndex = nothing
+_add_ineq_constraint!(::AbstractMOP{true}, ::AbstractVecFun) :: IneqConstraintIndex = nothing
+
+add_variable!(::AbstractMOP{true}) :: VarInd = nothing
+
+"Remove a function from the MOP."
+_del!(::AbstractMOP{true}, ::FunctionIndex) :: Nothing = nothing
+
+_del!(::AbstractMOP{true}, ::VarInd) :: Nothing = nothing
 
 # DERIVED methods 
-num_vars( mop :: AbstractMOP ) = MOI.get( mop, MOI.NumberOfVariables() );
+
+get_lower_bounds( mop :: AbstractMOP, indices :: VarIndIterable ) = get_lower_bound.(mop, indices)
+get_upper_bounds( mop :: AbstractMOP, indices :: VarIndIterable ) = get_upper_bound.(mop, indices)
+
+"Return full vector of lower variable vectors for original problem."
+function full_lower_bounds( mop :: AbstractMOP )
+    return get_lower_bounds( mop, var_indices(mop) )
+end
+
+"Return full vector of upper variable vectors for original problem."
+function full_upper_bounds( mop :: AbstractMOP )
+    return get_upper_bounds( mop, var_indices(mop) )
+end
+
+# can be improved
+num_vars( mop :: AbstractMOP ) :: Int = length(var_indices(mop))
+
+function add_variables!(mop::AbstractMOP{true}, num_new :: Int )
+    return [add_variable!(mop) for _ = 1 : num_new]
+end
+
+function get_function_indices( mop :: AbstractMOP )
+    return Iterators.flatten( (
+        get_objective_indices( mop ),
+        get_eq_constraint_indices( mop ),
+        get_ineq_constraint_indices( mop )
+    ) )
+end
+
+#=
+# TODO use a dict with SMOP
+# defines: `get_objective_positions(mop, func_ind)`, `get_eq_constraint_positions(mop, func_ind)`, `get_ineq_constraint_positions(mop, func_ind)`
+# defines: `get_objective_positions(sc, func_ind)`, `get_eq_constraint_positions(sc, func_ind)`, `get_ineq_constraint_positions(sc, func_ind)`
+for (out_type, T) in zip([:objective, :eq_constraint, :ineq_constraint], 
+        [:ObjectiveIndex, :EqConstraintIndex, :IneqConstraintIndex ])
+    func_name = Symbol("get_$(out_type)_positions")
+    @eval begin 
+        function $(func_name)( mop :: Union{AbstractMOP,AbstractSurrogateContainer}, func_ind :: $(T))
+            first_pos = findfirst( ind -> ind == func_ind, get_objective_indices( mop ) )
+            if isnothing(first_pos)
+                return nothing
+            end
+            return CartesianIndex((first_pos : first_pos + num_outputs( func_ind ) - 1)...)
+        end
+    end
+end
+=#
+"Return lower variable bounds for scaled variables."
+function full_lower_bounds_internal( mop :: AbstractMOP )
+    [ isinf(l) ? l : 0 for l ∈ full_lower_bounds(mop) ];
+end
+
+"Return upper variable bounds for scaled variables."
+function full_upper_bounds_internal( mop :: AbstractMOP )
+    [ isinf(u) ? u : 1 for u ∈ full_upper_bounds(mop) ];
+end
+
+function full_bounds( mop :: AbstractMOP )
+    (full_lower_bounds(mop), full_upper_bounds(mop))
+end
+
+function full_bounds_internal( mop :: AbstractMOP )
+    (full_lower_bounds_internal(mop), full_upper_bounds_internal(mop))
+end
+
+
+"Return a list of `AbstractVectorObjective`s."
+function list_of_objectives( mop :: AbstractMOP )
+    return [ _get( mop, func_ind ) for func_ind = get_objective_indices(mop) ]
+end
+
+function list_of_eq_constraints( mop :: AbstractMOP )
+    return [ _get( mop, func_ind ) for func_ind = get_eq_constraint_indices(mop) ]
+end
+
+function list_of_ineq_constraints( mop :: AbstractMOP )
+    return [ _get( mop, func_ind ) for func_ind = get_ineq_constraint_indices(mop) ]
+end
+
+function list_of_functions( mop :: AbstractMOP )
+    return [ _get( mop, func_ind ) for func_ind = get_function_indices(mop) ]
+end
 
 "Number of scalar-valued objectives of the problem."
 function num_objectives( mop :: AbstractMOP )
-    let objf_list = list_of_objectives(mop);
-        isempty(objf_list) ? 0 : sum( num_outputs(objf) for objf ∈ objf_list )
-    end
+    isempty(get_objective_indices(mop)) && return 0
+    return sum( num_outputs(func_ind) for func_ind = get_objective_indices(mop))
 end
 
-function _scale!( x :: Vec, lb :: Vec, ub :: Vec )
-    for (i,var_bounds) ∈ enumerate(zip( lb, ub ))
-        if !(isinf(var_bounds[1]) || isinf(var_bounds[2]))
-            x[i] -= var_bounds[1]
-            x[i] /= ( var_bounds[2] - var_bounds[1] )
-        end
-    end
-    nothing
+function num_eq_constraints( mop :: AbstractMOP )
+    isempty(get_eq_constraint_indices(mop)) && return 0
+    return sum( num_outputs(func_ind) for func_ind = get_eq_constraint_indices(mop))
 end
 
-function _scale( x :: Vec, lb :: Vec, ub :: Vec )
-    χ = copy(x);
-    _scale!(χ, lb, ub);
-    return χ
-end
-
-function _unscale!( x̂ :: Vec, lb :: Vec, ub :: Vec )
-    for (i,var_bounds) ∈ enumerate(zip( lb, ub ))
-        if !(isinf(var_bounds[1]) || isinf(var_bounds[2]))
-            # TODO: Make the component scaling memoized?
-            x̂[i] *= (var_bounds[2] - var_bounds[1]) 
-            x̂[i] += var_bounds[1]
-        end
-    end
-    nothing
-end
-
-function _unscale( x̂ :: Vec, lb :: Vec, ub :: Vec )
-    χ̂ = copy(x̂)
-    _unscale!(χ̂, lb, ub)
-    return χ̂
+function num_ineq_constraints( mop :: AbstractMOP )
+    isempty(get_ineq_indices(mop)) && return 0
+    return sum( num_outputs(func_ind) for func_ind = get_ineq_constraint_indices(mop))
 end
 
 "Scale variables fully constrained to a closed interval to [0,1] internally."
@@ -98,76 +159,10 @@ function unscale!( x̂ :: Vec, mop :: AbstractMOP )
     _unscale!( x̂, lb, ub);
 end
 
-"Position of `objf` in `list_of_objectives(mop)`."
-function _objf_index( objf :: AbstractObjective, mop :: AbstractMOP)
-    return findfirst( list_of_objectives(mop) .== objf ); 
-end
-
-function output_indices( mop :: AbstractMOP )
-    all_outputs = Int[];
-    for objf ∈ list_of_objectives( mop )
-        push!( all_outputs, output_indices( objf, mop )...);
-    end
-    return all_outputs;
-end
-
-# TODO use memoization in MixedMOP here
-function output_indices( objf ::AbstractObjective, mop :: AbstractMOP ) 
-    return let first_index = _objf_index(objf,mop);
-        collect( first_index : first_index + num_outputs(objf) - 1 );
-    end
-end
-
-"Remove `objf` from `list_of_objectives(mop)` and return its output indices."
-function pop_objf!( mop :: AbstractMOP, objf :: AbstractObjective )
-    oi = output_indices( objf, mop );
-    _del!(mop, objf)
-    return oi
-end
-
-"Return lower variable bounds for scaled variables."
-function full_lower_bounds_internal( mop :: AbstractMOP )
-    [ isinf(l) ? l : 0.0 for l ∈ full_lower_bounds(mop) ];
-end
-
-"Return upper variable bounds for scaled variables."
-function full_upper_bounds_internal( mop :: AbstractMOP )
-    [ isinf(u) ? u : 1.0 for u ∈ full_upper_bounds(mop) ];
-end
-
-function full_bounds( mop :: AbstractMOP )
-    (full_lower_bounds(mop), full_upper_bounds(mop))
-end
-
-function full_bounds_internal( mop :: AbstractMOP )
-    (full_lower_bounds_internal(mop), full_upper_bounds_internal(mop))
-end
-
-"Return lower and upper bound vectors combining global and trust region constraints."
-function _local_bounds( x :: Vec, Δ :: Union{Real, Vec}, lb :: Vec, ub :: Vec )
-    lb_eff = max.( lb, x .- Δ );
-    ub_eff = min.( ub, x .+ Δ );
-    return lb_eff, ub_eff 
-end
-
 "Local bounds vectors `lb_eff` and `ub_eff` using scaled variable constraints from `mop`."
 function local_bounds( mop :: AbstractMOP, x :: Vec, Δ :: Union{Real, Vec} )
     lb, ub = full_lower_bounds_internal( mop ), full_upper_bounds_internal( mop );
     return _local_bounds( x, Δ, lb, ub );
-end
-
-function _project_into_box( z, lb, ub)
-    return min.( max.( z, lb ), ub )
-end
-
-"Return smallest positive and biggest negative and `σ₊` and `σ₋` so that `x .+ σ± .* d` stays within bounds."
-function _intersect_bounds( x :: Vec, d :: Vec, lb :: Vec, ub :: Vec ) 
-   d_scaled = (ub .- lb ) .* d ./ norm( d, Inf )
-   
-   σ_pos = norm( _project_into_box( x .+ d_scaled, lb, ub ) - x, 2 )
-   σ_neg = norm( _project_into_box( x .- d_scaled, lb, ub ) - x, 2 )
-
-   return σ_pos, σ_neg
 end
 
 function intersect_bounds( mop :: AbstractMOP, x :: Vec, Δ :: Union{Real, Vec}, 
@@ -176,199 +171,109 @@ function intersect_bounds( mop :: AbstractMOP, x :: Vec, Δ :: Union{Real, Vec},
     return intersect_bounds( x, d, lb_eff, ub_eff; return_vals )
 end
 
-function intersect_bounds( x :: Vec, d :: Vec, lb, ub ; return_vals :: Symbol = :both )
-    σ_pos, σ_neg = _intersect_bounds( x, d, lb, ub )
+for func_name in [:add_objective!, :add_eq_constraint!, :add_ineq_constraint!]
+    @eval begin
+        function $(func_name)( 
+                mop :: AbstractMOP{true}, T :: Type{<:AbstractVecFun},
+                func :: Function; kwargs...) 
 
-    if return_vals == :both 
-        return σ_pos, σ_neg
-    elseif return_vals == :pos
-        return σ_pos 
-    elseif return_vals == :neg 
-        return σ_neg 
-    elseif return_vals == :absmax
-        if abs(σ_pos) >= abs(σ_neg)
-            return σ_pos
-        else
-            return σ_neg 
-        end 
+            objf = _wrap_func( T, func; kwargs... )
+            return $(Symbol("_$(func_name)"))(mop, objf)
+        end
     end
 end
 
-function _add_objective!( mop :: AbstractMOP{true}, T :: Type{<:AbstractObjective},
-    func :: Function, model_cfg :: SurrogateConfig; n_out :: Int = 0, 
-    can_batch :: Bool = false, out_type :: Union{Type{<:Vec},Nothing} = nothing )
+function eval_vec_mop( mop :: AbstractMOP, x_unscaled :: Vec, func_ind :: FunctionIndex )
+    objf = _get(mop, func_ind)
+    return eval_objf( objf, x_unscaled )
+end
 
-    fx = can_batch ? BatchObjectiveFunction(func) : ensure_vec ∘ func;
+function eval_vec_mop_at_scaled_site( mop :: AbstractMOP, x_scaled :: Vec, func_ind :: FunctionIndex )
+    x = unscale( x_scaled, mop )
+    return eval_vec_mop(mop, x, func_ind )
+end
 
-    inner_objf = _wrap_func( T, fx, model_cfg, num_vars(mop), n_out )
-    objf = isnothing(out_type) ? inner_objf : OutTypeWrapper(inner_objf, out_type)
+function eval_mop_at_scaled_site( mop :: AbstractMOP, x_scaled :: Vec, 
+        func_indices  )
+    x = unscale( x_scaled, mop )
+    return Base.ImmutableDict( 
+        (func_ind => eval_vec_mop_at_scaled_site( mop, x, func_ind ) for func_ind in func_indices)...
+    )
+end
+
+eval_mop_at_scaled_site(mop :: AbstractMOP, x::Vec) = eval_mop_at_scaled_site(mop, x, get_function_indices(mop))
+
+function eval_vec_mop_at_scaled_site( mop :: AbstractMOP, x_scaled :: Vec, 
+        func_indices  )
+    tmp = eval_mop_at_scaled_site( mop, x_scaled, func_indices )
+    return flatten_vecs(values(tmp))
+end
+
+function eval_result_to_vector( mop :: AbstractMOP, eval_result :: AbstractDict )
+    return eval_result_to_vector(eval_result, get_function_indices(mop))
+end
+
+function eval_result_to_vector( eval_result :: AbstractDict, func_indices  )
+    return flatten_vecs( get( eval_result, func_ind, MIN_PRECISION[] ) for func_ind in func_indices)  
+end
+
+function eval_result_to_all_vectors( eval_result :: AbstractDict,  mop :: Union{AbstractSurrogateContainer,AbstractMOP} )
+    return (
+        eval_result_to_vector( eval_result, get_objective_indices(mop) ),
+        eval_result_to_vector( eval_result, get_eq_constraint_indices(mop) ),
+        eval_result_to_vector( eval_result, get_ineq_constraint_indices(mop) )
+    )
+end    
+
+# defines:
+# eval_mop_objectives_at_scaled_site
+# eval_mop_eq_constraints_at_scaled_site
+# eval_mop_ineq_constraints_at_scaled_site
+# eval_vec_mop_objectives_at_scaled_site
+# eval_vec_mop_eq_constraints_at_scaled_site
+# eval_vec_mop_ineq_constraints_at_scaled_site
+
+for eval_type in [:objective, :eq_constraint, :ineq_constraint]
+    @eval begin
+        function $(Symbol("eval_mop_", eval_type, "s_at_scaled_site"))( mop :: AbstractMOP, x_scaled :: Vec )
+            return eval_mop_at_scaled_site( mop, x_scaled, $(Symbol("get_$(eval_type)_indices"))(mop) )
+        end
+
+        function $(Symbol("eval_vec_mop_", eval_type, "s_at_scaled_site"))( mop :: AbstractMOP, x_scaled :: Vec )
+            tmp_res = $(Symbol("eval_mop_", eval_type, "s_at_scaled_site"))( mop, x_scaled )
+            return eval_result_to_vector( mop, tmp_res )
+        end
+    end
+end
+
+# custom broadcasting to exploit inner batching in `eval_missing!`
+function Broadcast.broadcasted( ::typeof( eval_vec_mop ), mop :: AbstractMOP, X_unscaled :: VecVec, func_ind :: FunctionIndex )
+    objf = _get(mop, func_ind)
+    return eval_objf.( objf, X_unscaled )
+end
+
+function Broadcast.broadcasted( ::typeof(eval_vec_mop_at_scaled_site), mop :: AbstractMOP, X_scaled :: VecVec, func_ind :: FunctionIndex )
+    X = unscale.( X_scaled, mop )
+    return eval_vec_mop.(mop, X, func_ind )
+end
+
+function Broadcast.broadcasted( ::typeof(eval_vec_mop_at_scaled_site), mop :: AbstractMOP, X_scaled :: VecVec, 
+        func_indices  )
+    X = unscale.( X_scaled, mop )
+    partial_vecs = [eval_vec_mop_at_scaled_site.(mop, X, func_ind) for func_ind in func_indices]
+    return reduce.(vcat, zip(partial_vecs...))
     
-    out_indices = let oi = output_indices(mop);
-        max_out = isempty( oi ) ? 1 : maximum( oi ) + 1;
-        collect(max_out : max_out + n_out - 1)
-    end
-
-    for other_objf ∈ list_of_objectives(mop)
-        if combinable( objf, other_objf )
-            other_output_indices = pop_objf!( mop, other_objf );
-            out_indices = [other_output_indices; out_indices];
-            objf = combine(other_objf, objf);
-            break;
-        end
-    end
-    _add!(mop, objf, out_indices);
-    return num_objectives( mop ); 
-end
-
-"Return index vector so that an internal objective vector is sorted according to the order the objectives where added."
-function reverse_internal_sorting_indices(mop :: AbstractMOP) 
-    internal_indices = output_indices(mop);
-    return sortperm( internal_indices );
-end
-
-"Sort an interal objective vector so that the objectives are in the order in which they were added."
-function reverse_internal_sorting( ŷ :: Vec, mop :: AbstractMOP )
-    reverse_indices = reverse_internal_sorting_indices(mop)
-    return ŷ[ reverse_indices ];
-end
-
-function apply_internal_sorting( y :: Vec, mop :: AbstractMOP )
-    return y[ output_indices(mop) ]
-end
-
-function reverse_internal_sorting!( ŷ :: Vec, mop :: AbstractMOP )
-    reverse_indices = reverse_internal_sorting_indices(mop)
-    ŷ[:] = ŷ[ reverse_indices ]
-    nothing
-end
-
-function apply_internal_sorting!( y :: Vec, mop :: AbstractMOP )
-    y[:] = y[ output_indices(mop) ]
-    nothing
-end
-
-# custom broadcast to only retrieve sorting indices once
-function Broadcast.broadcasted( :: typeof( reverse_internal_sorting ), mop :: AbstractMOP, Ŷ :: VecVec )
-    reverse_indices = reverse_internal_sorting_indices(mop);
-    return [ ŷ[reverse_indices] for ŷ ∈ Ŷ];
-end
-
-"(Internally) Evaluate all objectives at site `x̂::Vec`. Objective order might differ from order in which they were added."
-function eval_all_objectives( mop :: AbstractMOP, x̂ :: Vec )
-    reduce(vcat, [ eval_objf( objf, unscale(x̂, mop) ) for objf ∈ list_of_objectives(mop) ] )
-end
-
-#=
-function eval_all_objectives( mop :: AbstractMOP, x̂ :: Vec, tfn :: TransformerFn )
-    vcat( [ eval_objf( objf, tfn(x̂) ) for objf ∈ list_of_objectives(mop) ]... )
-end
-=#
-
-function Broadcast.broadcasted(::typeof(eval_all_objectives), mop :: AbstractMOP, X :: VecVec, args... )
-    if isempty(X)
-        return Vec[]
-    else
-        X_unscaled = unscale.(X,mop)
-        all_vec_objfs = list_of_objectives(mop)
-        b_res = Vector{VecVec}(undef, length(all_vec_objfs))
-        for (i,objf) ∈ enumerate(all_vec_objfs)
-            b_res[i] = eval_objf.(objf, X_unscaled)
-        end
-
-        # stack the results
-        N = length(X);
-        ret_res = Vector{Vec}(undef, N)
-        for i = 1:N
-            ret_res[i] = vcat( (r[i] for r ∈ b_res )...)
-        end
-        return ret_res
-    end
-end
-
-"Evaluate all objectives at site `x̂::Vec` and sort the result according to the order in which objectives were added."
-function eval_and_sort_objectives(mop :: AbstractMOP, x̂ :: Vec)
-    ŷ = eval_all_objectives(mop, x̂)
-    return reverse_internal_sorting( ŷ, mop )
-end
-
-function Broadcast.broadcasted( ::typeof(eval_and_sort_objectives), mop :: AbstractMOP, X :: VecVec )
-    Y = eval_all_objectives.(mop, X)
-    reverse_internal_sorting!.(Y, mop)
-    return Y
 end
 
 # Helper functions …
 function num_evals( mop :: AbstractMOP ) :: Vector{Int}
-    [ num_evals(objf) for objf ∈ list_of_objectives(mop) ]
+    [ num_evals(objf) for objf ∈ list_of_functions(mop) ]
 end
 
 @doc "Set evaluation counter to 0 for each VectorObjectiveFunction in `m.vector_of_objectives`."
 function reset_evals!(mop :: AbstractMOP) :: Nothing
-    for objf ∈ list_of_objectives( mop )
-        num_evals!( objf, 0)
+    for objf ∈ list_of_functions( mop )
+        wrapped_function(objf).counter[] = 0
     end
     return nothing
 end
-
-# use for finite (e.g. local) bounds only
-_rand_box_point(lb::Vec, ub::Vec, type :: Type{<:Real} = MIN_PRECISION) ::Vec = lb .+ (ub .- lb) .* rand(type, length(lb));
-
-# wrapper to unscale x̂ from internal domain
-# and safeguard against boundary violations
-struct TransformerFn{F}
-    lb :: Vector{F}
-    ub :: Vector{F}
-    w :: Vector{F}
-    inf_indices :: Vector{Int}
-    not_inf_indices :: Vector{Int}
-end
-
-"Evaluate the objective at scaled site `x̂` with help of `tfn`. Used in `diff_wrappers`."
-function eval_objf(objf :: AbstractObjective, tfn :: TransformerFn, x̂ :: Vec)
-    inc_evals!(objf)
-    eval_handle(objf)( unscale(tfn, x̂ ) )
-end
-
-"Return the `TransformerFn` defined by `mop` with a minimum precision of `T`."
-function TransformerFn(mop :: AbstractMOP, T :: Type{<:AbstractFloat} = MIN_PRECISION)
-    LB, UB = full_bounds( mop )
-    W = UB - LB
-    I = findall(isinf.(W))
-    NI = setdiff( 1 : length(W), I )
-    W[ I ] .= 1
-
-    F = Base.promote_eltype( T, W )
-    return TransformerFn{F}(LB,UB,W,I,NI)
-end
-
-Base.broadcastable( tfn :: TransformerFn ) = Ref(tfn)
-
-using LinearAlgebra: diagm 
-function _jacobian_unscaling( tfn :: TransformerFn, x̂ :: Vec)
-    # for our simple bounds scaling the jacobian is diagonal.
-    return diagm(tfn.w)
-end
-
-"Unscale the point `x̂` from internal to original domain."
-function (tfn:: TransformerFn)( x̂ :: AbstractVector{<:Real} )
-    χ = copy(x̂)
-    I = tfn.not_inf_indices
-    χ[I] .= tfn.lb[I] .+ tfn.w[I] .* χ[I] 
-    return χ
-end
-
-unscale( tfn :: TransformerFn, x̂ :: Vec ) = tfn(x̂)
-
-function scale( tfn :: TransformerFn, x :: Vec )
-    χ = copy( x )
-    I = tfn.not_inf_indices;
-    χ[I] .= ( χ[I] .- tfn.lb[I] ) ./ tfn.w[I]
-    return χ
-end
-
-#=
-# used in special broadcast to only retrieve bounds once
-function ( tfn ::TransformerFn)( X :: AbstractVector{<:AbstractVector} )
-    return [ _unscale( x, tfn.lb, tfn.ub ) for x ∈ X ]
-end
-=#

@@ -1,31 +1,29 @@
-using Morbit 
-M = Morbit 
-MOI = M.MOI
+using Morbit
+M = Morbit
+
+M.print_all_logs()
+
+mop = M.MOP(2)
+
+vars = M.var_indices(mop)
+
+#=
+M.add_lower_bound!( mop, vars[1], -10 )
+M.add_lower_bound!( mop, vars[2], -3 )
+M.add_upper_bound!( mop, vars[1], 10 )
+M.add_upper_bound!( mop, vars[2], 10)
+=#
+
+#oind = M.add_objective!(mop, x -> sum((x.-1).^2); model_cfg = M.RbfConfig() )
+#oind2 = M.add_objective!(mop, x -> sum((x.+1).^2); model_cfg = M.RbfConfig(;kernel = :gaussian) )
+oind2 = M.add_objective!(mop, x -> sum((x.+1).^2); model_cfg = M.TaylorConfig() )
+
+#%% manual iteration:
+#=
+mop, id, sdb, sc, ac = M.initialize_data( mop, ones(2));
+M.iterate!(id, sdb, mop, sc, ac)
+=#
+
 #%%
- 
-Morbit.print_all_logs()
-
-mop = M.MixedMOP(2)
-f1 = x -> sum( (x .- 1).^2 )
-f2 = x -> sum( (x .+ 1).^2 )
-
-#M.add_objective!(mop, f1, M.ExactConfig())
-#M.add_objective!(mop, f2, M.ExactConfig())
-#M.add_objective!(mop, f1, M.RbfConfig(;use_max_points = false))
-#M.add_objective!(mop, f2, M.RbfConfig(kernel = :gaussian))
-#M.add_objective!(mop, f2, M.RbfConfig())
-#M.add_objective!(mop, f1, M.TaylorConfig(; gradients = M.RFD.CFDStamp(1,3), hessians = M.RFD.CFDStamp(1,5)))
-M.add_objective!(mop, f1, M.TaylorConfig())
-M.add_objective!(mop, f2, M.TaylorConfig())
-
-algo_config = AlgoConfig(;
-	max_iter = 10
-)
-populated_db = nothing
-
-x0 = rand(2)
-fx0 = []
-#%%
-#mop, id, db, sc, ac = M.initialize_data(mop,x0);
-
-X, FX, ret, db = Morbit.optimize( mop, x0; algo_config )
+# single-call 
+x, fx, ret, sdb, id = M.optimize( mop, ones(2))

@@ -26,14 +26,11 @@ abstract type AbstractSurrogateWrapper end
 "Wrapper around a list of `AbstractSurrogateWrapper`s."
 abstract type AbstractSurrogateContainer end
 
-# Define a shorthand for the type of what we save in some `AbstractIterSaveable`.
-const ContainerSaveable = Union{Nothing,Tuple{Vararg{<:Union{Nothing,SurrogateMeta}}}}
-
 # ### MOPs
-# Internally we use implementations of the `AbstractObjective` for 
+# Internally we use implementations of the `AbstractVecFun` for 
 # managing the MOP objectives and evaluation.
 "Abstract super type for any kind of (vector) objective."
-abstract type AbstractObjective <: MOI.AbstractVectorFunction end
+abstract type AbstractVecFun{C <: SurrogateConfig} end
 
 # Our actual problem is repersented by an `AbstractMOP`.
 """
@@ -44,7 +41,7 @@ Abstract super type for multi-objective optimization problems.
 
 The user should define a `MixedMOP<:AbstractMOP{true}`, see [`MixedMOP`](@ref).
 """
-abstract type AbstractMOP{T} <: MOI.ModelLike end
+abstract type AbstractMOP{T} end
 
 # ### Internal Data Managment
 
@@ -57,17 +54,20 @@ abstract type AbstractResult{XT <: VecF, YT <: VecF} end
 # `AbstractIterData` is passed to functions and provides access to 
 # the current site and value vectors and the trust region radius.
 "Abstract super type for iteration data. Implemented by `IterData`. 
-Has type parameters for the vector type of itaration site, value vector and trust region radius."
-abstract type AbstractIterData{XT <: VecF, YT <: VecF, DT <: NumOrVecF} end
+Has type parameters for the vector type of itaration site, value vector, constraint vectors and trust region radius."
+abstract type AbstractIterData{XT <: VecF, YT <: VecF, ET <: VecF, IT <: VecF, DT <: NumOrVecF} end
 "Abstract super type for some saveable representation of `AbstractIterData`."
-abstract type AbstractIterSaveable{XT <: VecF, YT <: VecF, DT <: NumOrVecF, C <: ContainerSaveable } end
+abstract type AbstractIterSaveable{XT <: VecF, YT <: VecF, 
+    ET <: VecF, IT <: VecF, DT <: NumOrVecF } end
 
 # A shorthand for everything that is either nothing or an `AbstractIterSaveable`:
 const NothingOrSaveable = Union{Nothing, AbstractIterSaveable}
+const NothingOrMeta = Union{Nothing, SurrogateMeta}
 
 # Everything is kept in a database:
 "Abstract database super type. Implemented by `ArrayDB` and `MockDB`."
-abstract type AbstractDB{R<:AbstractResult, S<:NothingOrSaveable} end
+abstract type AbstractDB{R<:AbstractResult, S<:NothingOrMeta} end
+abstract type AbstractSuperDB end
 
 # ### Algorithm configuration.
 
@@ -78,15 +78,6 @@ abstract type AbstractDescentConfig end
 # This might be returned by the general algorithm configuration implementing `AbstractConfig`:
 "Abstract super type for user configurable algorithm configuration."
 abstract type AbstractConfig end
-
-# ### Differentiation
-"Super type for making (automatic) differentiation comfortable."
-abstract type DiffFn end
-
-# Method definitions for `DiffFn`s:
-get_gradient( :: DiffFn, :: Vec, :: Int ) :: Vec = nothing
-get_jacobian( :: DiffFn, :: Vec ) :: Mat = nothing
-get_hessian( :: DiffFn, :: Vec, :: Int ) :: Mat = nothing
 
 # ### Enums
 
@@ -113,7 +104,7 @@ end
 # them here:
 include("SurrogateModelInterface.jl");
 include("AbstractSurrogateContainerInterface.jl")
-include("AbstractObjectiveInterface.jl");
+include("AbstractVecFunInterface.jl");
 include("AbstractMOPInterface.jl");
 include("AbstractIterDataInterface.jl")
 include("AbstractResultInterface.jl")

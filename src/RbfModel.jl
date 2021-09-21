@@ -1,3 +1,4 @@
+export RbfConfig, RbfMeta, RbfModel #src
 # # Radial Basis Function Surrogate Models
 
 #src We generate a documentation page from this source file. 
@@ -46,9 +47,9 @@ Configuration type for local RBF surrogate models.
 $(FIELDS)
 
 """
-@with_kw mutable struct RbfConfig <: SurrogateConfig
+@with_kw struct RbfConfig <: SurrogateConfig
 	"(default `:cubic`) RBF kernel (Symbol), either `:cubic`, `:inv_multiquadric`, `:multiquadric`, `:exp` or `:thin_plate_spline`."
-	kernel :: Symbol = :cubic
+	kernel :: Symbol = :inv_multiquadric
 
 	"(default `NaN` for automatic) RBF shape paremeter, either a number or a string containing `Δ`."
 	shape_parameter :: Union{String, Float64} = NaN
@@ -94,13 +95,14 @@ $(FIELDS)
 	@assert θ_enlarge_1 >=1 && θ_enlarge_2 >=1 "θ's must be >= 1."
 end
 
+_get_signature( cfg :: RbfConfig ) = ( cfg.θ_pivot, cfg.θ_enlarge_1, cfg.θ_enlarge_2, cfg.optimized_sampling)
+
 # The required method implementations are straightforward.
 # Note, thate we allow the models to be combined to vector functions if they 
 # share the same configuration to avoid redundant efforts whilst constructing models.
 
 max_evals( cfg :: RbfConfig ) :: Int = cfg.max_evals
 combinable( cfg :: RbfConfig ) :: Bool = true
-combine(cfg1 :: RbfConfig, :: RbfConfig) :: RbfConfig = cfg1
 
 # We also need to introduce our own implementation for `isequal` and `hash` for 
 # `RbfConfig`s to be combinable, see [the docs too](https://docs.julialang.org/en/v1/base/base/).
@@ -127,7 +129,10 @@ end
 # The `RbfMeta` is used to store construction and update data for the models.
 # To be specific, we have several inidices lists that store database indices 
 # of (potentially unevaluated) results that are later used for fitting the model.
-@with_kw mutable struct RbfMeta{F<:AbstractFloat} <: SurrogateMeta
+@with_kw mutable struct RbfMeta{F<:AbstractFloat, T} <: SurrogateMeta
+	signature :: Tuple{ Float64, Float64, Float64, Bool} = (-1.0, -1.0, -1.0, true)
+	func_indices :: T
+
     center_index :: Int = -1
     round1_indices :: Vector{Int} = []
     round2_indices :: Vector{Int} = []
@@ -138,8 +143,20 @@ end
 end
 
 
-get_saveable_type( meta :: T ) where {T<:RbfMeta} = T
-get_saveable( meta :: RbfMeta ) = deepcopy(meta)
+function get_saveable_type( :: RbfConfig, x :: AbstractVector{F}, y ) where F<:AbstractFloat
+	return RbfMeta{F, Nothing}
+end
+
+get_saveable( meta :: RbfMeta ) = RbfMeta(;
+	func_indices = nothing,
+	center_index = meta.center_index,
+	round1_indices = meta.round1_indices,	
+	round2_indices = meta.round2_indices,	
+	round3_indices = meta.round3_indices,	
+	round4_indices = meta.round4_indices,
+	fully_linear = meta.fully_linear,
+	improving_directions = meta.improving_directions	
+)
 
 # A little helper to retrieve all those indices:
 function _collect_indices( meta :: RbfMeta; include_x = true ) :: Vector{Int}
@@ -158,6 +175,7 @@ end
 # some effort.
 function copy_meta!(dest, src)
 	dest.center_index = src.center_index
+	dest.fully_linear = src.fully_linear
 	for fn in [ Symbol("round$(i)_indices") for i = 1: 3 ]
 		dest_arr = getfield(dest, fn)
 		empty!( dest_arr )
@@ -167,57 +185,71 @@ function copy_meta!(dest, src)
 	append!(dest.improving_directions, src.improving_directions)
 end
 
-export RbfConfig, RbfMeta, RbfModel
-
 # ## Construction
 
 # The initial `prepare_init_model` function should return a meta object that can be used
 # to build an initial surrogate model.
 # We delegate the work to `prepare_update_model`.
-function prepare_init_model( cfg :: RbfConfig, objf :: AbstractObjective, mop :: AbstractMOP, 
-	id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
+function prepare_init_model( cfg :: RbfConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, 
+	id :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	ensure_fully_linear = true, kwargs...)
 	F = eltype( get_x(id) )
-	meta = RbfMeta{F}()
-	return prepare_update_model(nothing, objf, meta, mop, id, db, ac; ensure_fully_linear = true, kwargs... )
+	meta = RbfMeta{F, typeof(func_indices)}(; signature = _get_signature( cfg ), func_indices )
+	return prepare_update_model(nothing, meta, cfg, func_indices, mop, id, sdb, ac; ensure_fully_linear, kwargs... )
 end
 
 # Usually, `prepare_update_model` would only accept a model as its first argument.
 # Because of the trick from above, we actually allow `nothing`, too.
-function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: AbstractObjective, meta :: RbfMeta, 
-	mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig;
-	ensure_fully_linear = false, force_rebuild = false, meta_array = nothing )
+function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta, 
+		cfg :: RbfConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP,
+		iter_data :: AbstractIterData, sdb :: AbstractSuperDB, algo_config :: AbstractConfig;
+		ensure_fully_linear = false, force_rebuild = false, meta_array = nothing 
+	)
 	
-	!force_rebuild && @logmsg loglevel2 "Trying to find results for fitting an RBF model."	
-
+	!force_rebuild && @logmsg loglevel2 """
+	Trying to find results for fitting an RBF model.
+	Function indices are \n\t•$(join(string.(func_indices), "\n\t•")).
+	"""	
+	force_rebuild && @logmsg loglevel2 "Rebuilding along coordinate axes."
+	
 	## Retrieve current iteration information and some meta data.
+	db = get_sub_db( sdb, func_indices )
+
+	func_index_tuple = Tuple(func_indices)
 	Δ = get_delta(iter_data)
 	Δ_max = get_delta_max(algo_config)
 	x = get_x(iter_data)
-	x_index = get_x_index(iter_data)
-	cfg = model_cfg( objf )
+	x_index = get_x_index(iter_data, func_index_tuple)
 
 	F = eltype(x)
 	n_vars = length(x)
 
-	## Can we skip the first rounds? (Because we already found interpolation sets for other RBFModels?)
-	all_objfs = list_of_objectives(mop)
-	skip_first_rounds = false
-	for (i,other_meta) in enumerate(meta_array)
-		other_objf = all_objfs[i]
-		if other_meta isa RbfMeta
-			other_cfg = model_cfg(other_objf)
-			if other_cfg.θ_pivot == cfg.θ_pivot && other_cfg.θ_enlarge_1 == cfg.θ_enlarge_1 && 
-				other_cfg.θ_enlarge_2 == cfg.θ_enlarge_2 && other_cfg.optimized_sampling == cfg.optimized_sampling
-				copy_meta!( meta, other_meta )
-				skip_first_rounds = true
-			end
-		end
-	end	
-
 	## By default, assume that our model is not fully linear
 	meta.fully_linear = false
 
+	## Can we skip the first rounds? (Because we already found interpolation sets for other RBFModels?)	
+	skip_first_rounds = false
+
+	for other_meta in meta_array
+		if other_meta isa RbfMeta && other_meta.signature == meta.signature 	
+			other_db = get_sub_db(sdb, other_meta.func_indices )
+			for fn in [ Symbol("round$(i)_indices") for i = 1: 3 ]
+				this_id_arr = getfield(meta, fn)
+				empty!(this_id_arr)
+				for res_id = getfield(other_meta, fn)
+					res = get_result.(other_db, res_id)
+					new_res_id = ensure_contains_res_with_site!(db, get_site(res))
+					push!( this_id_arr, new_res_id )
+				end
+			end
+			empty!(meta.improving_directions)
+			append!(meta.improving_directions, deepcopy(other_meta.improving_directions))
+			meta.fully_linear = other_meta.fully_linear
+			skip_first_rounds = true
+
+			break
+		end
+	end
 	## use center as first training site ⇒ at least `n_vars` required still
 	meta.center_index = x_index
 
@@ -320,8 +352,9 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: Abstract
 		end
 
 		### Take into consideration the maximum number of evaluations allowed:
-		### TODO count unevaluated results too! This is a new requirement due to the 2-phase construction process. #src
-		max_new = min( max_evals(algo_config), max_evals(cfg) ) - 1 - num_evals( objf )
+		num_objf_evals = maximum( num_evals(_get(mop, ind)) for ind in func_indices ) 
+		num_unevaluated = length(_missing_ids(db))
+		max_new = min(max_evals(algo_config), max_evals(cfg)) - 1 - num_objf_evals - num_unevaluated
 		n_new = min(n_missing, max_new)
 		
 		new_points = Vector{F}[]
@@ -334,7 +367,7 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: Abstract
 				if ensure_fully_linear && !force_rebuild
 					### If we need a fully linear model, we dismiss the inidices gathered so far …
 					### … and call for a rebuild along the coordinate axis:
-					return prepare_update_model(mod, objf, meta, mop, iter_data, db, algo_config; ensure_fully_linear = true, force_rebuild = true)
+					return prepare_update_model(mod, meta, cfg, func_indices, mop, iter_data, db, algo_config; ensure_fully_linear = true, force_rebuild = true)
 				else
 					### we include the point nonetheless, but the model will not qualify as fully linear...
 					meta.fully_linear = false
@@ -355,7 +388,6 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, objf :: Abstract
 	end
 
 	@label round4
-	
 	## In round 4 we have found `n_vars + 1` training sites and try to find additional points within the 
 	## largest possible trust region.
 	empty!(meta.round4_indices)
@@ -540,17 +572,16 @@ function _get_radial_function( Δ, cfg )
 end
 
 # An improvement step consists of adding a new site to the database, along an improving direction:
-function prepare_improve_model( mod :: Union{Nothing, RbfModel}, objf :: AbstractObjective, 
-	meta :: RbfMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, 
+function prepare_improve_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta, cfg :: RbfConfig, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, iter_data :: AbstractIterData, sdb :: AbstractSuperDB, 
 	algo_config :: AbstractConfig; kwargs... )
+	
 	if !meta.fully_linear
 		if isempty(meta.improving_directions)
 			@warn "RBF model is not fully linear, but there are no improving directions."
 		else
-			cfg = model_cfg(objf)
+			db = get_sub_db(sdb, func_indices)
 			x = get_x(iter_data)
-			fx = get_fx(iter_data)
-			F = typeof(fx)
 			Δ = get_delta(iter_data)
 			Δ_1 = Δ * cfg.θ_enlarge_1
 			lb_1, ub_1 = local_bounds(mop, x, Δ_1)
@@ -561,7 +592,7 @@ function prepare_improve_model( mod :: Union{Nothing, RbfModel}, objf :: Abstrac
 			len = intersect_bounds( x, dir, lb_1, ub_1; return_vals = :absmax )
 			offset = len .* dir
 			if norm( offset, Inf ) > piv_val_1
-				new_id = new_result!( db, x .+ offset, F() )
+				new_id = new_result!( db, x .+ offset )
 				push!(meta.round1_indices, new_id)
 				success = true
 			end	
@@ -580,17 +611,18 @@ end
 # Then, the unevaluated results are evaluated and we can proceed with the model building.
 # As before, `_init_model` simply delegates work to `update_model`.
 
-function _init_model( cfg :: RbfConfig, objf :: AbstractObjective, mop :: AbstractMOP,
-	iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig, meta :: RbfMeta; kwargs... )
-	return update_model( nothing, objf, meta, mop, iter_data, db, ac; kwargs... )
+function init_model( meta :: RbfMeta, cfg :: RbfConfig, func_indices :: FunctionIndexIterable,
+	mop :: AbstractMOP,	iter_data :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
+	return update_model( nothing, meta, cfg, func_indices, mop, iter_data, sdb, ac; kwargs... )
 end
 
-function update_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, meta :: RbfMeta, 
-	mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
+function update_model( mod::Union{Nothing,RbfModel}, meta :: RbfMeta, cfg :: RbfConfig,
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, iter_data :: AbstractIterData, 
+	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	kwargs... )
 	
+	db = get_sub_db(sdb, func_indices)
 	Δ = get_delta(iter_data)
-	cfg = model_cfg( objf )
 
 	kernel_params = _get_kernel_params( Δ, cfg )
 
@@ -598,8 +630,7 @@ function update_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, m
 	training_indices = _collect_indices( meta )
 	training_results = get_result.( db, training_indices )
 	training_sites = get_site.( training_results )
-	oi = output_indices( objf, mop)	# only consider the objective output indices 
-	training_values = [ v[oi] for v in get_value.( training_results ) ]
+	training_values = get_value.( training_results )
 	
 	inner_model = RBF.RBFInterpolationModel( training_sites, training_values, cfg.kernel, kernel_params; save_matrices = false )
 	
@@ -609,9 +640,12 @@ function update_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, m
 end
 
 # The improvement function also simply cals the update function:
-function improve_model( mod::Union{Nothing,RbfModel}, objf:: AbstractObjective, meta :: RbfMeta, 
-	mop :: AbstractMOP, id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; kwargs... ) 
-	return update_model( mod, objf, meta, mop, id, db, ac; kwargs... )
+function improve_model( mod::Union{Nothing,RbfModel},meta :: RbfMeta, cfg :: RbfConfig,
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, iter_data :: AbstractIterData, 
+	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+	kwargs... )
+	
+	return update_model( mod, meta, cfg, func_indices, mop, iter_data, sdb, ac; kwargs... )
 end
 
 # ## Evaluation 

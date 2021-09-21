@@ -1,5 +1,5 @@
 
-@with_kw mutable struct Result{XT <: VecF, YT <: VecF} <: AbstractResult{XT,YT}
+@with_kw struct Result{XT <: VecF, YT <: VecF} <: AbstractResult{XT,YT}
     x :: XT = Float64[]
     y :: YT = Float64[]
     db_id :: Int = -1
@@ -25,11 +25,17 @@ function set_site!( res :: Result, x )
 end
 
 function set_value!( res :: Result, y )
-    empty!(res.y)
-    append!(res.y, y)
+    # `if-else` for if `res.y` is an MVector
+    if length(res.y) == length(y)
+        res.y[:] .= y[:]
+    else
+        empty!(res.y)
+        append!(res.y, y)
+    end
     return nothing 
 end
 
-function init_res( T::Type{<:Result{XT,YT}} , x :: Vec, y :: Vec, id :: Int ) where{XT,YT}
-    return T( x, y, id )
+function init_res( T::Type{<:Result}, id :: Int, x :: Vec, y :: AbstractVector = [])
+    _y = isempty(y) ? empty_value( T ) : y
+    return T( x, _y, id )
 end

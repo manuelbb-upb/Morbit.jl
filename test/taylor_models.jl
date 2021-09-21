@@ -9,8 +9,8 @@ using LinearAlgebra: norm
 const RFD = Morbit.RFD 
 const Trees = RFD.Trees 
 
-ensure_vec( x ) = vec(x)
-ensure_vec( x :: Number ) = [x,]
+flatten_vecs( x ) = vec(x)
+flatten_vecs( x :: Number ) = [x,]
 
 const test_funcs = [
 	x -> [x[1],],
@@ -63,7 +63,7 @@ const test_stamps16 = [
 
 		for (j,func) in enumerate(test_funcs)
 			n_in = rand(1:5)
-			x0 = ensure_vec(rand(ET, n_in))	
+			x0 = flatten_vecs(rand(ET, n_in))	
 			fx0 = func(x0)
 			for stamp in stamps
 				for order in [1,2]

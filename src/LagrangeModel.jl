@@ -1,3 +1,4 @@
+export LagrangeConfig, LagrangeMeta, LagrangeModel #src
 # # Lagrange Polynomial Models
 
 #src We generate a documentation page from this source file. 
@@ -118,11 +119,12 @@ end
     fully_linear :: Bool = false
 end
 
-get_saveable_type( T :: LagrangeMeta ) = LagrangeMeta{Nothing,Nothing}
+function get_saveable_type( T :: LagrangeConfig, x, y ) 
+    return LagrangeMeta{Nothing,Nothing, Nothing}
+end
 get_saveable( meta :: LagrangeMeta ) = LagrangeMeta(;
     interpolation_indices = meta.interpolation_indices, out_indices = meta.output_indices )
 
-export LagrangeConfig, LagrangeMeta, LagrangeModel
 
 # ## Construction
 
@@ -391,7 +393,7 @@ end
 # The initial `prepare_init_model` function should return a meta object that can be used
 # to build an initial surrogate model.
 # We delegate the work to `prepare_update_model`.
-function prepare_init_model( cfg :: LagrangeConfig, objf :: AbstractObjective, mop :: AbstractMOP, 
+function prepare_init_model( cfg :: LagrangeConfig, objf :: AbstractVecFun, mop :: AbstractMOP, 
 	id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
 	ensure_fully_linear = true, kwargs...)
     
@@ -414,12 +416,12 @@ Helper to return array of database indices for `poised_points` and
 `poised_indices`. Add result to database if index is -1.
 `candidate_indices` are the database indices of the points from the trust region.
 """
-function _consume_points( db, poised_points, poised_indices, candidate_indices, lb, ub, F )
+function _consume_points( db, poised_points, poised_indices, candidate_indices, lb, ub )
     interpolation_indices = Int[]
     for (i,ind) in enumerate(poised_indices)
         if ind < 0
             ## we need an additional new site 
-            new_db_id = new_result!(db, _unscale(poised_points[i], lb, ub), F[] )
+            new_db_id = new_result!(db, _unscale(poised_points[i], lb, ub))
             push!(interpolation_indices, new_db_id)
         else
             ## we could recycle a candidate point 
@@ -440,14 +442,13 @@ function _scale_poly_basis( poised_basis, lb, ub )
     return [ subs(p, poly_vars => scaling_poly) + zero_pol for p in poised_basis ]
 end
 
-function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractObjective,
+function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractVecFun,
     meta :: LagrangeMeta,  mop :: AbstractMOP, iter_data :: AbstractIterData, 
     db :: AbstractDB, algo_config :: AbstractConfig; 
     ensure_fully_linear = true, kwargs... )
 
     x = get_x( iter_data )
-    fx = get_fx( iter_data )
-    F = eltype(fx)
+
     x_index = get_x_index( iter_data )
     n_vars = length(x)
     Δ = get_delta( iter_data )
@@ -484,7 +485,7 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: Abs
             fully_linear = true
         end
 
-        interpolation_indices = _consume_points( db, poised_points, poised_indices, candidate_indices, lb, ub, F)
+        interpolation_indices = _consume_points( db, poised_points, poised_indices, candidate_indices, lb, ub )
         scaled_basis = _scale_poly_basis( poised_basis, lb, ub )
      
         return LagrangeMeta(;
@@ -523,7 +524,7 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: Abs
              candidate_indices[ x_in_points_index ] = 1
         end
 
-        interpolation_indices = _consume_points( db, lpoints, lindices, candidate_indices, lb, ub, F)
+        interpolation_indices = _consume_points( db, lpoints, lindices, candidate_indices, lb, ub )
             
         return LagrangeMeta(;
             interpolation_indices,
@@ -536,7 +537,7 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: Abs
 end#function 
 
 # The improvement preparation enforces a Λ-poised set:
-function prepare_improve_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractObjective, meta :: LagrangeMeta, 
+function prepare_improve_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractVecFun, meta :: LagrangeMeta, 
     mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; 
     kwargs... )
     return prepare_update_model( mod, objf, meta, mop, iter_data, db, algo_config; ensure_fully_linear = true, kwargs...)
@@ -549,12 +550,12 @@ end
 # coefficients.
 # We also store the gradient (vector of polynomials) for each basis polynomial.
 
-function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective, mop :: AbstractMOP,
+function _init_model( cfg :: LagrangeConfig, objf :: AbstractVecFun, mop :: AbstractMOP,
 	iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig, meta :: LagrangeMeta; kwargs... )
 	return update_model( nothing, objf, meta, mop, iter_data, db, ac; kwargs... )
 end
 
-function update_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractObjective,
+function update_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractVecFun,
     meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
 	kwargs... ) 
 
@@ -570,7 +571,7 @@ function update_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractObjecti
     ), meta
 end
 
-function improve_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractObjective,
+function improve_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractVecFun,
     meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
 	kwargs... ) 
     return update_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...)

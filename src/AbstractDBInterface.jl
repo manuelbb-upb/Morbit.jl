@@ -9,8 +9,8 @@ Broadcast.broadcastable( db :: AbstractDB ) = Ref( db );
 
 # A database should be constructed using the `init_db` method:
 "Constructor for empty database of type `T`."
-function init_db( :: T, ::Type{ <: AbstractResult }, 
-    :: Type{<:NothingOrSaveable}) :: T where T<:Type{<:AbstractDB}
+function init_db( :: Type{<:AbstractDB}, ::Type{ <: AbstractResult }, 
+    :: Type{<:NothingOrMeta}) 
     nothing 
 end
 
@@ -42,19 +42,24 @@ function next_id( db :: AbstractDB ) :: Int
 end
 
 "Add result `res` to database `db`."
-_add_result!(db :: AbstractDB, res :: AbstractResult) = nothing
+_add_result!(db :: AbstractDB{R,I}, res :: R) where{R,I}= nothing
 
-# There is only one simple method to put an `AbstractIterSaveable` into a database:
+# There is only one simple method to put an `SurrogateMeta` into a database:
 """
     stamp!(db, ids)
 
 Put the saveable `ids` into the database `db`.
 """
-function stamp!( db :: AbstractDB, ids :: NothingOrSaveable) :: Nothing 
+function stamp!( db :: AbstractDB, ids :: NothingOrMeta) :: Nothing 
 	return nothing 
 end
 
 # ## Derived methods
+
+empty_site( :: Type{<:AbstractResult{Vector{F}, YT}} ) where {F<:AbstractFloat,YT} = F[]
+empty_site( :: Type{<:AbstractResult{ XT, YT}} ) where {XT <: StaticVector, YT} = fill!(XT(undef),NaN)
+empty_value( :: Type{<:AbstractResult{XT, Vector{F}}} ) where {F<:AbstractFloat,XT} = F[]
+empty_value( :: Type{<:AbstractResult{XT, YT}} ) where {XT, YT<:StaticVector} = fill!(YT(undef),NaN)
 
 # ### Getters
 # There are getters for the types …
@@ -111,10 +116,10 @@ end
 # It is implemented so that if `id` is provided as a positive integer, the new result 
 # has that id. Else, `next_id` should be called internally.
 "Add a new result to the database, return its id of type Int."
-function new_result!( db :: AbstractDB{R,I}, x :: Vec, y :: Vec, id :: Int = - 1 ) where{R,I}
+function new_result!( db :: AbstractDB{R,I}, x :: Vec, y = [], id :: Int = - 1 ) where{R,I}
     new_id = id < 0 ? next_id(db) : id
-	new_result = init_res( R, x, y, new_id )
-	push!(db.res, new_result)
+	new_result = init_res( R, new_id, x, y)
+	_add_result!(db, new_result)
 	if !has_valid_value(new_result) 
 		set_evaluated_flag!( db, new_id, false )
 	end
@@ -147,9 +152,10 @@ set_evaluated_flag!( db :: AbstractDB, id :: Int, state = true) = nothing
 Return id of a result in `db` that has site `x` and value `y` or return -1 
 if there is no such result.
 """
-function find_result( db :: AbstractDB, x :: Vec, y :: Vec  ) :: Int
+function find_result( db :: AbstractDB, x :: Vec, y = nothing ) :: Int
+    ignore_value = isnothing(y)
     for id ∈ get_ids( db )
-        if get_site( db, id ) == x && get_value( db, id ) == y
+        if get_site( db, id ) == x && (ignore_value || get_value( db, id ) == y)
             return id
         end
     end
@@ -158,35 +164,49 @@ end
 
 # The above function is utilized in `ensure_contains_values!`:
 "Return id of result in `db` with site `x` and values `y`. Create if necessary."
-function ensure_contains_values!( db :: AbstractDB, x :: Vec, y :: Vec ) :: Int
-    x_pos = find_result(db, x,y);
+function ensure_contains_values!( db :: AbstractDB, x :: Vec, y ) :: Int
+    x_pos = find_result(db, x, y)
     if x_pos < 0
-        x_pos = new_result!(db, x, y);
+        x_pos = new_result!(db, x, y)
     end
-    return x_pos
+    return x_pos 
 end
+
+"Return id of result in `db` with site `x` and values `y`. Create if necessary."
+function ensure_contains_res_with_site!( db :: AbstractDB, x :: Vec ) :: Int
+    x_pos = find_result(db, x, nothing)
+    if x_pos < 0
+        new_y = empty_value(get_res_type(db))
+        x_pos = new_result!(db, x, new_y)
+    end
+    return x_pos 
+end
+
 
 # The `eval_missing` method is important for the new two stage model 
 # construction process and called after "preparing" the models for 
 # updates but before calling the `update_model` methods:
 
 "Evaluate all unevaluated results in `db` using objectives of `mop`."
-function eval_missing!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing
-    
-    missing_ids = _missing_ids(db)
+function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, func_indices) :: Nothing
 
-    @logmsg loglevel2 "Performing $(length(missing_ids)) objective evaluations into the database."
-    ## evaluate everything in one go to exploit parallelism
-    eval_sites = [ get_site( db, id ) for id in missing_ids ]
-    eval_values = eval_all_objectives.(mop, eval_sites)
-   
-    @assert length(eval_sites) == length(eval_values) == length(missing_ids) "Number of evaluation results does not match."
-    for (i,id) in enumerate(missing_ids)
-        set_value!( db, id, eval_values[i] )
-    end
-   
-    for id in missing_ids 
-        set_evaluated_flag!(db, id)
+    missing_ids = copy(_missing_ids(db))
+
+    n_missing = length(missing_ids)
+    @logmsg loglevel2 "Performing $(n_missing) objective evaluations into the database."
+    
+    if n_missing > 0
+        ## evaluate everything in one go to exploit parallelism
+        eval_sites = [ get_site( db, id ) for id in missing_ids ]
+        eval_values = eval_vec_mop_at_scaled_site.(mop, eval_sites, Ref(func_indices))
+    
+        @assert length(eval_sites) == length(eval_values) == length(missing_ids) "Number of evaluation results does not match."
+        for (i,id) in enumerate(missing_ids)
+            set_value!( db, id, eval_values[i] )
+        end
+        for id = missing_ids
+            set_evaluated_flag!(db, id, true)
+        end
     end
     return nothing
 end
@@ -208,22 +228,7 @@ function unscale!( db :: AbstractDB, id :: Int, mop :: AbstractMOP ) :: Nothing
     return nothing
 end
 
-# Also, the value vectors might be resorted internally.
-# This is taken care of by the following methods:
-
-"Apply internal objective sorting to result with `id` in `db`."
-function apply_internal_sorting!( db :: AbstractDB, id :: Int, mop :: AbstractMOP ) :: Nothing
-	set_value!( db, id, apply_internal_sorting( get_value(db, id), mop ) )
-    return nothing 
-end
-
-"Reverse internal sorting of objectives for the result with `id` in `db`."
-function reverse_internal_sorting!( db :: AbstractDB, id :: Int, mop :: AbstractMOP ) :: Nothing 
-	set_value!( db, id, reverse_internal_sorting( get_value(db, id), mop ) )
-    nothing  
-end
-
-# Both, variable scaling and objective sorting, is combined in the 
+# Both, variable scaling ~and objective sorting~, is combined in the 
 # `(un)transform!` methods:
 
 "Apply scaling and objectives sorting to each result in database `db`."
@@ -231,7 +236,6 @@ function transform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing
     if !is_transformed(db)
         for id in get_ids(db)
             scale!( db, id, mop)
-            apply_internal_sorting!( db, id, mop )
         end
         set_transformed!(db, true)
     end
@@ -243,37 +247,10 @@ function untransform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing
     if is_transformed(db)
         for id in get_ids(db)
             unscale!( db, id, mop)
-            reverse_internal_sorting!( db, id, mop )
         end
         set_transformed!(db, false)
     end
     nothing
-end
-
-# We have a generic copy function that returns a new database containing 
-# results from the old database:
-"""
-    copy_db( old_db, result_type, saveable_type )
-
-Return a new database of same 'base' type but possibly with different result and
-saveable type.
-"""
-function copy_db( old_db :: DBT; res_type = Nothing, saveable_type :: Type = Nothing ) where DBT <: AbstractDB 
-    try
-        base_type = @eval $(DBT.name.name)
-        _res_type = res_type <: Nothing ? get_res_type( old_db ) : res_type
-        _saveable_type = saveable_type <: Nothing ? get_saveable_type( old_db ) : saveable_type
-        new_db = init_db(base_type, _res_type, _saveable_type )
-        for id = get_ids(old_db)
-            res = get_result( old_db, id )
-            new_result!(new_db, get_site(res), get_value(res) )
-        end
-        @logmsg loglevel2 "Copied database with new saveable type."
-        return new_db
-    catch e
-        @error "Failed to copy database with new saveable type." exception=(e, catch_backtrace())
-        return old_db 
-    end
 end
 
 # Finally, this little helper returns ids of database results that 
@@ -282,4 +259,41 @@ end
 function results_in_box_indices(db, lb, ub, exclude_indices = Int[] )
 	return [ id for id = get_ids( db ) if
 		id ∉ exclude_indices && all(lb .<= get_site(db,id) .<= ub ) ]
+end
+
+# ## New! SuperDB
+get_saveable_type( sdb :: AbstractSuperDB ) = Nothing  
+
+all_sub_db_indices( :: AbstractSuperDB ) :: FunctionIndexTuple = nothing
+get_sub_db( :: AbstractSuperDB, :: FunctionIndexTuple ) :: AbstractDB = nothing 
+all_sub_dbs( sdb :: AbstractSuperDB) = [ get_sub_db(sdb, ki ) for ki in all_sub_db_indices(sdb) ]
+
+get_sub_db( sdb :: AbstractSuperDB, func_indices ) = get_sub_db( sdb, Tuple(func_indices) ) 
+
+function transform!( sdb :: AbstractSuperDB, mop :: AbstractMOP  )
+    for sub_db in all_sub_dbs( sdb )
+        transform!(sub_db, mop)
+    end
+    return nothing
+end
+
+"Evaluate all unevaluated results in `db` using objectives of `mop`."
+function eval_missing!( sdb :: AbstractSuperDB, mop :: AbstractMOP )
+    for func_indices in all_sub_db_indices(sdb) 
+        eval_missing!( get_sub_db(sdb, func_indices), mop, func_indices )
+    end
+    return nothing
+end
+
+stamp!( sdb :: AbstractSuperDB, ids :: NothingOrSaveable ) = nothing
+
+function put_eval_result_into_db!( sdb :: AbstractSuperDB, eval_result :: AbstractDict, x :: Vec )
+    x_indices = Dict{FunctionIndexTuple, Int}()
+    for func_indices in all_sub_db_indices(sdb)
+        sub_db = get_sub_db( sdb, func_indices )
+        vals = flatten_vecs( [ eval_result[f_ind] for f_ind in func_indices ] )
+        ind = new_result!( sub_db, x, vals )
+        x_indices[func_indices] = ind 
+    end
+    return x_indices
 end

@@ -70,3 +70,5 @@ radius_update_method(::AbstractConfig)::Symbol = :standard
 _gamma_grow(::AbstractConfig) :: Float64 = 2.0
 _gamma_shrink(::AbstractConfig) :: Float64 = .75
 _gamma_shrink_much(::AbstractConfig) :: Float64 = .501
+
+_combine_models_by_type(::AbstractConfig) :: Bool = true

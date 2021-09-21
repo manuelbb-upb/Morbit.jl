@@ -1,5 +1,5 @@
 @with_kw mutable struct ArrayDB{
-	R <: AbstractResult, I <: NothingOrSaveable} <: AbstractDB{R,I}
+	R <: AbstractResult, I <: NothingOrMeta} <: AbstractDB{R,I}
 	
 	res :: Vector{R} = R[]
 	iter_info :: Vector{I} = I[]
@@ -18,8 +18,8 @@ end
 
 Base.length( db :: ArrayDB ) = db.num_entries
 
-function init_db(:: Type{<:ArrayDB}, R :: Type{<:Result},
-		I :: Type{<:NothingOrSaveable})
+function init_db(:: Type{<:ArrayDB}, R :: Type{<:AbstractResult},
+		I :: Type{<:NothingOrMeta})
 	return ArrayDB{R, I}()
 end
 
@@ -61,7 +61,7 @@ function _missing_ids(db :: ArrayDB)
 	return db.unevaluated_ids
 end
 
-function stamp!( db :: ArrayDB{R,I}, ids :: I) :: Nothing where{R <: AbstractResult,I<:NothingOrSaveable}
+function stamp!( db :: ArrayDB{R,I}, ids :: I) where{R,I}
 	push!(db.iter_info, ids)
 	return nothing
 end
@@ -69,3 +69,22 @@ end
 ###########################################
 struct MockDB{R,I} <: AbstractDB{R,I} end
 init_db( :: MockDB, R, I, args... ) = MockDB{R,I}()
+
+####################################################
+@with_kw struct SuperDB{ 
+		T <: NothingOrSaveable, 
+		ST <: AbstractDict{FunctionIndexTuple,<:AbstractDB} 
+	} <: AbstractSuperDB
+    sub_dbs :: ST
+    iter_data :: Vector{T} = T[]
+end
+
+all_sub_db_indices( sdb :: SuperDB ) = keys(sdb.sub_dbs)
+get_sub_db( sdb :: SuperDB, key_indices :: FunctionIndexTuple ) = sdb.sub_dbs[key_indices]
+
+function stamp!( sdb :: SuperDB, ids :: NothingOrSaveable)
+	push!(sdb.iter_data, ids)
+	return nothing
+end
+
+get_saveable_type( sdb :: SuperDB{T,ST}) where{T,ST} = T

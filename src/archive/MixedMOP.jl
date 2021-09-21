@@ -166,11 +166,3 @@ function output_indices( mop :: MixedMOP )
     return _output_indices(mop, mop.objf_state )
 end
 
-@memoize ThreadSafeDict function _reverse_internal_sorting_indices( mop :: MixedMOP, hash :: UUIDs.UUID )
-    internal_indices = output_indices(mop);
-    return sortperm( internal_indices );
-end
-
-function reverse_internal_sorting_indices(mop :: MixedMOP) 
-    return _reverse_internal_sorting_indices(mop, mop.objf_state);
-end

@@ -41,11 +41,11 @@ set_value!(r :: AbstractResult, y) :: Nothing = nothing
 # An `AbstractResult` is created with the `init_res` constructor taking 
 # an evaluation site `x`, a value vector `y` and a database id.
 """
-    init_res( res_type, x, y, id)
+    init_res( res_type, id, x, y)
 
 Return of result of type `res_type` with site `x`, value `y` and database id `id`.
 """
-function init_res( :: Type{<:AbstractResult}, :: Vec, :: Vec, :: Int )
+function init_res( :: Type{<:AbstractResult}, ::Int, :: Vec, :: AbstractVector )
 	return nothing
 end
 
@@ -63,6 +63,12 @@ function _equal_vals( r1 :: AbstractResult, r2 :: AbstractResult )
 	return get_site(r1) == get_site(r2) && get_value(r1) == get_value(r2)
 end
 
+function _is_valid_vector( x :: Vec ) 
+	any( isnan.(x) ) && return false 
+	isempty(x) && return false 
+	return true 
+end
+
 """
     has_valid_site( r :: AbstractResult )
 
@@ -70,7 +76,7 @@ Return `true` if the site vector of `r` is neither empty nor NaN.
 """
 function has_valid_site( r :: AbstractResult )
 	site = get_site(r)
-	return !(isempty(site) || any( isnan.(site) ))
+	return _is_valid_vector(site)
 end
 
 """
@@ -80,7 +86,5 @@ Return `true` if the value vector of `r` is neither empty nor NaN.
 """
 function has_valid_value( r :: AbstractResult )
 	value = get_value(r)
-	isempty(value) && return false 
-	any( isnan.(value) ) && return false
-	return true
+	return _is_valid_vector(value)
 end
