@@ -3,7 +3,7 @@
 
 include("diff_wrappers.jl")
 
-@with_kw struct VectorObjectiveFunction{
+@with_kw struct VecFun{
         SC <: SurrogateConfig,
         D <: Union{Nothing,DiffFn},
         F <: VecFuncWrapper
@@ -19,7 +19,7 @@ include("diff_wrappers.jl")
 end
 
 # Required methods (see file `AbstractVecFunInterface.jl`)
-function _wrap_func( ::Type{<:VectorObjectiveFunction}, fn :: VecFuncWrapper; 
+function _wrap_func( ::Type{<:VecFun}, fn :: VecFuncWrapper; 
         model_cfg::SurrogateConfig, n_out :: Int, can_batch :: Bool = false, 
         gradients :: Union{Nothing,Function,AbstractVector{<:Function}} = nothing, 
         jacobian :: Union{Nothing,Function} = nothing, 
@@ -65,7 +65,7 @@ function _wrap_func( ::Type{<:VectorObjectiveFunction}, fn :: VecFuncWrapper;
         nothing
     end
 
-    return VectorObjectiveFunction(;
+    return VecFun(;
         n_out = n_out,
         function_handle = fn, 
         model_config = model_cfg,
@@ -73,19 +73,19 @@ function _wrap_func( ::Type{<:VectorObjectiveFunction}, fn :: VecFuncWrapper;
     )
 end
 
-num_vars( objf :: VectorObjectiveFunction ) = objf.n_in
-num_outputs( objf :: VectorObjectiveFunction ) = objf.n_out
+num_vars( objf :: VecFun ) = objf.n_in
+num_outputs( objf :: VecFun ) = objf.n_out
 
-model_cfg( objf :: VectorObjectiveFunction ) = objf.model_config
+model_cfg( objf :: VecFun ) = objf.model_config
 
-wrapped_function(objf::VectorObjectiveFunction) = objf.function_handle
+wrapped_function(objf::VecFun) = objf.function_handle
 
-function get_objf_gradient( objf :: VectorObjectiveFunction, x :: Vec, l :: Int = 1 )
+function get_objf_gradient( objf :: VecFun, x :: Vec, l :: Int = 1 )
     return get_gradient( objf.diff_wrapper, x , l )
 end
-function get_objf_jacobian( objf :: VectorObjectiveFunction, x :: Vec)
+function get_objf_jacobian( objf :: VecFun, x :: Vec)
     return get_jacobian( objf.diff_wrapper, x )
 end
-function get_objf_hessian( objf :: VectorObjectiveFunction, x :: Vec, l :: Int = 1 )
+function get_objf_hessian( objf :: VecFun, x :: Vec, l :: Int = 1 )
     return get_hessian( objf.diff_wrapper, x , l )
 end

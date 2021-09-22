@@ -30,7 +30,7 @@ abstract type AbstractSurrogateContainer end
 # Internally we use implementations of the `AbstractVecFun` for 
 # managing the MOP objectives and evaluation.
 "Abstract super type for any kind of (vector) objective."
-abstract type AbstractVecFun{C <: SurrogateConfig} end
+abstract type AbstractVecFun{C <: SurrogateConfig} <: Function end
 
 # Our actual problem is repersented by an `AbstractMOP`.
 """

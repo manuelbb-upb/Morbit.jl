@@ -88,7 +88,7 @@ end
 _ensure_vec( x :: Number ) = [x,]
 _ensure_vec( x :: AbstractVector{<:Number} ) = x
 
-struct VecFuncWrapper{T,F<:Function}
+struct VecFuncWrapper{T,F<:Function} <: Function
     func :: F
     counter :: Base.RefValue{Int64}
     

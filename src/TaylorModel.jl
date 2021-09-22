@@ -263,7 +263,7 @@ function update_model( mod::Union{Nothing,TaylorModel}, meta :: TaylorIndexMeta,
         return mod,meta
     end
 end
-#=
+
 # ### Callback Models with Derivatives, AD or Adaptive Finite Differencing 
 
 # The old way of defining Taylor Models was to provide an objective callback function 
@@ -274,122 +274,74 @@ end
 # and then use these ``m_ℓ`` for all subsequent model evaluations/differentiation.
 
 """
-    TaylorCallbackConfig(;degree=1,gradients,hessians=nothing,max_evals=typemax(Int64))
+    TaylorCallbackConfig(;degree=1,max_evals=typemax(Int64))
 
 Configuration for a linear or quadratic Taylor model where there are callbacks provided for the 
 gradients and -- if applicable -- the Hessians.
-The `gradients` keyword point to an array of callbacks where each callback evaluates 
-the gradient of one of the outputs.
 """
-@with_kw struct TaylorCallbackConfig{
-        G <:Union{Nothing,AbstractVector{<:Function}},
-        J <:Union{Nothing,Function},
-        H <:Union{Nothing,AbstractVector{<:Function}},
-    } <: TaylorCFG
+@with_kw struct TaylorCallbackConfig <: TaylorCFG
     
     degree :: Int64 = 1
-    gradients :: G 
-    jacobian :: J = nothing
-    hessians :: H = nothing 
 
     max_evals :: Int64 = typemax(Int64)
 
     @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
-    @assert !(isnothing(gradients) && isnothing(jacobian)) "Provide either `gradients` or `jacobian`."
-    @assert isa( gradients, AbstractVector ) && !isempty( gradients ) || !isnothing(jacobian) "Provide either `gradients` or `jacobian`."
-    @assert !(isnothing(gradients)) && ( isnothing(hessians) || length(gradients) == length(hessians) ) "Provide same number of gradients and hessians."
 end
 
-"""
-    TaylorApproximateConfig(;degree=1,mode=:fdm,max_evals=typemax(Int64))
-
-Configure a linear or quadratic Taylor model where the gradients and Hessians are constructed 
-either by finite differencing (`mode = :fdm`) or automatic differencing (`mode = :autodiff`).
-"""
-@with_kw struct TaylorApproximateConfig <: TaylorCFG
-    degree :: Int64 = 1
-
-    mode :: Symbol = :fdm
-
-    max_evals :: Int64 = typemax(Int64)
-    
-    @assert 1 <= degree <= 2 "Can only construct linear and quadratic polynomial Taylor models."
-    @assert mode in [:fdm, :autodiff] "Use `mode = :fdm` or `mode = :autodiff`."
-end
+needs_gradients( cfg :: TaylorCallbackConfig ) = true
+needs_hessians( cfg :: TaylorCallbackConfig ) = cfg.degree >= 2
 
 # For these models, it is not advisable to combine objectives:
-combinable( :: Union{TaylorCallbackConfig, TaylorApproximateConfig}) = false
+combinable( :: TaylorCallbackConfig ) = false
 
-# In both cases we transfer the finalized callbacks to the same meta structs.
-# In fact, `GW` and `HW` are `DiffFn`s as defined in `src/diff_wrappers.jl` (or `nothing`):
-
-struct TaylorMetaCallbacks{GW, HW} <: SurrogateMeta
-    gw :: GW
-    hw :: HW
-end
-
-# Again, we have a `tfn::TransformerFn` that represents the (un)scaling. \
-# If callbacks are provided, then we use the `GradWrapper` and the `HessWrapper`.
-
-function init_meta( cfg :: TaylorCallbackConfig, objf, tfn )
-    gw = GradWrapper( tfn, cfg.gradients, cfg.jacobian )
-    hw = cfg.degree == 2 ? isa( cfg.hessians, AbstractVector{<:Function} ) ? 
-        HessWrapper(tfn, cfg.hessians ) : nothing : nothing;
-    return TaylorMetaCallbacks( gw, hw )
-end
-
-# If no callbacks are provided, we inspect the `mode` and use the corresponding wrappers: 
-
-function init_meta( cfg :: TaylorApproximateConfig, objf, tfn )
-    if cfg.mode == :fdm
-        gw = FiniteDiffWrapper(objf, tfn, nothing)
-    else
-        gw = AutoDiffWrapper( objf, tfn, nothing )
-    end
-    hw = cfg.degree == 2 ? HessFromGrads(gw) : nothing
-    return TaylorMetaCallbacks( gw, hw )
-end
+# The meta structs are just for show:
+struct TaylorCallbackMeta <: SurrogateMeta end
 
 # The initialization for the legacy config types is straightforward as they don't use 
 # the new 2-phase process:
-function prepare_init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractVecFun, 
-    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig; kwargs...)
-    tfn = TransformerFn(mop)
-    return init_meta( cfg, objf, tfn )
+function prepare_init_model(cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
+    mop :: AbstractMOP, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    return TaylorCallbackMeta()
 end
 
 # The model construction happens in the `update_model` method and makes use of the `get_gradient` and `get_hessian`
-# methods for the wrappers stored in `meta`:
+# methods of the `AbstractVectorObjective`.
 
-function _init_model(cfg :: Union{TaylorCallbackConfig, TaylorApproximateConfig}, objf :: AbstractVecFun, 
-    mop :: AbstractMOP, iter_data ::AbstractIterData, db ::AbstractDB, algo_config :: AbstractConfig, 
-    meta :: TaylorMetaCallbacks; kwargs...)
-    return update_model(nothing, objf, meta, mop, iter_data, db, algo_config; kwargs...)
+function init_model(meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
+    mop :: AbstractMOP, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    return update_model(nothing, meta, cfg, func_indices, mop, id, sdb, ac; kwargs... )
 end
 
-function update_model( mod :: Union{Nothing,TaylorModel}, objf :: AbstractVecFun, meta :: TaylorMetaCallbacks, 
-    mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; kwargs...)
+function update_model( mod :: Union{Nothing,TaylorModel}, meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
+    mop :: AbstractMOP, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
 
-    x = get_x(iter_data)
-    if isnothing(mod) || (x != mod.x0)
-        fx = get_fx( iter_data )
+    x0 = get_x(id)
+    if isnothing(mod) || (x0 != mod.x0)
+        fx0 = get_vals( id, sdb, func_indices )
 
-        num_out = num_outputs( objf )
-        g = [ get_gradient(meta.gw , x , ℓ ) for ℓ = 1 : num_out ]
+        x0_unscaled = unscale( x0, mop ) 
+        J = jacobian_of_unscaling(x0, mop)
+        @show Jᵀ = transpose(J)
+
+        g = collect( Iterators.flatten( [ let func = _get(mop, ind), func_jac = get_objf_jacobian(func, x0_unscaled); 
+            [ _ensure_vec( Jᵀ * func_jac[ℓ,:] ) for ℓ = 1 : num_outputs(func) ]
+        end for ind = func_indices ] ) )
        
-        if !isnothing(meta.hw)
-            H = [ get_hessian(meta.hw, x, ℓ) for ℓ = 1 : num_out ]
+        H = if cfg.degree >= 2
+            collect( Iterators.flatten( [ let func = _get(mop, ind); 
+                [ (Jᵀ * get_objf_hessian(func, x0_unscaled, ℓ) * J) for ℓ = 1 : num_outputs(func) ]
+            end for ind = func_indices ] ) )
         else
-            H = nothing 
+            nothing 
         end
+        @show g
 
-        return TaylorModel(; x0 = x, fx0 = fx, g, H ), meta
+        return TaylorModel(; x0, fx0, g, H ), meta
     else
         return mod, meta
     end
 
 end
-=#
 
 # ## Model Evaluation
 

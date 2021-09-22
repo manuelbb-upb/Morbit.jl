@@ -16,7 +16,8 @@ M.add_upper_bound!( mop, vars[2], 10)
 
 #oind = M.add_objective!(mop, x -> sum((x.-1).^2); model_cfg = M.RbfConfig() )
 #oind2 = M.add_objective!(mop, x -> sum((x.+1).^2); model_cfg = M.RbfConfig(;kernel = :gaussian) )
-oind2 = M.add_objective!(mop, x -> sum((x.+1).^2); model_cfg = M.TaylorConfig() )
+#oind2 = M.add_objective!(mop, x -> sum((x.+1).^2); model_cfg = M.TaylorConfig() )
+oind2 = M.add_objective!(mop, x -> sum((x.+1).^2); model_cfg = M.TaylorCallbackConfig() )
 
 #%% manual iteration:
 #=

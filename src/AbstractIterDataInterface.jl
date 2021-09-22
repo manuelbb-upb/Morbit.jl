@@ -53,6 +53,7 @@ end
 "Index (or `id`) of current iterate in database."
 get_x_index( :: AbstractIterData, :: FunctionIndexTuple ) :: Int = -1
 get_x_index( id :: AbstractIterData, func_indices ) = get_x_index( id, Tuple(func_indices) )
+
 # For printing information and for stopping we need the iteration count:
 "Return number of iterations so far."
 get_num_iterations( :: AbstractIterData ) :: Int = 0
@@ -136,6 +137,12 @@ function init_iter_data( T :: Type{<:AbstractIterData}, x :: Vec, fx :: Vec, c_e
         ensure_precision(x), ensure_precision(fx), 
         ensure_precision(c_e), ensure_precision(c_i), 
         ensure_precision(Δ), x_index_mapping; kwargs... )
+end
+
+function get_vals( id :: AbstractIterData, sdb :: AbstractSuperDB, func_indices )
+    x_index = get_x_index( id, func_indices )
+    sub_db = get_sub_db( sdb, func_indices )
+    return get_value( sub_db, x_index )
 end
 
 # # `AbstractIterSaveable`

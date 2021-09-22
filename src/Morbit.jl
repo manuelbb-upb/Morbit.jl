@@ -7,7 +7,8 @@ using Printf: @sprintf
 using StaticArrays
 
 # steepest descent and directed search
-using LinearAlgebra: norm, pinv
+using LinearAlgebra: norm, pinv, diagm
+import LinearAlgebra
 import JuMP
 import OSQP
 

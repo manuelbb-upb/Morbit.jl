@@ -1,6 +1,6 @@
 # Convenient methods for adding objectives to a MOP
 # Intended for use by the enduser.
-# Requires concrete types `MOP` and `VectorObjectiveFunction`.
+# Requires concrete types `MOP` and `VecFun`.
 
 export add_objective!, add_vector_objective!
 
@@ -8,14 +8,14 @@ export add_objective!, add_vector_objective!
 @doc "Add a scalar objective to `mop::MOP` modelled according to `model_config`."
 function add_objective!(mop :: MOP, func :: Function;
         model_cfg :: SurrogateConfig = RbfConfig(), kwargs... )
-    return add_objective!(mop, VectorObjectiveFunction, func; model_cfg, n_out = 1, kwargs... )
+    return add_objective!(mop, VecFun, func; model_cfg, n_out = 1, kwargs... )
 end
 
 # FUNCTIONS TO ADD VECTOR OBJECTIVES TO A MOP
 @doc "Add a vector objective to `mop::MOP` modelled according to `model_config`."
 function add_vector_objective!(mop :: MOP, func :: Function;
         model_cfg :: SurrogateConfig = RbfConfig(), n_out :: Int64, kwargs... )
-    return add_objective!( mop, VectorObjectiveFunction, func; model_cfg, n_out,  kwargs... )
+    return add_objective!( mop, VecFun, func; model_cfg, n_out,  kwargs... )
 end
 #=
 # OLD FUNCTIONS TO ADD OBJECTIVES TO AN MOP

@@ -43,7 +43,7 @@ include("Interfaces.jl");
 #include("diff_wrappers.jl");
 
 # implementations (order should not matter)
-include("VectorObjectiveFunction.jl");
+include("VecFun.jl");
 include("MixedMOP.jl")
 include("StaticMOP.jl")
 

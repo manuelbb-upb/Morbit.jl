@@ -99,6 +99,10 @@ function full_bounds_internal( mop :: AbstractMOP )
     (full_lower_bounds_internal(mop), full_upper_bounds_internal(mop))
 end
 
+function _width( mop :: AbstractMOP )
+    lb, ub = full_bounds(mop)
+    return ub .- lb
+end
 
 "Return a list of `AbstractVectorObjective`s."
 function list_of_objectives( mop :: AbstractMOP )
@@ -157,6 +161,21 @@ end
 function unscale!( x̂ :: Vec, mop :: AbstractMOP )
     lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
     _unscale!( x̂, lb, ub);
+end
+
+function jacobian_of_unscaling( x_scaled, mop :: AbstractMOP)
+    # unscaling is T = x -> ( x * w ) + lb, i.e., T_1 = x[1] -> w[1] * x[1] + lb[1], etc. 
+    # hence, jacobian T is a diagonal matrix with w 
+    w = collect(_width(mop))
+    len_w = length(w)
+    
+    inf_indices = isinf.(w)
+    if length(inf_indices) == len_w
+        return LinearAlgebra.I(len_w)
+    else 
+        w[ inf_indices ] .= 1
+        return diagm(w)
+    end
 end
 
 "Local bounds vectors `lb_eff` and `ub_eff` using scaled variable constraints from `mop`."
@@ -270,7 +289,7 @@ function num_evals( mop :: AbstractMOP ) :: Vector{Int}
     [ num_evals(objf) for objf ∈ list_of_functions(mop) ]
 end
 
-@doc "Set evaluation counter to 0 for each VectorObjectiveFunction in `m.vector_of_objectives`."
+@doc "Set evaluation counter to 0 for each VecFun in `m.vector_of_objectives`."
 function reset_evals!(mop :: AbstractMOP) :: Nothing
     for objf ∈ list_of_functions( mop )
         wrapped_function(objf).counter[] = 0

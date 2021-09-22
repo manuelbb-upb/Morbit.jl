@@ -95,7 +95,7 @@ function prepare_init_model(cfg ::ExactConfig, objf :: AbstractVecFun,
     return ExactMeta()
 end
 
-@doc "Return an ExactModel build from a VectorObjectiveFunction `objf`. 
+@doc "Return an ExactModel build from a VecFun `objf`. 
 Model is the same inside and outside of criticality round."
 function _init_model(cfg ::ExactConfig, objf :: AbstractVecFun, 
     mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig, emeta :: ExactMeta; kwargs...)
