@@ -20,9 +20,8 @@ Base.broadcastable( sw :: AbstractSurrogateWrapper ) = Ref(sw)
 # constructor
 function init_wrapper( :: Type{<:AbstractSurrogateWrapper}, 
     cfg :: SurrogateConfig, mod :: SurrogateModel, meta :: SurrogateMeta,
-    objective_indices :: Vector{<:ObjectiveIndex}, 
-    eq_constraint_indices :: Vector{<:EqConstraintIndex}, 
-    ineq_constraint_indices :: Vector{<:IneqConstraintIndex}; kwargs... ) :: AbstractSurrogateWrapper
+    objective_indices, eq_constraint_indices, 
+    ineq_constraint_indices; kwargs... ) :: AbstractSurrogateWrapper
     return nothing
 end
 

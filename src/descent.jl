@@ -62,9 +62,9 @@ function _steepest_descent_direction( x :: AbstractVector{F}, ∇F :: Mat, lb ::
         JuMP.@objective(opt_problem, Min, α)
 
         JuMP.@variable(opt_problem, d[1:n]) # steepest descent direction 
-        
+      
         JuMP.@constraint(opt_problem, descent_constraints, ∇F*d .<= α)
-        JuMP.@constraint(opt_problem, norm_constraints, -1 .<= d .<= 1 );
+        JuMP.@constraint(opt_problem, norm_constraints, -1 .<= d .<= 1 )
         JuMP.@constraint(opt_problem, global_scaled_var_bounds, lb .<= x .+ d .<= ub);
 
         JuMP.optimize!(opt_problem)

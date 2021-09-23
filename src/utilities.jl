@@ -99,9 +99,8 @@ function _scale!( x, lb, ub )
 end
 
 function _scale( x, lb, ub )
-    χ = copy(x);
-    _scale!(χ, lb, ub);
-    return χ
+    w = ub .- lb
+    return [ isinf(w[i]) ? x[i] : (x[i]-lb[i])/w[i] for i = eachindex( w ) ] 
 end
 
 function _unscale!( x_scaled, lb, ub )
@@ -116,9 +115,8 @@ function _unscale!( x_scaled, lb, ub )
 end
 
 function _unscale( x_scaled, lb, ub )
-    χ̂ = copy(x_scaled)
-    _unscale!(χ̂, lb, ub)
-    return χ̂
+    w = ub .- lb
+    return [ isinf(w[i]) ? x_scaled[i] : x_scaled[i]*w[i] + lb[i] for i = eachindex(w) ]
 end
 
 function _project_into_box( z, lb, ub)

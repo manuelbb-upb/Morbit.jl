@@ -1,6 +1,7 @@
 # this is NOT a MOI.ModelLike !!
 # but I tried to design it with MOI in mind 
 # to have an easy time writing a wrapper eventually
+using DataStructures: SortedDict
 
 @with_kw struct MOP <: AbstractMOP{true}
 	variables :: Vector{VarInd} = []
@@ -8,18 +9,19 @@
 	lower_bounds :: Dict{VarInd, Real} = Dict()
 	upper_bounds :: Dict{VarInd, Real} = Dict()
 
-	objective_functions :: Dict{ObjectiveIndex, AbstractVecFun} = Dict()
-	nl_eq_constraints :: Dict{EqConstraintIndex, AbstractVecFun} = Dict()
-	nl_ineq_constraints :: Dict{IneqConstraintIndex, AbstractVecFun} = Dict()
+	objective_functions :: SortedDict{ObjectiveIndex, AbstractVecFun} = Dict()
+	nl_eq_constraints :: SortedDict{EqConstraintIndex, AbstractVecFun} = Dict()
+	nl_ineq_constraints :: SortedDict{IneqConstraintIndex, AbstractVecFun} = Dict()
 end
 
 struct MOPTyped{
 		VarType <: Tuple{Vararg{<:VarInd}},
 		LbType <: AbstractDict{VarInd,<:AbstractFloat},
 		UbType <: AbstractDict{VarInd,<:AbstractFloat},
-		ObjfType <: AbstractDict{ObjectiveIndex,<:Union{AbstractVecFun,Nothing}},
-		EqType <: AbstractDict{EqConstraintIndex,<:Union{AbstractVecFun,Nothing}},
-		IneqType <: AbstractDict{IneqConstraintIndex,<:Union{AbstractVecFun,Nothing}},
+		ObjfType <: AbstractDict,#{ObjectiveIndex,<:Union{AbstractVecFun,Nothing}},
+		EqType <: AbstractDict,#{EqConstraintIndex,<:Union{AbstractVecFun,Nothing}},
+		IneqType <: AbstractDict,#{IneqConstraintIndex,<:Union{AbstractVecFun,Nothing}},
+		JacType <: AbstractMatrix
 	} <: AbstractMOP{false}
 
 	variables :: VarType
@@ -28,6 +30,7 @@ struct MOPTyped{
 	objective_functions :: ObjfType
 	nl_eq_constraints :: EqType
 	nl_ineq_constraints :: IneqType
+	unscaling_jacobian :: JacType
 end
 
 function MOPTyped( mop :: AbstractMOP )
@@ -38,21 +41,21 @@ function MOPTyped( mop :: AbstractMOP )
 		if isempty(indices)
 			Base.ImmutableDict{ObjectiveIndex, Nothing}()
 		else
-			Base.ImmutableDict( Dict(ind => _get(mop, ind) for ind = indices)... ) 
+			SortedDict( ind => _get(mop, ind) for ind = indices ) 
 		end
 	end
 	nl_eq_constraints = let indices = get_eq_constraint_indices(mop);
 		if isempty(indices)
 			Base.ImmutableDict{EqConstraintIndex, Nothing}()
 		else
-			Base.ImmutableDict( Dict(ind => _get(mop, ind) for ind = indices)... ) 
+			SortedDict( ind => _get(mop, ind) for ind = indices ) 
 		end
 	end
 	nl_ineq_constraints = let indices = get_ineq_constraint_indices(mop);
 		if isempty(indices)
 			Base.ImmutableDict{IneqConstraintIndex, Nothing}()
 		else
-			Base.ImmutableDict( Dict(ind => _get(mop, ind) for ind = indices)... ) 
+			SortedDict( ind => _get(mop, ind) for ind = indices )
 		end
 	end
 	return MOPTyped( 
@@ -61,8 +64,13 @@ function MOPTyped( mop :: AbstractMOP )
 		upper_bounds,
 		objective_functions,
 		nl_eq_constraints,
-		nl_ineq_constraints
+		nl_ineq_constraints,
+		jacobian_of_unscaling(rand(num_vars(mop)), mop)  # does only work, because scaling is constant
 	)
+end
+
+function jacobian_of_unscaling( x_scaled :: Vec, mop :: MOPTyped)
+	return mop.unscaling_jacobian
 end
 
 const BothMOP = Union{MOP, MOPTyped}

@@ -46,11 +46,34 @@ function grow_radius( ::Val{:steplength}, ac, Δ, steplength )
 	return min( get_delta_max(ac), ( _gamma_grow(ac) .+ steplength ./ Δ ) .* Δ )
 end 
 
+new_algo_config( :: AbstractConfig; kwargs... ) = DefaultConfig()
+function new_algo_config( ac :: Union{Nothing, DefaultConfig}; kwargs... )
+	if isempty( kwargs )
+		return DefaultConfig()
+	else
+		return AlgoConfig(; kwargs...)
+	end
+end
+
+function new_algo_config( ac :: AlgorithmConfig; kwargs... )
+	isempty( kwargs ) && return ac
+	kw_keys = keys(kwargs)
+	new_kw = Dict{Symbol,Any}()
+	for fn in fieldnames(AlgorithmConfig)
+		if fn in kw_keys
+			new_kw[fn] = kwargs[fn]
+		else
+			new_kw[fn] = getfield( ac, fn )
+		end
+	end
+	return AlgorithmConfig(; new_kw...)
+end
+
 # we expect mop :: MixedMOP, but should work for static MOP if everything 
 # is set up properly 
 function initialize_data( mop :: AbstractMOP, x0 :: Vec; 
     algo_config :: Union{AbstractConfig, Nothing} = nothing, 
-    populated_db :: Union{AbstractSuperDB, Nothing} = nothing )
+    populated_db :: Union{AbstractSuperDB, Nothing} = nothing, kwargs... )
     
 	if num_objectives(mop) == 0
 		error("`mop` has no objectives!")
@@ -72,11 +95,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 		
 	@assert length(x0) == num_vars( mop ) "Number of variables in `mop` does not match length of `x0`."
 
-	if isnothing( algo_config )
-		ac = DefaultConfig()
-	else
-		ac = algo_config
-	end
+	ac = new_algo_config( algo_config; kwargs... )
 
 	# make problem static 
 	smop = MOPTyped(mop)
@@ -340,9 +359,9 @@ end
 ############################################
 function optimize( mop :: AbstractMOP, x0 :: Vec;
     algo_config :: Union{AbstractConfig, Nothing} = nothing, 
-    populated_db :: Union{AbstractSuperDB, Nothing} = nothing )
+    populated_db :: Union{AbstractSuperDB, Nothing} = nothing, kwargs... )
     
-	mop, iter_data, super_data_base, sc, ac = initialize_data(mop, x0; algo_config, populated_db)
+	mop, iter_data, super_data_base, sc, ac = initialize_data(mop, x0; algo_config, populated_db, kwargs...)
     @logmsg loglevel1 _stop_info_str( ac, mop )
 
     @logmsg loglevel1 "Entering main optimization loop."

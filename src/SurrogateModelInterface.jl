@@ -32,9 +32,9 @@ end
 
 ## TODO: Allow to pass a SurrogateConfig here as well. (ATM use `model_cfg(objf)`) #src
 ## In general, the function signatures are somewhat messy. We should unify them a bit. #src
-function update_model( :: SurrogateModel, ::SurrogateMeta, ::SurrogateConfig, :: FunctionIndexIterable, :: AbstractMOP, 
+function update_model( mod :: SurrogateModel, meta ::SurrogateMeta, ::SurrogateConfig, :: FunctionIndexIterable, :: AbstractMOP, 
     :: AbstractIterData, :: AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
-    nothing 
+    mod, meta 
 end
 
 eval_models( :: SurrogateModel, ::Vec ) ::Vec = nothing 

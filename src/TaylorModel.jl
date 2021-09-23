@@ -321,7 +321,7 @@ function update_model( mod :: Union{Nothing,TaylorModel}, meta :: TaylorCallback
 
         x0_unscaled = unscale( x0, mop ) 
         J = jacobian_of_unscaling(x0, mop)
-        @show Jᵀ = transpose(J)
+        Jᵀ = transpose(J)
 
         g = collect( Iterators.flatten( [ let func = _get(mop, ind), func_jac = get_objf_jacobian(func, x0_unscaled); 
             [ _ensure_vec( Jᵀ * func_jac[ℓ,:] ) for ℓ = 1 : num_outputs(func) ]
@@ -334,8 +334,7 @@ function update_model( mod :: Union{Nothing,TaylorModel}, meta :: TaylorCallback
         else
             nothing 
         end
-        @show g
-
+        
         return TaylorModel(; x0, fx0, g, H ), meta
     else
         return mod, meta

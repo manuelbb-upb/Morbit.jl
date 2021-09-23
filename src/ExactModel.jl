@@ -14,25 +14,18 @@
 # ## Surrogate Model Interface Implementations
 
 """ 
-    ExactModel( tfn, objf, diff_fn )
+    ExactModel( func_indices, mop )
 
 Exact Model type for evaluating the objective function `objf` directly.
 Is instantiated by the corresponding `init_model` and `update_model` functions.
 """
-struct ExactModel{
-        M <: TransformerFn,
-        O <: AbstractVecFun,
-        D <: DiffFn 
-    } <: SurrogateModel
-    
-    ## reference to a `TransformerFn` to have unscaling availabe:
-    tfn :: M
-
-    ## reference to objective(s) to evaluate 
-    objf :: O
-
-    ## a `DiffFn` providing derivative information
-    diff_fn :: Union{D,Nothing}
+struct ExactModel{ F, M <: Base.RefValue{<:AbstractMOP} } <: SurrogateModel
+    func_indices :: F
+    mop :: M
+end
+ 
+function ExactModel( func_indices, mop :: AbstractMOP )
+    return ExactModel( func_indices, Ref(mop) )
 end
 
 # The can determine the behavior of an `ExactModel` using `ExactConfig`: 
@@ -46,20 +39,12 @@ a `Symbol`, either `:autodiff` or `fdm`, to define the differentiation method
 to use on the objective.
 Alternatively, a `jacobian` handle can be provided.
 """ 
-@with_kw struct ExactConfig{
-        G <: Union{Symbol, Nothing, AbstractVector{<:Function} },
-        J <: Union{Nothing, Function}
-    } <: SurrogateConfig
-
-    gradients :: G = :autodiff
-    ## alternative keyword, usage discouraged...
-    jacobian :: J = nothing
-
+@with_kw struct ExactConfig <: SurrogateConfig
     max_evals :: Int64 = typemax(Int64)
-
-    @assert !(isnothing(gradients) && isnothing(jacobian)) "Provide either `gradients` or `jacobian`."
-    @assert !(gradients isa Symbol) || gradients in [:autodiff, :fdm ] "`gradients` must be `:autodiff` or `:fdm`"
+    @assert max_evals > 1 "(ExactConfig) `max_evals` is too low."
 end
+
+needs_gradients(cfg::ExactConfig) = true
 
 # There is no need for custom meta information:
 struct ExactMeta <: SurrogateMeta end   # no construction meta data needed
@@ -73,73 +58,57 @@ combinable( :: ExactConfig ) = false
 
 # ## Construction
 
-# When `cfg.gradients` is a `Symbol` we make use of the `DiffWrapper`s defined 
-# in `src/diff_wrappers.jl`:
-function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractVecFun, tfn ) where{G<:Symbol,J}
-    if cfg.gradients == :autodiff
-        return AutoDiffWrapper( objf, tfn, nothing )
-    elseif cfg.gradients == :fdm 
-        return FiniteDiffWrapper( objf, tfn, nothing );
-    end
-end
-
-# Else we use a `GradWrapper`:
-function get_DiffFn( cfg :: ExactConfig{G,J}, objf :: AbstractVecFun, tfn) where{G,J}
-    @assert length(cfg.gradients) == num_outputs(objf) "Provide as many gradient functions as the objective has outputs."
-    return GradWrapper( tfn, cfg.gradients, cfg.jacobian )
-end
-
-# All "construction" work is done in the `_init_model` function:
-function prepare_init_model(cfg ::ExactConfig, objf :: AbstractVecFun, 
-    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig; kwargs...)
+# All "construction" work is done in the `init_model` function:
+function prepare_init_model(cfg :: ExactConfig, func_indices :: FunctionIndexIterable,
+    mop :: AbstractMOP, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
     return ExactMeta()
 end
 
 @doc "Return an ExactModel build from a VecFun `objf`. 
 Model is the same inside and outside of criticality round."
-function _init_model(cfg ::ExactConfig, objf :: AbstractVecFun, 
-    mop :: AbstractMOP, ::AbstractIterData, ::AbstractDB, :: AbstractConfig, emeta :: ExactMeta; kwargs...)
-    tfn = TransformerFn(mop)
-    diff_fn = get_DiffFn( cfg, objf, tfn )
-    em = ExactModel(tfn, objf, diff_fn )
-    return em, emeta
-end
-
-# All the other functions simply return the input:
-function update_model( em :: ExactModel, :: AbstractVecFun, meta ::ExactMeta,
-    ::AbstractMOP, :: AbstractIterData, ::AbstractDB, :: AbstractConfig; 
-    ensure_fully_linear :: Bool = false, kwargs... )
+function init_model(meta :: ExactMeta, cfg :: ExactConfig, func_indices :: FunctionIndexIterable,
+    mop :: AbstractMOP, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    
+    em = ExactModel(func_indices, mop)
     return em, meta
 end
 
-function improve_model( em :: ExactModel, :: AbstractVecFun, meta ::ExactMeta,
-    ::AbstractMOP, :: AbstractIterData, ::AbstractDB, :: AbstractConfig; 
-    ensure_fully_linear :: Bool = false, kwargs ... )
-    return em, meta
-end
+# We do not need the `improve_model` and `update_model` methods, so we keep the defaults.
 
 # ## Evaluation
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."
-function eval_models( em :: ExactModel, x̂ :: Vec )
-    return eval_objf( em.objf, em.tfn, x̂ )
-    ## using `eval_objf` will increase the evaluation count of `em.objf`
-    ## That is why this count might be very high when using backtracking.
-    ## eval_handle( em.objf )(x̂) would not increase the count.
+function eval_models( em :: ExactModel, x_scaled :: Vec )
+    return eval_vec_mop_at_scaled_site( em.mop[], x_scaled, em.func_indices )
+end
+
+@memoize function func_index_and_relative_position_from_exact_model( em :: ExactModel, l :: Int )
+    return func_index_and_relative_position_from_func_indices( em.func_indices , l :: Int )
 end
 
 @doc "Evaluate output `ℓ` of the ExactModel `em` at scaled site `x̂`."
-function eval_models( em :: ExactModel, x̂ :: Vec, ℓ :: Int64)
-    return eval_models(em,x̂)[ℓ]
+function eval_models( em :: ExactModel, x_scaled :: Vec, ℓ :: Int64)
+    f_ind, rel_pos = func_index_and_relative_position_from_exact_model( em, ℓ )
+    return eval_vec_mop_at_scaled_site(em.mop[], x_scaled, f_ind)[rel_pos]
 end
 
 @doc "Gradient vector of output `ℓ` of `em` at scaled site `x̂`."
-function get_gradient( em :: ExactModel, x̂ :: Vec, ℓ :: Int64)
-    return get_gradient( em.diff_fn, x̂, ℓ )
+function get_gradient( em :: ExactModel, x_scaled :: Vec, ℓ :: Int64)
+    mop = em.mop[]
+    f_ind, rel_pos = func_index_and_relative_position_from_exact_model( em, ℓ )
+    objf = _get( mop, f_ind )
+    J = jacobian_of_unscaling(x_scaled, mop )
+    x = unscale( x_scaled, mop )
+    return _ensure_vec( J'get_objf_gradient( objf, x, rel_pos ) )
 end
 
 @doc "Jacobian Matrix of ExactModel `em` at scaled site `x̂`."
-function get_jacobian( em :: ExactModel, x̂ :: Vec )
-    return get_jacobian( em.diff_fn, x̂ );
+function get_jacobian( em :: ExactModel, x_scaled :: Vec )
+    mop = em.mop[]
+    J = jacobian_of_unscaling(x_scaled, mop )
+    x = unscale( x_scaled, mop )
+    return reduce( vcat, 
+        get_objf_jacobian( _get(mop, f_ind), x ) for f_ind = em.func_indices 
+    ) * J
 end
 
 # ## [Summary & Quick Examples](@id exact_summary)

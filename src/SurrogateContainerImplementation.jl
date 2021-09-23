@@ -15,13 +15,20 @@ struct SurrogateWrapper{
 
     num_outputs :: Int
 
+    function SurrogateWrapper( cfg :: C, model :: M, meta :: I, objective_indices, 
+        eq_constraint_indices, ineq_constraint_indices, num_outputs :: Int) where {C,M,I}
+        t_objective_indices = Tuple( objective_indices )
+        t_eq_constraint_indices = Tuple( eq_constraint_indices )
+        t_ineq_constraint_indices = Tuple( ineq_constraint_indices )
+        return new{C,M,I,typeof(t_objective_indices), typeof(t_eq_constraint_indices), typeof(t_ineq_constraint_indices)}(cfg,model,meta,t_objective_indices,t_eq_constraint_indices,t_ineq_constraint_indices,num_outputs)
+    end
 end
 
 function init_wrapper( :: Type{<:SurrogateWrapper}, 
     cfg :: SurrogateConfig, model :: SurrogateModel, meta :: SurrogateMeta,
-    objective_indices :: Union{Tuple,Vector{ObjectiveIndex}} = ObjectiveIndex[],
-    eq_constraint_indices :: Union{Tuple,Vector{EqConstraintIndex}} = EqConstraintIndex[], 
-    ineq_constraint_indices :: Union{Tuple,Vector{IneqConstraintIndex}} = IneqConstraintIndex[];
+    objective_indices = ObjectiveIndex[],
+    eq_constraint_indices = EqConstraintIndex[], 
+    ineq_constraint_indices = IneqConstraintIndex[];
     no_out = -1, kwargs... )
 
     if no_out < 0 
@@ -29,8 +36,7 @@ function init_wrapper( :: Type{<:SurrogateWrapper},
     end
 
     return SurrogateWrapper( cfg, model, meta, 
-        Tuple(objective_indices), Tuple(eq_constraint_indices), 
-        Tuple(ineq_constraint_indices),
+        objective_indices, eq_constraint_indices, ineq_constraint_indices,
         no_out 
     )
 end
@@ -57,18 +63,14 @@ struct SurrogateContainer{
     objective_indices :: OIndType
     eq_constraint_indices :: EIndType
     ineq_constraint_indices :: IIndType
+
+    function SurrogateContainer(wrappers :: T, objective_indices, eq_constraint_indices, ineq_constraint_indices) where T
+        t_objective_indices = Tuple( objective_indices )
+        t_eq_constraint_indices = Tuple( eq_constraint_indices )
+        t_ineq_constraint_indices = Tuple( ineq_constraint_indices )
+        return new{T,typeof(t_objective_indices), typeof(t_eq_constraint_indices), typeof(t_ineq_constraint_indices)}(wrappers, t_objective_indices,t_eq_constraint_indices,t_ineq_constraint_indices)
+    end
 end
-
-function SurrogateContainer( wrappers, objective_indices :: Union{AbstractVector, Base.KeySet}, 
-    eq_constraint_indices :: Union{AbstractVector, Base.KeySet},
-    ineq_constraint_indices :: Union{AbstractVector, Base.KeySet})
-
-    return SurrogateContainer( wrappers, 
-        Tuple(objective_indices), Tuple(eq_constraint_indices),
-        Tuple(ineq_constraint_indices) 
-    )    
-end
-
 
 list_of_wrappers( sc :: SurrogateContainer ) = sc.wrappers
 get_wrapper( sc :: SurrogateContainer, i :: Int ) = sc.wrappers[i]

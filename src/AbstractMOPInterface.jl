@@ -139,18 +139,14 @@ end
 
 "Scale variables fully constrained to a closed interval to [0,1] internally."
 function scale( x :: Vec, mop :: AbstractMOP )
-    x̂ = copy(x);
-    lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
-    _scale!(x̂, lb, ub);
-    return x̂
+    lb, ub = full_bounds( mop )
+    return _scale(x, lb, ub)
 end
 
 "Reverse scaling for fully constrained variables from [0,1] to their former domain."
-function unscale( x̂ :: Vec, mop :: AbstractMOP )
-    x = copy(x̂);
+function unscale( x_scaled :: Vec, mop :: AbstractMOP )
     lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
-    _unscale!(x, lb, ub);
-    return x
+    return _unscale( x_scaled, lb, ub )
 end
 
 function scale!( x :: Vec, mop :: AbstractMOP )
@@ -216,7 +212,7 @@ function eval_mop_at_scaled_site( mop :: AbstractMOP, x_scaled :: Vec,
         func_indices  )
     x = unscale( x_scaled, mop )
     return Base.ImmutableDict( 
-        (func_ind => eval_vec_mop_at_scaled_site( mop, x, func_ind ) for func_ind in func_indices)...
+        (func_ind => eval_vec_mop( mop, x, func_ind ) for func_ind in func_indices)...
     )
 end
 
@@ -279,7 +275,7 @@ end
 function Broadcast.broadcasted( ::typeof(eval_vec_mop_at_scaled_site), mop :: AbstractMOP, X_scaled :: VecVec, 
         func_indices  )
     X = unscale.( X_scaled, mop )
-    partial_vecs = [eval_vec_mop_at_scaled_site.(mop, X, func_ind) for func_ind in func_indices]
+    partial_vecs = [eval_vec_mop.(mop, X, func_ind) for func_ind in func_indices]
     return reduce.(vcat, zip(partial_vecs...))
     
 end

@@ -59,6 +59,8 @@ end
 const FunctionIndex = Union{ObjectiveIndex, EqConstraintIndex, IneqConstraintIndex}
 Base.broadcastable( ind :: FunctionIndex ) = Ref(ind)
 
+Base.isless(fi :: FunctionIndex, fi2 :: FunctionIndex) = isless(fi.val, fi2.val)
+
 const FunctionIndexTuple = Tuple{Vararg{<:FunctionIndex}}
 const FunctionIndexIterable = Union{FunctionIndexTuple, Vector{<:FunctionIndex}}
 
@@ -82,6 +84,18 @@ function _split( indices :: FunctionIndexIterable )
         end
     end
     return arr1, arr2, arr3
+end
+
+function func_index_and_relative_position_from_func_indices( func_indices :: FunctionIndexIterable, out_pos :: Int )
+    counter = 1
+    for ind in func_indices
+        next_counter = counter + num_outputs(ind)
+        if counter <= out_pos < next_counter
+            return ind, out_pos - counter + 1
+        end
+        counter = next_counter
+    end
+    return nothing
 end
 
 ###################################################

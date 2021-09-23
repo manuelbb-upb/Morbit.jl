@@ -45,6 +45,7 @@ include("DataBaseImplementation.jl")
 include("IterDataImplementation.jl")
 
 include("RbfModel.jl")
+include("ExactModel.jl")
 include("TaylorModel.jl")
 include("SurrogateContainerImplementation.jl")
 
