@@ -487,3 +487,10 @@ function get_criticality( desc_cfg :: Symbol, mop, iter_data, data_base, sc, alg
     true_cfg = _cfg_from_symbol( desc_cfg, F )
     return get_criticality( true_cfg, mop, iter_data, data_base, sc, algo_config, args... )
 end
+
+###################
+function compute_normal_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, iter_data :: AbstractIterData, 
+    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
+    x = get_x( id )
+    return zeros(length(x))
+end

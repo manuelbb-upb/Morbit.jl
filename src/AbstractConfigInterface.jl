@@ -72,3 +72,15 @@ _gamma_shrink(::AbstractConfig) :: Float64 = .75
 _gamma_shrink_much(::AbstractConfig) :: Float64 = .501
 
 _combine_models_by_type(::AbstractConfig) :: Bool = true
+
+fiter_type( :: AbstractConfig ) = MaxFilter
+filter_shift( :: AbstractConfig ) :: Float64 = 1e-4
+
+filter_kappa_theta( :: AbstractConfig ) = 1e-4
+filter_psi( :: AbstractConfig ) = 1
+
+filter_kappa_delta(:: AbstractConfig) = 0.7
+filter_kappa_mu( :: AbstractConfig ) = 1e-2
+filter_mu( :: AbstractConfig ) = 1e-2
+
+var_scaler( :: AbstractConfig ) :: Union{Nothing, AbstractVarScaler} = nothing

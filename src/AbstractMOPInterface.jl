@@ -138,25 +138,25 @@ function num_ineq_constraints( mop :: AbstractMOP )
 end
 
 "Scale variables fully constrained to a closed interval to [0,1] internally."
-function scale( x :: Vec, mop :: AbstractMOP )
+function scale( x, mop :: AbstractMOP )
     lb, ub = full_bounds( mop )
     return _scale(x, lb, ub)
 end
 
 "Reverse scaling for fully constrained variables from [0,1] to their former domain."
-function unscale( x_scaled :: Vec, mop :: AbstractMOP )
+function unscale( x_scaled, mop :: AbstractMOP )
     lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
     return _unscale( x_scaled, lb, ub )
 end
 
-function scale!( x :: Vec, mop :: AbstractMOP )
+function scale!( x, mop :: AbstractMOP )
     lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
     _scale!(x, lb, ub);    
 end
 
-function unscale!( x̂ :: Vec, mop :: AbstractMOP )
+function unscale!( x_scaled, mop :: AbstractMOP )
     lb, ub = full_lower_bounds(mop), full_upper_bounds(mop);
-    _unscale!( x̂, lb, ub);
+    _unscale!( x_scaled, lb, ub);
 end
 
 function jacobian_of_unscaling( x_scaled, mop :: AbstractMOP)
@@ -203,7 +203,8 @@ function eval_vec_mop( mop :: AbstractMOP, x_unscaled :: Vec, func_ind :: Functi
     return eval_objf( objf, x_unscaled )
 end
 
-function eval_vec_mop_at_scaled_site( mop :: AbstractMOP, x_scaled :: Vec, func_ind :: FunctionIndex )
+function eval_vec_mop_at_scaled_site( mop :: AbstractMOP, x_scaled :: Vec, 
+    func_ind :: FunctionIndex )
     x = unscale( x_scaled, mop )
     return eval_vec_mop(mop, x, func_ind )
 end
@@ -216,7 +217,9 @@ function eval_mop_at_scaled_site( mop :: AbstractMOP, x_scaled :: Vec,
     )
 end
 
-eval_mop_at_scaled_site(mop :: AbstractMOP, x::Vec) = eval_mop_at_scaled_site(mop, x, get_function_indices(mop))
+function eval_mop_at_scaled_site(mop :: AbstractMOP, x_scaled::Vec) 
+    return eval_mop_at_scaled_site(mop, x_scaled, get_function_indices(mop))
+end
 
 function eval_vec_mop_at_scaled_site( mop :: AbstractMOP, x_scaled :: Vec, 
         func_indices  )

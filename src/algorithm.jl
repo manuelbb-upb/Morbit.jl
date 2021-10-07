@@ -128,18 +128,25 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	fx, c_e, c_i = eval_result_to_all_vectors( eval_res, smop )
 	Δ_0 = eltype(x).(get_delta_0(ac))
 	id = init_iter_data( IterData, x, fx, c_e, c_i, Δ_0, x_index_mapping )
+	
+	filterT = if num_eq_constraints( mop ) + num_ineq_constraints( mop ) > 0
+		filter_type( ac )
+	else
+		DummyFilter
+	end
+	filter = init_empty_filter( filterT, x, fx, c_e, c_i; shift = filter_shift(ac) )
 
     sdb = SuperDB(; sub_dbs, iter_data = typeof(get_saveable(IterSaveable,id))[] )
 
 	# initialize surrogate models
 	sc = init_surrogates(SurrogateContainer, smop, id, ac, groupings, sdb )
 
-	return (smop, id, sdb, sc, ac)
+	return (smop, id, sdb, sc, ac, filter)
 end
 
 
 function iterate!( iter_data :: AbstractIterData, data_base :: AbstractSuperDB, mop :: AbstractMOP, 
-	sc :: SurrogateContainer, algo_config :: AbstractConfig ) :: STOP_CODE
+	sc :: SurrogateContainer, algo_config :: AbstractConfig, filter :: AbstractFilter = DummyFilter() ) :: STOP_CODE
 
 	# read iteration data
 	x = get_x( iter_data )
@@ -265,12 +272,13 @@ function iterate!( iter_data :: AbstractIterData, data_base :: AbstractSuperDB, 
 			@logmsg loglevel1 "Exiting after $(num_critical_loops) loops with ω = $(ω) and Δ = $(get_delta(iter_data))."
 		end
 	end
-				
-	ω, x₊, mx₊, steplength = compute_descent_step(mop, iter_data, data_base, sc, algo_config, ω, ω_data)
 
     if ω_Δ_rel_test(ω, Δ, algo_config) || ω_abs_test( ω, algo_config )
         return CRITICAL
     end
+
+	n = compute_normal_step( mop, iter_data, data_base, sc, algo_config )
+	ω, x₊, mx₊, steplength = compute_descent_step(mop, iter_data, data_base, sc, algo_config)
 
 	model_result = eval_container_at_scaled_site(sc, x₊)
 	mop_result = eval_mop_at_scaled_site(mop, x₊)
@@ -361,19 +369,19 @@ function optimize( mop :: AbstractMOP, x0 :: Vec;
     algo_config :: Union{AbstractConfig, Nothing} = nothing, 
     populated_db :: Union{AbstractSuperDB, Nothing} = nothing, kwargs... )
     
-	mop, iter_data, super_data_base, sc, ac = initialize_data(mop, x0; algo_config, populated_db, kwargs...)
+	mop, iter_data, super_data_base, sc, ac, filter = initialize_data(mop, x0; algo_config, populated_db, kwargs...)
     @logmsg loglevel1 _stop_info_str( ac, mop )
 
     @logmsg loglevel1 "Entering main optimization loop."
 	ret_code = CONTINUE
     while ret_code == CONTINUE
-        ret_code = iterate!(iter_data, super_data_base, mop, sc, ac)
+        ret_code = iterate!(iter_data, super_data_base, mop, sc, ac, filter)
     end# while
 
 	ret_x, ret_fx = get_return_values( iter_data, mop )
    
     @logmsg loglevel1 _fin_info_str(super_data_base, iter_data, mop, ret_code)
 
-    return ret_x, ret_fx, ret_code, super_data_base, iter_data
+    return ret_x, ret_fx, ret_code, super_data_base, iter_data, filter
 end# function optimize
 

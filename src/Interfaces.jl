@@ -79,6 +79,10 @@ abstract type AbstractDescentConfig end
 "Abstract super type for user configurable algorithm configuration."
 abstract type AbstractConfig end
 
+abstract type AbstractFilter end
+
+abstract type AbstractVarScaler end
+
 # ### Enums
 
 # These codes should be availabe everywhere and that is why we 
@@ -110,3 +114,4 @@ include("AbstractIterDataInterface.jl")
 include("AbstractResultInterface.jl")
 include("AbstractDBInterface.jl")
 include("AbstractConfigInterface.jl")
+include("AbstractFilterInterface.jl")

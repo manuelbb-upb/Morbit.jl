@@ -51,6 +51,10 @@ include("SurrogateContainerImplementation.jl")
 
 include("ConfigImplementations.jl")
 
+include("FilterImplementation.jl")
+
+include("VarScaler.jl")
+
 # utilities
 include("convenience_functions.jl")
 include("descent.jl")

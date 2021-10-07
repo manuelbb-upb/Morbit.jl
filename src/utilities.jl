@@ -100,7 +100,9 @@ end
 
 function _scale( x, lb, ub )
     w = ub .- lb
-    return [ isinf(w[i]) ? x[i] : (x[i]-lb[i])/w[i] for i = eachindex( w ) ] 
+    _w = [ isinf(ω) ? 1 : ω for ω=w ]
+    _lb = [ isinf(ℓ) ? 0 : ℓ for ℓ=lb ]
+    return (x .- _lb)./_w
 end
 
 function _unscale!( x_scaled, lb, ub )
@@ -261,6 +263,14 @@ function _stop_info_str( ac :: AbstractConfig, mop :: Union{AbstractMOP,Nothing}
     ret_str *= @sprintf("• ω ≤ %g AND Δ ≤ %g,\n", omega_tol_rel(ac), delta_tol_rel(ac))
     ret_str *= @sprintf("• Δ ≤ %g OR", delta_tol_abs(ac))
     ret_str *= @sprintf(" ω ≤ %g.", omega_tol_abs(ac))
+end
+
+function is_compatible( n, Δ, ac :: AbstractConfig )
+    κ_Δ = filter_kappa_delta(ac)
+    μ = filter_mu(ac)
+    κ_μ = filter_kappa_mu(ac)
+
+    return norm( n, Inf ) <= κ_Δ * Δ * min( 1, κ_μ * Δ^μ )
 end
 
 function get_return_values(iter_data, mop )
