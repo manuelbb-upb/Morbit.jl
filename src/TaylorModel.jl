@@ -154,19 +154,21 @@ function _get_RFD_trees( x, fx, grad_stamp, hess_stamp = nothing, deg = 2)
 end
 
 
-function prepare_init_model(cfg :: TaylorConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, 
+function prepare_init_model(cfg :: TaylorConfig, func_indices :: FunctionIndexIterable,
+    mop :: AbstractMOP, scal :: AbstractVarScaler, 
 	id :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	kwargs...)
-    return prepare_update_model(nothing, TaylorIndexMeta(), cfg, func_indices, mop, id, sdb, ac ; kwargs... )
+    return prepare_update_model(nothing, TaylorIndexMeta(), cfg, func_indices, mop, scal, id, sdb, ac ; kwargs... )
 end
 
 # The actual database preparations are delegated to the `prepare_update_model` function.
-function prepare_update_model( mod :: Union{Nothing, TaylorModel}, meta :: TaylorIndexMeta, 
-		cfg :: TaylorConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP,
+function prepare_update_model( 
+        mod :: Union{Nothing, TaylorModel}, meta :: TaylorIndexMeta, 
+		cfg :: TaylorConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, 
 		iter_data :: AbstractIterData, sdb :: AbstractSuperDB, algo_config :: AbstractConfig; kwargs... )
 
     db = get_sub_db( sdb, func_indices )
-    x = get_x( iter_data )
+    x = get_x_scaled( iter_data )
     x_index = get_x_index( iter_data, func_indices )
     fx = get_value( db, x_index )
 
@@ -189,7 +191,7 @@ function prepare_update_model( mod :: Union{Nothing, TaylorModel}, meta :: Taylo
         grad_sites = hess_sites
     else
         RFD.substitute_leaves!( grad_wrapper )
-        grad_sites = [ _project_into_box(s, lb,ub) for s in RFD.collect_leave_sites( grad_wrapper ) ]
+        grad_sites = [ _project_into_box(s,lb,ub) for s in RFD.collect_leave_sites( grad_wrapper ) ]
     end
 
     combined_sites = [ [x,]; hess_sites; grad_sites ]
@@ -219,20 +221,20 @@ end
 # If the meta data is set correctly, we only have to set the value vectors for the 
 # RFD trees and then ask for the right matrices:
 function init_model(meta :: TaylorIndexMeta, cfg :: TaylorConfig, func_indices :: FunctionIndexIterable,
-	mop :: AbstractMOP,	iter_data :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
+	mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
     
-    return update_model( nothing, meta, cfg, func_indices, mop, iter_data, sdb, ac; kwargs...)
+    return update_model( nothing, meta, cfg, func_indices, mop, scal, iter_data, sdb, ac; kwargs...)
 end
 
 # Note, that we only perform updates if the iterate has changed, `x != mod.x0`, because 
 # we don't change the differencing parameters.
 function update_model( mod::Union{Nothing,TaylorModel}, meta :: TaylorIndexMeta, cfg :: TaylorConfig,
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, iter_data :: AbstractIterData, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
 	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	kwargs... )
     
     db = get_sub_db( sdb, func_indices )
-    x = get_x(iter_data)
+    x = get_x_scaled(iter_data)
     if isnothing(mod) || (x != mod.x0)
         all_leave_vals = get_value.( db, meta.database_indices )
             
@@ -300,7 +302,7 @@ struct TaylorCallbackMeta <: SurrogateMeta end
 # The initialization for the legacy config types is straightforward as they don't use 
 # the new 2-phase process:
 function prepare_init_model(cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
     return TaylorCallbackMeta()
 end
 
@@ -308,29 +310,34 @@ end
 # methods of the `AbstractVectorObjective`.
 
 function init_model(meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
-    return update_model(nothing, meta, cfg, func_indices, mop, id, sdb, ac; kwargs... )
+    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    return update_model(nothing, meta, cfg, func_indices, mop, scal, id, sdb, ac; kwargs... )
 end
 
 function update_model( mod :: Union{Nothing,TaylorModel}, meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
 
-    x0 = get_x(id)
+    x0 = get_x_scaled(id)
+    x0_unscaled = get_x(id)
+
     if isnothing(mod) || (x0 != mod.x0)
         fx0 = get_vals( id, sdb, func_indices )
 
-        x0_unscaled = unscale( x0, mop ) 
-        J = jacobian_of_unscaling(x0, mop)
+        J = jacobian_of_unscaling(scal)
         Jᵀ = transpose(J)
 
-        g = collect( Iterators.flatten( [ let func = _get(mop, ind), func_jac = get_objf_jacobian(func, x0_unscaled); 
-            [ _ensure_vec( Jᵀ * func_jac[ℓ,:] ) for ℓ = 1 : num_outputs(func) ]
-        end for ind = func_indices ] ) )
+        g = collect( Iterators.flatten( 
+            [ let func = _get(mop, ind), func_jac = get_objf_jacobian(func, x0_unscaled); 
+                [ _ensure_vec( Jᵀ * func_jac[ℓ,:] ) for ℓ = 1 : num_outputs(func) ]
+            end for ind = func_indices ] 
+        ) )
        
         H = if cfg.degree >= 2
-            collect( Iterators.flatten( [ let func = _get(mop, ind); 
-                [ (Jᵀ * get_objf_hessian(func, x0_unscaled, ℓ) * J) for ℓ = 1 : num_outputs(func) ]
-            end for ind = func_indices ] ) )
+            collect( Iterators.flatten( 
+                [ let func = _get(mop, ind); 
+                    [ (Jᵀ * get_objf_hessian(func, x0_unscaled, ℓ) * J) for ℓ = 1 : num_outputs(func) ]
+                end for ind = func_indices ] 
+            ) )
         else
             nothing 
         end
@@ -361,19 +368,19 @@ function _eval_models( tm :: TaylorModel, h :: Vec, ℓ :: Int )
 end
 
 "Evaluate (internal) output `ℓ` of `tm` at scaled site `x̂`."
-function eval_models( tm :: TaylorModel, x̂ :: Vec, ℓ :: Int )
+function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ :: Int )
     h = x̂ .- tm.x0
     return _eval_models( tm, h, ℓ)
  end
 
 # For the vector valued model, we iterate over all (internal) outputs:
-function eval_models( tm :: TaylorModel, x̂ :: Vec )
+function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec )
     h = x̂ .- tm.x0
     return [ _eval_models(tm, h, ℓ) for ℓ = eachindex(tm.g)]
 end
 
 # The gradient of ``m_ℓ`` can easily be determined:
-function get_gradient( tm :: TaylorModel, x̂ :: Vec, ℓ :: Int) 
+function get_gradient( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ :: Int) 
     if isnothing(tm.H)
         return tm.g[ℓ]
     else
@@ -383,7 +390,7 @@ function get_gradient( tm :: TaylorModel, x̂ :: Vec, ℓ :: Int)
 end
 
 # And for the Jacobian, we again iterate:
-function get_jacobian( tm :: TaylorModel, x̂ :: Vec )
+function get_jacobian( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec )
     grad_list = [ get_gradient(tm, x̂, ℓ) for ℓ=eachindex( tm.g ) ]
     return transpose( hcat( grad_list... ) )
 end

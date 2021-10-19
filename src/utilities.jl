@@ -125,32 +125,162 @@ function _project_into_box( z, lb, ub)
     return min.( max.( z, lb ), ub )
 end
 
-"Return smallest positive and biggest negative and `σ₊` and `σ₋` so that `x .+ σ± .* d` stays within bounds."
-function _intersect_bounds( x, d, lb, ub )
-   d_scaled = (ub .- lb ) .* d ./ norm( d, Inf )
-   
-   σ_pos = norm( _project_into_box( x .+ d_scaled, lb, ub ) - x, 2 )
-   σ_neg = norm( _project_into_box( x .- d_scaled, lb, ub ) - x, 2 )
+function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], A_eq = [], b_eq = [], A_ineq = [], b_ineq = []; ret_mode = :pos, impossible_val = 0 ) where R <: Real
+	
+	IMPOSSIBLE_VAL = R( impossible_val )
+	# TODO instead of returning 0, we could error 
+	
+	if isempty( A_eq )
+		# only inequality constraints
+	
+		d_zero_index = iszero.(d)
+		d_not_zero_index = .!( d_zero_index )
 
-   return σ_pos, σ_neg
+		# lb <= x + σd  ⇒  σ_i = (lb[i] - x[i]) / d[i]
+		σ_lb = if isempty(lb)
+			R[]
+		else
+			( lb[ d_not_zero_index ] .- x[ d_not_zero_index ] ) ./ d[ d_not_zero_index ]
+		end
+
+		# x + σ d <= ub  ⇒  σ_i = (ub[i] - x[i]) / d[i]
+		σ_ub = if isempty(ub)
+			R[]
+		else
+			( ub[ d_not_zero_index ] .- x[ d_not_zero_index ] ) ./ d[ d_not_zero_index ]
+		end
+
+		# linear inequality constraints
+		σ_ineq = if isempty( A_ineq)
+			R[] 
+		else
+			denom_ineq = A_ineq * d
+			denom_ineq_not_zero_index = .!( iszero.( denom_ineq ) )
+			if isempty(b_ineq)
+				- (A_ineq[denom_ineq_not_zero_index, :] * x) ./ denom_ineq[ denom_ineq_not_zero_index ]
+			else
+				- ( A_ineq[denom_ineq_not_zero_index, :] * x .+ b_ineq[denom_ineq_not_zero_index] ) ./ denom_ineq[ denom_ineq_not_zero_index ]
+			end
+		end
+
+		σ = [ σ_lb; σ_ub; σ_ineq ]
+
+		if isempty(σ)
+			return ret_mode == :neg ? typemin(R) : typemax(R)
+		else
+			σ_non_neg_index = σ .>= 0
+			σ_neg_index = .!(σ_non_neg_index)
+
+			σ_non_neg = σ[ σ_non_neg_index ]
+			σ_neg = σ[ σ_neg_index ]
+			
+			if ret_mode in [:pos, :absmax]
+				σ_pos = isempty( σ_non_neg ) ? R(0) : minimum( σ_non_neg )
+				ret_mode == :pos && return σ_pos
+			end
+			
+			if ret_mode in [:neg, :absmax]
+				σ_not_pos = isempty( σ_neg ) ? R(0) : maximum( σ_neg )
+				ret_mode == :neg && return σ_not_pos
+			end
+			
+            if ret_mode == :absmax
+                if abs(σ_pos) >= abs(σ_not_pos)
+                    return σ_pos
+                else
+                    return σ_not_pos
+                end
+            elseif ret_mode == :both 
+                return σ_not_pos, σ_pos 
+            end
+		end
+	
+	else
+		# there are equality constraints
+		# they have to be all fullfilled
+		N = size(A_eq, 1)
+		n = length(d)
+		_b = isempty(b_eq) ? zeros(R, N) : b_eq
+		
+		σ = missing
+		for i = 1 : N
+			if d[i] != 0
+				σ_i = - (A_eq[i, :]'x + _b[i]) / d[i]
+			else
+				if A_eq[i,:]'x != 0
+					return IMPOSSIBLE_VAL
+				end
+			end
+			
+			if ismissing(σ)
+				σ = σ_i
+			else
+				if !(σ_i ≈ σ)
+					return IMPOSSIBLE_VAL
+				end
+			end
+		end
+		
+		if ismissing(σ)
+			# only way this could happen:
+			# d == 0 && x feasible w.r.t. eq const
+			return IMPOSSIBLE_VAL
+		end
+		
+		if N == 1 && σ ≈ 0
+			# check if lines are parallel?
+			if d[2] / d[1] ≈ -A_eq[1,1] / A_eq[1,2]
+				return steplength(x, d, lb, ub, [], [], A_ineq, b_ineq )
+			end
+		end
+			
+		# check if x + σd is compatible with the other constraints
+		x_trial = x + σ * d
+		_b_ineq = isempty(b_ineq) ? zeros( n ) : b_ineq
+		
+		lb_incompat = !isempty(lb) && any(x_trial .< lb )
+		ub_incompat = !isempty(ub) && any(x_trial .> ub )
+		ineq_incompat = !isempty(A_ineq) && any( A_ineq * x_trial .+ _b_ineq .> 0 )
+		if lb_incompat || ub_incompat || ineq_incompat			
+			return IMPOSSIBLE_VAL
+		else
+			if ret_mode == :pos
+				σ < 0 && return IMPOSSIBLE_VAL
+			elseif ret_mode == :neg
+				σ >= 0 && return IMPOSSIBLE_VAL
+			end
+			return σ				
+		end					
+	end
 end
 
-function intersect_bounds( x, d, lb, ub ; return_vals :: Symbol = :both )
-    σ_pos, σ_neg = _intersect_bounds( x, d, lb, ub )
+@memoize function _transform_linear_constraints( A, b, Tinv, offset )
+    _A = A*Tinv
+    return _A, b - _A * offset  
+end
 
-    if return_vals == :both 
-        return σ_pos, σ_neg
-    elseif return_vals == :pos
-        return σ_pos 
-    elseif return_vals == :neg 
-        return σ_neg 
-    elseif return_vals == :absmax
-        if abs(σ_pos) >= abs(σ_neg)
-            return σ_pos
-        else
-            return σ_neg 
-        end 
-    end
+function transformed_linear_constraints( scal, mop )
+    _A_eq, _b_eq = get_eq_matrix_and_vector( mop )
+    _A_ineq, _b_ineq = get_ineq_matrix_and_vector( mop )
+    Tinv = unscaling_matrix(scal)
+    offset = scaling_offset(scal)
+
+    A_eq, b_eq = _transform_linear_constraints( _A_eq, _b_eq, Tinv, offset)
+    A_ineq, b_ineq = _transform_linear_constraints( _A_ineq, _b_ineq, Tinv, offset)
+
+    return A_eq, b_eq, A_ineq, b_ineq
+end
+
+function intersect_bounds(x_scaled, d_scaled, mop, scal; Δ = Inf, return_vals = :both) 
+    lb_scaled, ub_scaled = local_bounds( scal, x_scaled, Δ )
+    A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
+    return _intersect_bounds(
+        x_scaled, d_scaled, lb_scaled, ub_scaled, A_eq, b_eq, A_ineq, b_ineq;
+        ret_mode = return_vals )
+end
+
+function intersect_box( x_scaled, d_scaled, lb_scaled, ub_scaled; return_vals = :absmax )
+    return _intersect_bounds( x_scaled, d_scaled, lb_scaled, ub_scaled; ret_mode = return_vals)
 end
 
 "Return lower and upper bound vectors combining global and trust region constraints."
@@ -160,6 +290,11 @@ function _local_bounds( x, Δ, lb, ub )
     return lb_eff, ub_eff 
 end
 
+"Local bounds vectors `lb_eff` and `ub_eff` using scaled variable constraints from `mop`."
+function local_bounds( scal :: AbstractVarScaler, x :: Vec, Δ :: Union{Real, Vec} )
+    lb, ub = full_bounds_internal(scal)
+    return _local_bounds( x, Δ, lb, ub )
+end
 
 # use for finite (e.g. local) bounds only
 function _rand_box_point(lb, ub, type :: Type{<:Real} = MIN_PRECISION)
@@ -273,14 +408,14 @@ function is_compatible( n, Δ, ac :: AbstractConfig )
     return norm( n, Inf ) <= κ_Δ * Δ * min( 1, κ_μ * Δ^μ )
 end
 
-function get_return_values(iter_data, mop )
-    ret_x = unscale( get_x(iter_data), mop )
+function get_return_values(iter_data)
+    ret_x = get_x(iter_data)
 	ret_fx = get_fx( iter_data )
     return ret_x, ret_fx 
 end
 
-function _fin_info_str(data_base, iter_data :: AbstractIterData, mop, stopcode = nothing )
-    ret_x, ret_fx = get_return_values( iter_data, mop )
+function _fin_info_str(iter_data :: AbstractIterData, mop = nothing, stopcode = nothing )
+    ret_x, ret_fx = get_return_values( iter_data )
     return """\n
         |--------------------------------------------
         | FINISHED ($stopcode)

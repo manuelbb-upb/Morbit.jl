@@ -21,38 +21,41 @@ needs_hessians( :: SurrogateConfig ) :: Bool = false
 
 ## TODO: make `prepare_init_model` and `_init_model` have a `ensure_fully_linear` kwarg too
 function prepare_init_model( ::SurrogateConfig, ::FunctionIndexIterable, :: AbstractMOP,
+    :: AbstractVarScaler,
     :: AbstractIterData, ::AbstractSuperDB, :: AbstractConfig; kwargs... ) :: SurrogateMeta 
     nothing
 end
 
 function init_model( ::SurrogateMeta, ::SurrogateConfig, FunctionIndexIterable, :: AbstractMOP, 
+    :: AbstractVarScaler,
     :: AbstractIterData, ::AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
     nothing 
 end
 
 ## TODO: Allow to pass a SurrogateConfig here as well. (ATM use `model_cfg(objf)`) #src
 ## In general, the function signatures are somewhat messy. We should unify them a bit. #src
-function update_model( mod :: SurrogateModel, meta ::SurrogateMeta, ::SurrogateConfig, :: FunctionIndexIterable, :: AbstractMOP, 
+function update_model( mod :: SurrogateModel, meta ::SurrogateMeta, ::SurrogateConfig, :: FunctionIndexIterable, 
+    :: AbstractMOP, :: AbstractVarScaler,
     :: AbstractIterData, :: AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
     mod, meta 
 end
 
-eval_models( :: SurrogateModel, ::Vec ) ::Vec = nothing 
-get_gradient( :: SurrogateModel, ::Vec, :: Int ) :: Vec = nothing
-get_jacobian( :: SurrogateModel, :: Vec ) :: Mat = nothing 
+eval_models( :: SurrogateModel, :: AbstractVarScaler, ::Vec ) ::Vec = nothing 
+get_gradient( :: SurrogateModel, :: AbstractVarScaler, ::Vec, :: Int ) :: Vec = nothing
+get_jacobian( :: SurrogateModel, :: AbstractVarScaler, :: Vec ) :: Mat = nothing 
 
 # DEFAULTS
 
 get_saveable_type( :: SurrogateConfig, x, y ) = Nothing
 get_saveable( :: SurrogateMeta ) = nothing
 
-prepare_update_model( mod, meta, cfg, func_indices, mop, iter_data, db, algo_config; kwargs...) = meta
-prepare_improve_model( mod, meta, cfg, func_indices, mop, iter_data, db, algo_config; kwargs...) = meta
+prepare_update_model( mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; kwargs...) = meta
+prepare_improve_model( mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; kwargs...) = meta
 
 # overwrite if possible, this is inefficient:
-eval_models( sm :: SurrogateModel, x̂ :: Vec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
+eval_models( sm :: SurrogateModel, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
 
-improve_model( mod, meta, cfg, func_indices, mop, iter_data, db, algo_config; kwargs...) = mod, meta
+improve_model( mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; kwargs...) = mod, meta
 
 # check if surrogate configurations are equal (only really needed if combinable)
 function Base.:(==)( cfg1 :: T, cfg2 :: T ) where T <: SurrogateConfig
@@ -70,12 +73,12 @@ Return a function handle to be used with `NLopt` for output `ℓ` of `model`.
 That is, if `model` is a surrogate for two scalar objectives, then `ℓ` must 
 be either 1 or 2.
 """
-function _get_optim_handle( model :: SurrogateModel, ℓ :: Int )
+function _get_optim_handle( model :: SurrogateModel, scal :: AbstractVarScaler, ℓ :: Int )
     # Return an anonymous function that modifies the gradient if present
     function (x :: Vec, g :: Vec)
         if !isempty(g)
-            g[:] = get_gradient( model, x, ℓ)
+            g[:] = get_gradient( model, scal, x, ℓ)
         end
-        return eval_models( model, x, ℓ)
+        return eval_models( model, scal, x, ℓ)
     end
 end

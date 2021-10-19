@@ -1,5 +1,3 @@
-abstract type DiffFn end
-
 get_gradient( :: DiffFn, x :: Vec, l :: Int) = nothing
 get_jacobian( :: DiffFn, x :: Vec ) = nothing
 get_hessian( :: DiffFn, x :: Vec, l :: Int) = nothing

@@ -1,16 +1,20 @@
 # TODOs Variable Scaling
 
 ## `AbstractVarScaler`
-* Define functions to return the scaled variable bounds 
-  (like `full_bounds_internal` does right now for `AbstractMOP`s)
+* ~~Define functions to return the scaled variable bounds 
+  (like `full_bounds_internal` does right now for `AbstractMOP`s)~~
 * Build boundary safeguard into the var scalers?
-* Define `jacobian_of_unscaling` !!!
+* ~~Define `jacobian_of_unscaling` !!!~~
 
 * Enable the usage of prior surrogate models to calculate new iteration dependent scalers.
 
 ## `AbstractMOP`
-* What functions can we get rid of? I am thinking of `full_bounds_internal` and the `scale` and `unscale` functions
-* Remove all evaluation functions for `scaled_site`s.
+* ~~What functions can we get rid of?~~
+  ~~I am thinking of `full_bounds_internal` and the `scale` and `unscale` functions~~
+* ~~Remove all evaluation functions for `scaled_site`s.~~
+* Replace `scale\(.*(?:mop)\*?\)` with scale(x,scal)
+* Replace `eval_mop…` and `eval_vec_mop`a functions
+* Replace `full_bounds_internal\(.*(?:mop).*?\)`
 
 ## `AbstractIterData`
 * store unscaled `x` instead of scaled `x` to return with `get_x(id)`

@@ -10,7 +10,10 @@ use_db( ::DefaultConfig ) = ArrayDB
 
 ############################################
 # `AlgorithmConfig` is a struct with fields defining the method outputs.
-@with_kw struct AlgorithmConfig{ D <: Union{Symbol,AbstractDescentConfig} } <: AbstractConfig @deftype Float64
+@with_kw struct AlgorithmConfig{ 
+        D <: Union{Symbol,AbstractDescentConfig},
+        VS 
+    } <: AbstractConfig @deftype Float64
 
     eps_crit = _eps_crit( default_config )
     gamma_crit = _gamma_crit(default_config)
@@ -66,6 +69,10 @@ use_db( ::DefaultConfig ) = ArrayDB
         ( descent_method isa Symbol && descent_method ∈ 
             [:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search] 
         ) "`descent_method` must be one of `:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search`."
+
+    var_scaler :: VS = var_scaler( default_config )
+    untransform_final_database :: Bool = untransform_final_database( default_config )
+    var_scaler_update :: Symbol = :none
 end
 
 for fn in fieldnames(AlgorithmConfig)

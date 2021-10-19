@@ -188,7 +188,7 @@ end
 # updates but before calling the `update_model` methods:
 
 "Evaluate all unevaluated results in `db` using objectives of `mop`."
-function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, func_indices) :: Nothing
+function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, scal :: AbstractVarScaler, func_indices) :: Nothing
 
     missing_ids = copy(_missing_ids(db))
 
@@ -197,8 +197,11 @@ function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, func_indices) :: N
     
     if n_missing > 0
         ## evaluate everything in one go to exploit parallelism
-        eval_sites = [ get_site( db, id ) for id in missing_ids ]
-        eval_values = eval_vec_mop_at_scaled_site.(mop, eval_sites, Ref(func_indices))
+        eval_sites = untransform.( [ get_site( db, id ) for id in missing_ids ], scal )
+        eval_values = eval_result_to_vector.( 
+            mop,
+            eval_mop_at_func_indices_at_unscaled_site.(mop, eval_sites, Ref(func_indices)),
+        )
     
         @assert length(eval_sites) == length(eval_values) == length(missing_ids) "Number of evaluation results does not match."
         for (i,id) in enumerate(missing_ids)
@@ -215,16 +218,16 @@ end
 #src to return mutable arrays for result. Can we ensure this?
 
 # Internally the variables might be scaled.
-# For conversion we offer the `scale!` and `unscale!` defaults:
+# For conversion we offer the `transform!` and `untransform!` defaults:
 "Scale the site of result with `id` in database `db` using bounds of `mop`."
-function scale!( db :: AbstractDB, id :: Int, mop :: AbstractMOP ) :: Nothing
-    set_site!( db, id, scale( get_site( db, id ), mop ) ) 
+function transform!( db :: AbstractDB, id :: Int, scal :: AbstractVarScaler )
+    set_site!( db, id, transform( get_site( db, id ), scal ) ) 
     return nothing
 end
 
 "Unscale the site of result with `id` in database `db` using bounds of `mop`."
-function unscale!( db :: AbstractDB, id :: Int, mop :: AbstractMOP ) :: Nothing
-    set_site!( db, id, unscale( get_site( db, id), mop ) )
+function untransform!( db :: AbstractDB, id :: Int, scal :: AbstractVarScaler )
+    set_site!( db, id, untransfrom( get_site( db, id), scal ) )
     return nothing
 end
 
@@ -232,10 +235,10 @@ end
 # `(un)transform!` methods:
 
 "Apply scaling and objectives sorting to each result in database `db`."
-function transform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing 
+function transform!( db :: AbstractDB, scal :: AbstractVarScaler ) :: Nothing 
     if !is_transformed(db)
         for id in get_ids(db)
-            scale!( db, id, mop)
+            transform!( db, id, scal)
         end
         set_transformed!(db, true)
     end
@@ -243,10 +246,10 @@ function transform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing
 end
 
 "Undo scaling and objectives sorting to each result in database `db`."
-function untransform!( db :: AbstractDB, mop :: AbstractMOP ) :: Nothing 
+function untransform!( db :: AbstractDB, scal :: AbstractVarScaler ) :: Nothing 
     if is_transformed(db)
         for id in get_ids(db)
-            unscale!( db, id, mop)
+            untransform!( db, id, scal)
         end
         set_transformed!(db, false)
     end
@@ -270,17 +273,26 @@ all_sub_dbs( sdb :: AbstractSuperDB) = [ get_sub_db(sdb, ki ) for ki in all_sub_
 
 get_sub_db( sdb :: AbstractSuperDB, func_indices ) = get_sub_db( sdb, Tuple(func_indices) ) 
 
-function transform!( sdb :: AbstractSuperDB, mop :: AbstractMOP  )
+is_transformed(sdb :: AbstractSuperDB) = all( is_transformed(db) for db = all_sub_dbs(sdb) )
+
+function transform!( sdb :: AbstractSuperDB, scal :: AbstractVarScaler  )
     for sub_db in all_sub_dbs( sdb )
-        transform!(sub_db, mop)
+        transform!(sub_db, scal)
+    end
+    return nothing
+end
+
+function untransform!( sdb :: AbstractSuperDB, scal :: AbstractVarScaler  )
+    for sub_db in all_sub_dbs( sdb )
+        transform!(sub_db, scal)
     end
     return nothing
 end
 
 "Evaluate all unevaluated results in `db` using objectives of `mop`."
-function eval_missing!( sdb :: AbstractSuperDB, mop :: AbstractMOP )
+function eval_missing!( sdb :: AbstractSuperDB, mop :: AbstractMOP, scal :: AbstractVarScaler )
     for func_indices in all_sub_db_indices(sdb) 
-        eval_missing!( get_sub_db(sdb, func_indices), mop, func_indices )
+        eval_missing!( get_sub_db(sdb, func_indices), mop, scal, func_indices )
     end
     return nothing
 end

@@ -1,13 +1,13 @@
 # mandatory:
 get_all_filter_ids( :: AbstractFilter) = Int[]
-get_site( :: AbstractFilter, :: Int ) = MIN_PRECISION[]
+#get_site( :: AbstractFilter, :: Int ) = MIN_PRECISION[]
 get_values( :: AbstractFilter, :: Int ) = MIN_PRECISION.((NaN, NaN))
 get_shift( :: AbstractFilter ) = 1e-3
 
 remove_entry!( :: AbstractFilter, ::Int ) = nothing
 _add_entry!( :: AbstractFilter, site, values ) :: Int = -1
 
-function init_empty_filter( :: Type{<:AbstractFilter}, x, fx, c_E, c_I; shift = 1e-3, kwargs... ) :: AbstractFilter
+function init_empty_filter( :: Type{<:AbstractFilter}, fx, c_E, c_I; shift = 1e-3, kwargs... ) :: AbstractFilter
     nothing
 end
 
@@ -35,9 +35,11 @@ function add_entry!( filter:: AbstractFilter, site, values)
 	return _add_entry!( filter, site, (θ,f) )
 end
 
+#=
 function get_site_and_values( filter :: AbstractFilter, id :: Int)
 	return (get_site(filter,id), get_values(filter,id))
 end
+=#
 
 function is_acceptable( vals :: Tuple, filter :: AbstractFilter )
 	θ,f = vals

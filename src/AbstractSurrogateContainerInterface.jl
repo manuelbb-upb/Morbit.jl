@@ -34,11 +34,11 @@ function get_objective_indices( sw :: AbstractSurrogateWrapper ) :: Vector{Objec
     return nothing
 end
 
-function get_eq_constraint_indices( sw :: AbstractSurrogateWrapper ) :: Vector{EqConstraintIndex}
+function get_nl_eq_constraint_indices( sw :: AbstractSurrogateWrapper ) :: Vector{ConstraintIndex}
     return nothing 
 end
 
-function get_ineq_constraint_indices( sw :: AbstractSurrogateWrapper ) :: Vector{IneqConstraintIndex}
+function get_nl_ineq_constraint_indices( sw :: AbstractSurrogateWrapper ) :: Vector{ConstraintIndex}
     return nothing 
 end
 
@@ -46,8 +46,8 @@ end
 function get_function_indices( sw :: AbstractSurrogateWrapper )
     return Iterators.flatten(( 
         get_objective_indices(sw),
-        get_eq_constraint_indices( sw ),
-        get_ineq_constraint_indices( sw ),
+        get_nl_eq_constraint_indices( sw ),
+        get_nl_ineq_constraint_indices( sw ),
     ))
 end
 
@@ -65,8 +65,10 @@ end
 end
 
 @memoize ThreadSafeDict function _sortperm( sc :: AbstractSurrogateContainer )
-    sc_indices = collect( get_function_indices( sc ) )
-    sw_indices = collect( Iterators.flatten( get_function_indices(sw) for sw in list_of_wrappers(sc)) )
+    @show sc_indices = collect( get_function_indices( sc ) )
+    @show sw_indices = collect( Iterators.flatten( 
+        get_function_indices(sw) for sw in list_of_wrappers(sc)
+    ) )
     return sortperm( sw_indices; order = Base.Order.Perm( Base.Order.Forward, sc_indices ) )
 end
 
@@ -78,40 +80,44 @@ function num_outputs( sw :: AbstractSurrogateWrapper )
     return sum( num_outputs(ind) for ind in get_function_indices( sw ) )
 end
 
-function eval_wrapper_at_scaled_site( sw :: AbstractSurrogateWrapper, x_scaled )
-    return eval_models( get_model(sw), x_scaled )
+function eval_wrapper_at_scaled_site( sw :: AbstractSurrogateWrapper, scal :: AbstractVarScaler, x_scaled )
+    return eval_models( get_model(sw), scal, x_scaled )
 end
 
-function eval_wrapper_jacobian_at_scaled_site( sw :: AbstractSurrogateWrapper, x̂ :: Vec )
-    return get_jacobian( get_model(sw), x̂ )
+function eval_wrapper_jacobian_at_scaled_site( sw :: AbstractSurrogateWrapper, 
+        scal :: AbstractVarScaler, x_scaled :: Vec 
+    )
+    return get_jacobian( get_model(sw), scal, x_scaled )
 end
 
-function eval_output_of_wrapper_at_scaled_site( sw :: AbstractSurrogateWrapper, x_scaled :: Vec, 
-        sw_output :: Int )
-    return eval_models( get_model(sw), x_scaled, sw_output )
+function eval_output_of_wrapper_at_scaled_site( sw :: AbstractSurrogateWrapper,
+        scal :: AbstractVarScaler, x_scaled :: Vec, sw_output :: Int 
+    )
+    return eval_models( get_model(sw), scal, x_scaled, sw_output )
 end
 
-function eval_gradient_of_wrapper_output_at_scaled_site( sw :: AbstractSurrogateWrapper, x_scaled :: Vec,
-    sw_output :: Int )
-    return get_gradient( get_model(sw), x_scaled, sw_output )
+function eval_gradient_of_wrapper_output_at_scaled_site( sw :: AbstractSurrogateWrapper,
+        scal :: AbstractVarScaler, x_scaled :: Vec, sw_output :: Int 
+    )
+    return get_gradient( get_model(sw), scal, x_scaled, sw_output )
 end
 
 # AbstractSurrogateContainer
 Base.broadcastable( sc :: AbstractSurrogateContainer ) = Ref(sc)
 
 # constructor 
-function init_surrogates( :: Type{<:AbstractSurrogateContainer}, :: AbstractMOP, :: AbstractIterData, 
+function init_surrogates( :: Type{<:AbstractSurrogateContainer}, :: AbstractMOP, :: AbstractVarScaler, :: AbstractIterData, 
 	:: AbstractConfig, groupings :: Vector{<:ModelGrouping}, :: AbstractSuperDB )
 	return nothing 
 end
 
 # update methods
-function update_surrogates!( :: AbstractSurrogateContainer, :: AbstractMOP, :: AbstractIterData,
+function update_surrogates!( :: AbstractSurrogateContainer, :: AbstractMOP, :: AbstractVarScaler, :: AbstractIterData,
 	:: AbstractSuperDB, :: AbstractConfig; ensure_fully_linear = false, kwargs... ) 
 	return nothing
 end
 
-function improve_surrogates!( :: AbstractSurrogateContainer, :: AbstractMOP, :: AbstractIterData,
+function improve_surrogates!( :: AbstractSurrogateContainer, :: AbstractMOP, :: AbstractVarScaler, :: AbstractIterData,
 	:: AbstractSuperDB, :: AbstractConfig; ensure_fully_linear = false, kwargs... ) 
 	return nothing
 end
@@ -119,8 +125,8 @@ end
 # mandatory functions
 list_of_wrappers( sc :: AbstractSurrogateContainer ) :: AbstractVector{<:AbstractSurrogateWrapper } = nothing
 get_objective_indices( sc :: AbstractSurrogateContainer ) :: Vector{ObjectiveIndex} = nothing
-get_eq_constraint_indices( sc :: AbstractSurrogateContainer ) :: Vector{ConstraintIndex} = nothing
-get_ineq_constraint_indices( sc :: AbstractSurrogateContainer ) :: Vector{ConstraintIndex} = nothing
+get_nl_eq_constraint_indices( sc :: AbstractSurrogateContainer ) :: Vector{ConstraintIndex} = nothing
+get_nl_ineq_constraint_indices( sc :: AbstractSurrogateContainer ) :: Vector{ConstraintIndex} = nothing
 
 replace_wrapper!(sc :: AbstractSurrogateContainer, i :: Int, sw :: AbstractSurrogateWrapper) = nothing
 
@@ -132,17 +138,17 @@ end
 function get_function_indices( sc :: AbstractSurrogateContainer )
     return Iterators.flatten( ( 
         get_objective_indices( sc ),
-        get_eq_constraint_indices( sc ),
-        get_ineq_constraint_indices( sc ),
+        get_nl_eq_constraint_indices( sc ),
+        get_nl_ineq_constraint_indices( sc ),
     ))
 end
 
 # TODO get_wrapper can be improved
 get_wrapper(sc :: AbstractSurrogateContainer, i :: Int) = list_of_wrappers(sc)[i]
 
-function eval_container_at_scaled_site( sc :: AbstractSurrogateContainer, x_scaled :: Vec )
+function eval_container_at_scaled_site( sc :: AbstractSurrogateContainer, scal :: AbstractVarScaler, x_scaled :: Vec )
     return Base.ImmutableDict( Iterators.flatten( 
-            let sw_res = eval_wrapper_at_scaled_site(sw, x_scaled); 
+            let sw_res = eval_wrapper_at_scaled_site(sw, scal, x_scaled); 
                 ( f_ind => sw_res[ sw_outputs_from_func_index(sw, f_ind)] for 
                    f_ind in get_function_indices(sw) )
             end 
@@ -151,18 +157,20 @@ function eval_container_at_scaled_site( sc :: AbstractSurrogateContainer, x_scal
     )
 end
 
-function eval_vec_container_at_scaled_site(sc :: AbstractSurrogateContainer, x_scaled :: Vec )
-    tmp = eval_container_at_scaled_site( sc, x_scaled )
+function eval_vec_container_at_scaled_site(sc :: AbstractSurrogateContainer, scal :: AbstractVarScaler, x_scaled :: Vec )
+    tmp = eval_container_at_scaled_site( sc, scal, x_scaled )
     return eval_result_to_all_vectors( tmp, sc )
     # TODO benchmark against using `_sortperm`
 end
 
-function eval_container_jacobian_at_scaled_site( sc :: AbstractSurrogateContainer, x_scaled :: Vec )
+#=
+function eval_container_jacobian_at_scaled_site( sc :: AbstractSurrogateContainer, scal :: AbstractVarScaler, x_scaled :: Vec )
     row_perm = _sortperm(sc)
     return vcat(
-        ( eval_wrapper_jacobian_at_scaled_site( sw, x_scaled ) for sw in list_of_wrappers(sc)
+        ( eval_wrapper_jacobian_at_scaled_site( sw, scal, x_scaled ) for sw in list_of_wrappers(sc)
     )... )[row_perm, :]
 end
+=#
 
 # more granular evaluation:
 
@@ -194,14 +202,19 @@ function get_wrapper_from_func_index( sc :: AbstractSurrogateContainer, func_ind
     return sw_and_sw_outputs_from_func_index(sc, func_ind )[1]
 end
 
-function eval_vec_container_at_func_index_at_scaled_site( sc :: AbstractSurrogateContainer, x_scaled :: Vec, func_ind :: FunctionIndex )
+function eval_vec_container_at_func_index_at_scaled_site( sc :: AbstractSurrogateContainer, 
+        scal :: AbstractVarScaler, x_scaled :: Vec, func_ind :: FunctionIndex )
     sw, sw_outputs = sw_and_sw_outputs_from_func_index( sc, func_ind )
-    return [ eval_output_of_wrapper_at_scaled_site( sw, x_scaled, l ) for l = sw_outputs ]
+    return [ eval_output_of_wrapper_at_scaled_site( sw, scal, x_scaled, l ) for l = sw_outputs ]
 end
 
-function eval_container_jacobian_at_func_index_at_scaled_site(  sc :: AbstractSurrogateContainer, x_scaled :: Vec, func_ind :: FunctionIndex )
+function eval_container_jacobian_at_func_index_at_scaled_site(  sc :: AbstractSurrogateContainer,
+        scal :: AbstractVarScaler, x_scaled :: Vec, func_ind :: FunctionIndex 
+    )
     sw, sw_outputs = sw_and_sw_outputs_from_func_index( sc, func_ind )
-    return mat_from_row_vecs( eval_gradient_of_wrapper_output_at_scaled_site(  sw, x_scaled, l ) for l = sw_outputs )
+    return mat_from_row_vecs( 
+        eval_gradient_of_wrapper_output_at_scaled_site( sw, scal, x_scaled, l ) for l = sw_outputs 
+    )
 end
 
 #=
@@ -224,7 +237,7 @@ function _sw_index_and_sw_output_from_func_indices_and_position( wrapper_list,
 end
 =#
 
-for mod_type in [:objectives, :eq_constraints, :ineq_constraints]
+for mod_type in [:objectives, :nl_eq_constraints, :nl_ineq_constraints]
     fully_linear_func_name = Symbol("fully_linear_", mod_type )
     
     eval_container_XXX_at_scaled_site = Symbol("eval_container_", mod_type, "_at_scaled_site")
@@ -249,20 +262,22 @@ for mod_type in [:objectives, :eq_constraints, :ineq_constraints]
         end
 
         "Evaluate all surrogate models stored in `sc` at scaled site `x_scaled`."
-        function $(eval_container_XXX_at_scaled_site)( sc :: AbstractSurrogateContainer, x_scaled :: Vec )
+        function $(eval_container_XXX_at_scaled_site)( sc :: AbstractSurrogateContainer, 
+                scal :: AbstractVarScaler, x_scaled :: Vec )
             indices = $(get_indices_func)(sc)
             isempty(indices) && return Base.promote_type( eltype(x_scaled), MIN_PRECISION)[]
             return flatten_vecs( 
-                eval_vec_container_at_func_index_at_scaled_site(sc, x_scaled, ind ) for ind in indices
+                eval_vec_container_at_func_index_at_scaled_site(sc, scal, x_scaled, ind ) for ind in indices
             )
         end
 
         "Evaluate Jacobian of surrogate models stored in `sc` at scaled site `x_scaled`."
-        function $(eval_container_XXX_jacobian_at_scaled_site)( sc :: AbstractSurrogateContainer, x_scaled :: Vec )
+        function $(eval_container_XXX_jacobian_at_scaled_site)( sc :: AbstractSurrogateContainer, 
+                scal :: AbstractVarScaler, x_scaled :: Vec )
             indices = $(get_indices_func)(sc)
             isempty(indices) && return Matrix{Base.promote_type( eltype(x_scaled), MIN_PRECISION)}(undef, 0, length(x_scaled))
             return vcat( 
-                (eval_container_jacobian_at_func_index_at_scaled_site(sc, x_scaled, ind) for ind in indices)...
+                (eval_container_jacobian_at_func_index_at_scaled_site(sc, scal, x_scaled, ind) for ind in indices)...
             )
         end
 

@@ -31,35 +31,32 @@ end
 # These types do not depend on anything else, but are important for 
 # all the other stuff:
 
-struct VarInd
-	val :: Int 
-end
+import MathOptInterface as MOI
+const VarInd = MOI.VariableIndex
 
 struct ObjectiveIndex
-    val :: Int
+    value :: Int
     num_out :: Int 
 
     ObjectiveIndex( val :: Int, num_out :: Int = 1 ) = new(val, num_out)
 end
 
-struct EqConstraintIndex
-    val :: Int
+struct ConstraintIndex
+    value :: Int
     num_out :: Int
     
-    EqConstraintIndex( val :: Int, num_out :: Int = 1 ) = new(val, num_out)
-end
-
-struct IneqConstraintIndex
-    val :: Int
-    num_out :: Int
+    type :: Symbol
     
-    IneqConstraintIndex( val :: Int, num_out :: Int = 1 ) = new(val, num_out)
+    function ConstraintIndex( val :: Int, num_out :: Int = 1, type :: Symbol = :eq )
+        @assert type in [:eq, :ineq, :nl_eq, :nl_ineq]
+        new(val, num_out, type)
+    end
 end
 
-const FunctionIndex = Union{ObjectiveIndex, EqConstraintIndex, IneqConstraintIndex}
+const FunctionIndex = Union{ObjectiveIndex, ConstraintIndex}
 Base.broadcastable( ind :: FunctionIndex ) = Ref(ind)
 
-Base.isless(fi :: FunctionIndex, fi2 :: FunctionIndex) = isless(fi.val, fi2.val)
+Base.isless(fi :: FunctionIndex, fi2 :: FunctionIndex) = isless(fi.value, fi2.value)
 
 const FunctionIndexTuple = Tuple{Vararg{<:FunctionIndex}}
 const FunctionIndexIterable = Union{FunctionIndexTuple, Vector{<:FunctionIndex}}
@@ -72,15 +69,17 @@ end
 
 function _split( indices :: FunctionIndexIterable )
     arr1 = ObjectiveIndex[]
-    arr2 = EqConstraintIndex[]
-    arr3 = IneqConstraintIndex[]
+    arr2 = ConstraintIndex[]
+    arr3 = ConstraintIndex[]
     for ind in indices 
         if ind isa ObjectiveIndex 
             push!(arr1, ind)
-        elseif ind isa EqConstraintIndex
-            push!(arr2, ind)
         else
-            push!(arr3, ind)
+            if ind.type == :nl_eq
+                push!(arr2, ind)
+            elseif ind.type == :nl_ineq
+                push!(arr3, ind)
+            end
         end
     end
     return arr1, arr2, arr3
@@ -126,4 +125,9 @@ end
 
 ################################################
 _typename( T :: DataType ) = T.name.name
-_typename( T :: UnionAll ) = _typename(T.body)
+_typename( T :: UnionAll ) = _typename( T.body )
+
+##################################################
+
+# linear constraints
+# inspired by MathOptInterface

@@ -55,7 +55,11 @@ abstract type AbstractResult{XT <: VecF, YT <: VecF} end
 # the current site and value vectors and the trust region radius.
 "Abstract super type for iteration data. Implemented by `IterData`. 
 Has type parameters for the vector type of itaration site, value vector, constraint vectors and trust region radius."
-abstract type AbstractIterData{XT <: VecF, YT <: VecF, ET <: VecF, IT <: VecF, DT <: NumOrVecF} end
+abstract type AbstractIterData{
+    XT <: VecF, YT <: VecF, XS <: VecF, 
+    ET <: VecF, IT <: VecF, DT <: NumOrVecF }
+end
+
 "Abstract super type for some saveable representation of `AbstractIterData`."
 abstract type AbstractIterSaveable{XT <: VecF, YT <: VecF, 
     ET <: VecF, IT <: VecF, DT <: NumOrVecF } end
@@ -82,6 +86,8 @@ abstract type AbstractConfig end
 abstract type AbstractFilter end
 
 abstract type AbstractVarScaler end
+
+abstract type DiffFn end
 
 # ### Enums
 

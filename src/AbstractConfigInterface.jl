@@ -84,3 +84,5 @@ filter_kappa_mu( :: AbstractConfig ) = 1e-2
 filter_mu( :: AbstractConfig ) = 1e-2
 
 var_scaler( :: AbstractConfig ) :: Union{Nothing, AbstractVarScaler} = nothing
+untransform_final_database( :: AbstractConfig ) = false
+var_scaler_update( :: AbstractConfig ) = :none

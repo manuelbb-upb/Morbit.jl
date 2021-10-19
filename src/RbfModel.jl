@@ -169,39 +169,24 @@ function _collect_indices( meta :: RbfMeta; include_x = true ) :: Vector{Int}
 	]
 end
 
-# And a helper, to partially copy some data from `src` to `dest`.
-# This is due to the fact, that the first 3 rounds of construction 
-# data gathering are the same for all possible RBF models and we can safe 
-# some effort.
-function copy_meta!(dest, src)
-	dest.center_index = src.center_index
-	dest.fully_linear = src.fully_linear
-	for fn in [ Symbol("round$(i)_indices") for i = 1: 3 ]
-		dest_arr = getfield(dest, fn)
-		empty!( dest_arr )
-		append!( dest_arr, getfield( src, fn) )
-	end
-	empty!(dest.improving_directions)
-	append!(dest.improving_directions, src.improving_directions)
-end
-
 # ## Construction
 
 # The initial `prepare_init_model` function should return a meta object that can be used
 # to build an initial surrogate model.
 # We delegate the work to `prepare_update_model`.
-function prepare_init_model( cfg :: RbfConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, 
+function prepare_init_model( cfg :: RbfConfig, func_indices :: FunctionIndexIterable, 
+	mop :: AbstractMOP, scal :: AbstractVarScaler, 
 	id :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	ensure_fully_linear = true, kwargs...)
-	F = eltype( get_x(id) )
+	F = eltype( get_x_scaled(id) )
 	meta = RbfMeta{F, typeof(func_indices)}(; signature = _get_signature( cfg ), func_indices )
-	return prepare_update_model(nothing, meta, cfg, func_indices, mop, id, sdb, ac; ensure_fully_linear, kwargs... )
+	return prepare_update_model(nothing, meta, cfg, func_indices, mop, scal, id, sdb, ac; ensure_fully_linear, kwargs... )
 end
 
 # Usually, `prepare_update_model` would only accept a model as its first argument.
 # Because of the trick from above, we actually allow `nothing`, too.
 function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta, 
-		cfg :: RbfConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP,
+		cfg :: RbfConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, 
 		iter_data :: AbstractIterData, sdb :: AbstractSuperDB, algo_config :: AbstractConfig;
 		ensure_fully_linear = false, force_rebuild = false, meta_array = nothing 
 	)
@@ -218,7 +203,7 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 	func_index_tuple = Tuple(func_indices)
 	Δ = get_delta(iter_data)
 	Δ_max = get_delta_max(algo_config)
-	x = get_x(iter_data)
+	x = get_x_scaled(iter_data)
 	x_index = get_x_index(iter_data, func_index_tuple)
 
 	F = eltype(x)
@@ -256,12 +241,12 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 	## First round of sampling: 
 	### Try to find points in slightly enlarged trust region 
 	Δ_1 = F.(cfg.θ_enlarge_1 * Δ)
-	lb_1, ub_1 = local_bounds( mop, x, Δ_1 )
+	lb_1, ub_1 = local_bounds( scal, x, Δ_1 )
 	piv_val_1 = F.(cfg.θ_pivot * Δ_1) # threshold value for acceptance in filter
 
 	### `Δ_2` is the maximum allowed trust region radius and used in rounds 2 & 4
 	Δ_2 = F.(cfg.θ_enlarge_2 * Δ_max )
-	lb_2, ub_2 = local_bounds( mop, x, Δ_2 )
+	lb_2, ub_2 = local_bounds( scal, x, Δ_2 )
 	piv_val_2 = piv_val_1 # the pivot value stays the same 
 
 	skip_first_rounds && @goto round4
@@ -360,14 +345,14 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 		new_points = Vector{F}[]
 		while !isempty(meta.improving_directions) && length( new_points ) < n_new
 			dir = popfirst!( meta.improving_directions )
-			len = intersect_bounds( x, dir, lb_1, ub_1; return_vals = :absmax )
+			len = intersect_box( x, dir, lb_1, ub_1; return_vals = :absmax )
 			offset = len .* dir
 			if norm( offset, Inf ) <= piv_val_1
 				### the new point does not pass the thresholding test 
 				if ensure_fully_linear && !force_rebuild
 					### If we need a fully linear model, we dismiss the inidices gathered so far …
 					### … and call for a rebuild along the coordinate axis:
-					return prepare_update_model(mod, meta, cfg, func_indices, mop, iter_data, db, algo_config; ensure_fully_linear = true, force_rebuild = true)
+					return prepare_update_model(mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; ensure_fully_linear = true, force_rebuild = true)
 				else
 					### we include the point nonetheless, but the model will not qualify as fully linear...
 					meta.fully_linear = false
@@ -573,7 +558,7 @@ end
 
 # An improvement step consists of adding a new site to the database, along an improving direction:
 function prepare_improve_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta, cfg :: RbfConfig, 
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, iter_data :: AbstractIterData, sdb :: AbstractSuperDB, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, sdb :: AbstractSuperDB, 
 	algo_config :: AbstractConfig; kwargs... )
 	
 	if !meta.fully_linear
@@ -581,15 +566,15 @@ function prepare_improve_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta
 			@warn "RBF model is not fully linear, but there are no improving directions."
 		else
 			db = get_sub_db(sdb, func_indices)
-			x = get_x(iter_data)
+			x = get_x_scaled(iter_data)
 			Δ = get_delta(iter_data)
 			Δ_1 = Δ * cfg.θ_enlarge_1
-			lb_1, ub_1 = local_bounds(mop, x, Δ_1)
+			lb_1, ub_1 = local_bounds(scal, x, Δ_1)
 			piv_val_1 = Δ_1 * cfg.θ_pivot
 			
 			success = false
 			dir = popfirst!( meta.improving_directions )
-			len = intersect_bounds( x, dir, lb_1, ub_1; return_vals = :absmax )
+			len = intersect_box( x, dir, lb_1, ub_1; return_vals = :absmax )
 			offset = len .* dir
 			if norm( offset, Inf ) > piv_val_1
 				new_id = new_result!( db, x .+ offset )
@@ -612,12 +597,12 @@ end
 # As before, `_init_model` simply delegates work to `update_model`.
 
 function init_model( meta :: RbfMeta, cfg :: RbfConfig, func_indices :: FunctionIndexIterable,
-	mop :: AbstractMOP,	iter_data :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
-	return update_model( nothing, meta, cfg, func_indices, mop, iter_data, sdb, ac; kwargs... )
+	mop :: AbstractMOP,	scal :: AbstractVarScaler, iter_data :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
+	return update_model( nothing, meta, cfg, func_indices, mop, scal, iter_data, sdb, ac; kwargs... )
 end
 
 function update_model( mod::Union{Nothing,RbfModel}, meta :: RbfMeta, cfg :: RbfConfig,
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, iter_data :: AbstractIterData, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
 	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	kwargs... )
 	
@@ -641,11 +626,11 @@ end
 
 # The improvement function also simply cals the update function:
 function improve_model( mod::Union{Nothing,RbfModel},meta :: RbfMeta, cfg :: RbfConfig,
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, iter_data :: AbstractIterData, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
 	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	kwargs... )
 	
-	return update_model( mod, meta, cfg, func_indices, mop, iter_data, sdb, ac; kwargs... )
+	return update_model( mod, meta, cfg, func_indices, mop, scal, iter_data, sdb, ac; kwargs... )
 end
 
 # ## Evaluation 
@@ -653,22 +638,22 @@ end
 # All the work is done by the inner model :)
 
 "Evaluate `mod::RbfModel` at scaled site `x̂`."
-function eval_models( mod :: RbfModel, x̂ :: Vec)
+function eval_models( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec)
 	return mod.model( x̂ )
 end
 
 "Evaluate output `ℓ` of `mod::RbfModel` at scaled site `x̂`."
-function eval_models( mod :: RbfModel, x̂ :: Vec, ℓ :: Int)
+function eval_models( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ :: Int)
 	return mod.model( x̂, ℓ)
 end
 
 @doc "Gradient vector of output `ℓ` of `mod` at scaled site `x̂`."
-function get_gradient( mod :: RbfModel, x̂ :: Vec, ℓ :: Int64)
+function get_gradient( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ :: Int64)
     return RBF.grad( mod.model, x̂, ℓ )
 end
 
 @doc "Jacobian Matrix of ExactModel `em` at scaled site `x̂`."
-function get_jacobian( mod :: RbfModel, x̂ :: Vec )
+function get_jacobian( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec )
     return RBF.jac( mod.model, x̂ )
 end
 

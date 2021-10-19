@@ -80,12 +80,12 @@ model_cfg( objf :: VecFun ) = objf.model_config
 
 wrapped_function(objf::VecFun) = objf.function_handle
 
-function get_objf_gradient( objf :: VecFun, x :: Vec, l :: Int = 1 )
+function get_objf_gradient( objf :: VecFun{<:Any, <:DiffFn, <:Any}, x :: Vec, l :: Int = 1 )
     return get_gradient( objf.diff_wrapper, x , l )
 end
-function get_objf_jacobian( objf :: VecFun, x :: Vec)
+function get_objf_jacobian( objf :: VecFun{<:Any, <:DiffFn, <:Any}, x :: Vec)
     return get_jacobian( objf.diff_wrapper, x )
 end
-function get_objf_hessian( objf :: VecFun, x :: Vec, l :: Int = 1 )
+function get_objf_hessian( objf :: VecFun{<:Any, <:DiffFn, <:Any}, x :: Vec, l :: Int = 1 )
     return get_hessian( objf.diff_wrapper, x , l )
 end
