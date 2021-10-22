@@ -2,7 +2,7 @@ using Morbit
 M = Morbit
 
 M.print_all_logs()
-n_vars = 3
+n_vars = 2
 mop = M.MOP(n_vars)
 
 vars = M.var_indices(mop)
@@ -19,13 +19,9 @@ oind = M.add_objective!(mop, f1; model_cfg = M.RbfConfig() )
 oind2 = M.add_objective!(mop, f2; model_cfg = M.ExactConfig() )#, diff_method = M.AutoDiffWrapper )
 
 ineqconst = M.add_ineq_constraint!(mop, 
-	[1 zeros(n_vars-1)'], zeros(1))
+	[1 zeros(n_vars-1)'])
 
 #algo_config = M.AlgoConfig( var_scaler = M.NoVarScaling)
-algo_config = M.AlgoConfig(
-	var_scaler = M.NoVarScaling,
-	#var_scaler_update = :model,
-);
 
 #=
 M.add_lower_bound!( mop, vars[1], -10 )
@@ -44,5 +40,5 @@ M.iterate!(id, sdb, smop, sc, ac, filter, scal)
 
 #%%
 # single-call 
-x, fx, ret, sdb, id = M.optimize( mop, [-1e-2; rand(2)]; algo_config )
+x, fx, ret, sdb, id = M.optimize( mop, [3; 1.5]; algo_config = M.AlgoConfig(max_iter = 3))
 x
