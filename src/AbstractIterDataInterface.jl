@@ -16,7 +16,9 @@ Base.broadcastable( id :: AbstractIterData ) = Ref( id )
 # its first states as arguments, where `x` and `fx` are vectors of floats and `Δ`
 # is either a float or a vector thereof:
 function _init_iter_data( T :: Type{<:AbstractIterData}, x :: VecF, fx :: VecF,
-    x_scaled :: VecF, c_e :: VecF, c_i :: VecF, Δ :: NumOrVecF, x_index_mapping; kwargs... )
+    x_scaled :: VecF, 
+    l_e :: VecF, l_i :: VecF,
+    c_e :: VecF, c_i :: VecF, Δ :: NumOrVecF, x_index_mapping; kwargs... )
     return nothing 
 end
 
@@ -24,34 +26,26 @@ end
 
 # There are Getters for the mathematical objects relevant during optimzation:
 "Return current iteration site vector ``xᵗ``."
-function get_x( :: AbstractIterData{XT,YT,XS,ET,IT,DT} ) where {XT,YT,XS,ET,IT,DT}
-    return XT()
-end
+get_x( :: AbstractIterData ) = nothing 
 
 "Return current iteration site vector ``xᵗ``."
-function get_x_scaled( :: AbstractIterData{XT,YT,XS,ET,IT,DT} ) where {XT,YT,XS,ET,IT,DT}
-    return XS()
-end
+get_x_scaled( :: AbstractIterData )=nothing 
 
 "Return current value vector ``f(xᵗ)``."
-function get_fx(  :: AbstractIterData{XT,YT,XS,ET,IT,DT} ) where {XT,YT,XS,ET,IT,DT}
-    return YT()
-end
+get_fx(  :: AbstractIterData ) = nothing 
+
+get_eq_const( :: AbstractIterData ) = nothing
+
+get_ineq_const( :: AbstractIterData ) = nothing
 
 "Return current equality constraint vector ``cₑ(xᵗ)``."
-function get_nl_eq_const( :: AbstractIterData{XT,YT,XS,ET,IT,DT} ) where {XT,YT,XS,ET,IT,DT}
-    return ET()
-end
+get_nl_eq_const( :: AbstractIterData ) = nothing
 
 "Return current inequality constraint vector ``cᵢ(xᵗ)``."
-function get_nl_ineq_const( :: AbstractIterData{XT,YT,XS,ET,IT,DT} ) where {XT,YT,XS,ET,IT,DT}
-    return IT()
-end
+get_nl_ineq_const( :: AbstractIterData ) = nothing 
 
 "Return current trust region radius (vector) ``Δᵗ``."
-function get_delta( :: AbstractIterData{XT,YT,XS,ET,IT,DT} ) where {XT,YT,XS,ET,IT,DT}
-    return zero(eltype(DT))
-end
+get_delta( :: AbstractIterData ) = nothing 
 
 # We also need the iteration result index for our sub-database.
 # This should be implemented but works as is if only `MockDB` is used.
@@ -86,9 +80,11 @@ _set_x_scaled!( :: AbstractIterData, x_scaled :: Vec ) :: Nothing = nothing
 
 "Set current equality constraint vector to `c`."
 _set_nl_eq_const!( :: AbstractIterData, c :: Vec ) :: Nothing = nothing 
-
 "Set current inequality constraint vector to `c`."
 _set_nl_ineq_const!( :: AbstractIterData, c :: Vec ) :: Nothing = nothing 
+
+_set_eq_const!( :: AbstractIterData, c :: Vec ) :: Nothing = nothing 
+_set_ineq_const!( :: AbstractIterData, c :: Vec ) :: Nothing = nothing 
 
 "Set current trust region radius (vector?) to `Δ`."
 _set_delta!( :: AbstractIterData, Δ :: NumOrVec ) :: Nothing = nothing
@@ -113,6 +109,8 @@ it_stat!( :: AbstractIterData, :: ITER_TYPE ) :: Nothing = nothing;
 set_x!( id :: AbstractIterData, x :: Vec ) = _set_x!(id, copy(x))
 set_fx!( id :: AbstractIterData, fx :: Vec ) = _set_fx!(id, copy(fx))
 set_x_scaled!( id :: AbstractIterData, x_scaled :: Vec ) = _set_x_scaled!(id, copy(x_scaled))
+set_eq_const!( id :: AbstractIterData, c :: Vec ) = _set_eq_const!(id, copy(c))
+set_ineq_const!( id :: AbstractIterData, c :: Vec ) = _set_ineq_const!(id, copy(c))
 set_nl_eq_const!( id :: AbstractIterData, c :: Vec ) = _set_nl_eq_const!(id, copy(c))
 set_nl_ineq_const!( id :: AbstractIterData, c :: Vec ) = _set_nl_ineq_const!(id, copy(c))
 set_delta!( id :: AbstractIterData, Δ :: NumOrVec ) = _set_delta!(id, copy(Δ))
@@ -139,13 +137,14 @@ correct type parameters for `x`, `fx` and `Δ`.
 a vector of floats.
 """
 function init_iter_data( T :: Type{<:AbstractIterData}, x :: Vec, fx :: Vec, 
-    x_scaled :: Vec, c_e :: Vec, c_i :: Vec, Δ :: NumOrVec,
+    x_scaled :: Vec, l_e :: Vec, l_i :: Vec, c_e :: Vec, c_i :: Vec, Δ :: NumOrVec,
     x_index_mapping; kwargs... )
     base_type = @eval $(_typename(T))    # strip any type parameters from T
 	return _init_iter_data( base_type,
         ensure_precision(x),
-        ensure_precision(fx), 
+        ensure_precision(fx),
         ensure_precision(x_scaled),
+        ensure_precision(l_e), ensure_precision(l_i), 
         ensure_precision(c_e), ensure_precision(c_i), 
         ensure_precision(Δ), x_index_mapping ; kwargs... )
 end
@@ -163,5 +162,5 @@ end
 # It can have arbritrary keyword arguments but should accept `kwargs...` in any 
 # case:
 
-get_saveable( :: Type{<:AbstractIterSaveable}, id :: AbstractIterData; kwargs... ) = nothing
-get_saveable( :: Type{<:Nothing}, id :: AbstractIterData; kwargs... ) = nothing
+get_saveable( :: Type{<:AbstractIterSaveable}, id; kwargs... ) = nothing
+get_saveable( :: Type{<:Nothing}, id; kwargs... ) = nothing

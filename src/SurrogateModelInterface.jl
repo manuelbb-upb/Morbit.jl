@@ -10,6 +10,8 @@ max_evals( :: SurrogateConfig ) ::Int = typemax(Int)
 
 fully_linear( :: SurrogateModel ) :: Bool = false
 
+set_fully_linear!( :: SurrogateModel, :: Bool ) = nothing
+
 # can objective functions with same configuration types be combined 
 # to a new vector objective?
 combinable( :: SurrogateConfig ) :: Bool = false
@@ -32,8 +34,6 @@ function init_model( ::SurrogateMeta, ::SurrogateConfig, FunctionIndexIterable, 
     nothing 
 end
 
-## TODO: Allow to pass a SurrogateConfig here as well. (ATM use `model_cfg(objf)`) #src
-## In general, the function signatures are somewhat messy. We should unify them a bit. #src
 function update_model( mod :: SurrogateModel, meta ::SurrogateMeta, ::SurrogateConfig, :: FunctionIndexIterable, 
     :: AbstractMOP, :: AbstractVarScaler,
     :: AbstractIterData, :: AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}

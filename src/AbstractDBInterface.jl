@@ -267,7 +267,7 @@ end
 # ## New! SuperDB
 get_saveable_type( sdb :: AbstractSuperDB ) = Nothing  
 
-all_sub_db_indices( :: AbstractSuperDB ) :: FunctionIndexTuple = nothing
+all_sub_db_indices( :: AbstractSuperDB ) = nothing # :: Vector{<:FunctionIndexTuple}
 get_sub_db( :: AbstractSuperDB, :: FunctionIndexTuple ) :: AbstractDB = nothing 
 all_sub_dbs( sdb :: AbstractSuperDB) = [ get_sub_db(sdb, ki ) for ki in all_sub_db_indices(sdb) ]
 

@@ -53,16 +53,11 @@ abstract type AbstractResult{XT <: VecF, YT <: VecF} end
 
 # `AbstractIterData` is passed to functions and provides access to 
 # the current site and value vectors and the trust region radius.
-"Abstract super type for iteration data. Implemented by `IterData`. 
-Has type parameters for the vector type of itaration site, value vector, constraint vectors and trust region radius."
-abstract type AbstractIterData{
-    XT <: VecF, YT <: VecF, XS <: VecF, 
-    ET <: VecF, IT <: VecF, DT <: NumOrVecF }
-end
+"Abstract super type for iteration data. Implemented by `IterData`."
+abstract type AbstractIterData end
 
 "Abstract super type for some saveable representation of `AbstractIterData`."
-abstract type AbstractIterSaveable{XT <: VecF, YT <: VecF, 
-    ET <: VecF, IT <: VecF, DT <: NumOrVecF } end
+abstract type AbstractIterSaveable end 
 
 # A shorthand for everything that is either nothing or an `AbstractIterSaveable`:
 const NothingOrSaveable = Union{Nothing, AbstractIterSaveable}
@@ -99,6 +94,7 @@ abstract type DiffFn end
     SUCCESSFULL = 2;    # accept trial point, grow radius 
     MODELIMPROVING = 3; # reject trial point, keep radius 
     INACCEPTABLE = 4;   # reject trial point, shrink radius (much)
+    RESTORATION = 5;    # apart from the above distinction: a restoration step has been computed and used as the next iterate
 end
 
 @enum STOP_CODE begin
@@ -107,6 +103,7 @@ end
     BUDGET_EXHAUSTED = 3
     CRITICAL = 4
     TOLERANCE = 5 
+    INFEASIBLE = 6
 end
 
 # ### Interface Definitions

@@ -17,20 +17,25 @@
 
 # method to only compute criticality
 function get_criticality( mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
-    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
-    return get_criticality( descent_method( algo_config ), mop, scal, iter_data, data_base, sc, algo_config )
+        data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig;
+        kwargs...
+    )
+
+    return get_criticality( descent_method( algo_config ), mop, scal, iter_data, data_base, sc, algo_config; kwargs... ) 
 end
 
 # methods to compute a local descent step
 function compute_descent_step( mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
-    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, args... )
-    return compute_descent_step( descent_method( algo_config ), mop, scal, iter_data, data_base, sc, algo_config, args... )
+       data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, args...; kwargs...
+    )
+    return compute_descent_step( descent_method( algo_config ), mop, scal, iter_data, data_base, sc, algo_config, args... ; kwargs...)
 end
 
 # fallback, if `get_criticality` allready does the whole job: simply return `ω` and `data`
 function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
-    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
-    ω, data = get_criticality(cfg, mop, scal, iter_data, data_base, sc, algo_config)
+        data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig; kwargs...
+    )
+    ω, data = get_criticality(cfg, mop, scal, iter_data, data_base, sc, algo_config; kwargs...)
     return (ω, data...)
 end
 
@@ -74,12 +79,11 @@ function _steepest_descent_direction(
         JuMP.@constraint(opt_problem, global_scaled_var_bounds, lb .<= x .+ d .<= ub);
         if !isempty(A_eq)
             @assert size(A_eq, 1) == length(b_eq) "Equality constraint dimension mismatch."
-            JuMP.@constraint(opt_problem, linear_eq_constraints,  A_eq*(x+d) .+ b_eq .== 0 )
+            JuMP.@constraint(opt_problem, linear_eq_constraints,  A_eq*(x.+d) .+ b_eq .== 0 )
         end
         if !isempty(A_ineq)
-            @show A_ineq
             @assert size(A_ineq, 1) == length(b_ineq) "Equality constraint dimension mismatch."
-            JuMP.@constraint(opt_problem, linear_ineq_constraints, A_ineq*(x+d) .+ b_ineq .<= 0 )
+            JuMP.@constraint(opt_problem, linear_ineq_constraints, A_ineq*(x.+d) .+ b_ineq .<= 0 )
         end
         JuMP.optimize!(opt_problem)
         return F.(JuMP.value.(d)), -F(JuMP.value(α))
@@ -136,30 +140,59 @@ function _backtrack( x :: AbstractVector{F}, dir, ω, sc, cfg, scal ) where F<:A
     return x₊, mx₊, step
 end
 
-function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, iter_data, data_base, sc, algo_config )
+function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, iter_data, 
+        data_base, sc, algo_config;
+        x_n_scaled 
+    )
 
     @logmsg loglevel3 "Calculating steepest descent direction."
 
-    x = get_x_scaled( iter_data )
+    #x = get_x_scaled(iter_data)
+    x = x_n_scaled
     ∇m = eval_container_objectives_jacobian_at_scaled_site(sc, scal, x)
 
     lb, ub = full_bounds_internal( scal )
-    @show A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints(scal, mop)
+    A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints(scal, mop)
 
     # compute steepest descent direction and criticality
     d, ω = _steepest_descent_direction( x, ∇m, lb, ub, A_eq, b_eq, A_ineq, b_ineq )
     return ω, d
 end
 
-function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, iter_data, data_base, sc, algo_config, ω, d )
+function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, iter_data, 
+        data_base, sc, algo_config, ω, d; 
+        x_n_scaled 
+    )
+
     @logmsg loglevel4 "Calculating steepest stepsize."
 
-    x = get_x_scaled( iter_data )
-    Δ = get_delta( iter_data )
+    #x = get_x_scaled( iter_data )
+    x = x_n_scaled
+    x_id = get_x_scaled(iter_data)
+    
+    Δ = if x_n_scaled == x_id 
+        get_delta( iter_data )
+    else
+        # if a normal step was taken, we have to respect the trust region boundary
+        # with respect to x_n = x + n
+        lb, ub = full_bounds_internal(scal)
+        lb_eff, ub_eff = _local_bounds( x_id, get_delta(iter_data), lb, ub )
+        _intersect_bounds( x, d, lb_eff, ub_eff; ret_mode = :pos )
+    end
 
     # scale direction for backtracking as in paper
-    σ = intersect_bounds( x, d, mop, scal; Δ, return_vals = :pos )
-    
+    norm_d = norm(d, Inf)
+    σ = if Δ <= 1
+        min( Δ/norm_d, 1 )
+    else
+        # Δ > 1
+        if norm_d ≈ 1
+            intersect_bounds( x, d, mop, scal; Δ, return_vals = :pos )
+        else
+            1
+        end
+    end
+
     if σ > desc_cfg.min_stepsize 
         x₊, mx₊, step = _backtrack( x, σ * d, ω, sc, desc_cfg, scal )
         return ω, x₊, mx₊, norm(step, Inf)
@@ -169,11 +202,10 @@ function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, ite
 end 
 
 
-function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, iter_data, data_base, sc, algo_config )
-    ω, d = get_criticality( desc_cfg, mop, scal, iter_data, data_base, sc, algo_config )
-    return compute_descent_step(desc_cfg, mop, scal, iter_data, data_base, sc, algo_config, ω, d )
+function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, iter_data, data_base, sc, algo_config; kwargs...)
+    ω, d = get_criticality( desc_cfg, mop, scal, iter_data, data_base, sc, algo_config; kwargs... )
+    return compute_descent_step(desc_cfg, mop, scal, iter_data, data_base, sc, algo_config, ω, d; kwargs... )
 end
-
 
 # PASCOLETTI-SERAFINI
 #=
@@ -484,22 +516,70 @@ function _cfg_from_symbol( desc_cfg :: Symbol, F :: Type )
 end
 
 # DefaultDescent -> Fallback to SteepestDescent
-function compute_descent_step( desc_cfg :: Symbol, mop, scal, iter_data, data_base, sc, algo_config, args... )
+function compute_descent_step( desc_cfg :: Symbol, mop, scal, iter_data, data_base, sc, algo_config, args...; kwargs... )
     F = eltype(get_x(iter_data))
     true_cfg = _cfg_from_symbol( desc_cfg, F )
-    return compute_descent_step( true_cfg, mop, scal, iter_data, data_base, sc, algo_config, args... )
+    return compute_descent_step( true_cfg, mop, scal, iter_data, data_base, sc, algo_config, args...; kwargs... )
 end
 
 # DefaultDescent -> Fallback to SteepestDescent
-function get_criticality( desc_cfg :: Symbol, mop, scal, iter_data, data_base, sc, algo_config, args... )
+function get_criticality( desc_cfg :: Symbol, mop, scal, iter_data, data_base, sc, algo_config, args...; kwargs... )
     F = eltype(get_x(iter_data))
     true_cfg = _cfg_from_symbol( desc_cfg, F )
-    return get_criticality( true_cfg, mop, scal, iter_data, data_base, sc, algo_config, args... )
+    return get_criticality( true_cfg, mop, scal, iter_data, data_base, sc, algo_config, args...; kwargs... )
 end
 
 ###################
 function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
-    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig )
-    x = get_x( iter_data )
-    return zeros(length(x))
+    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig;
+    variable_radius :: Bool = false )
+    
+    x = get_x_scaled( iter_data )
+    κ_Δ = filter_kappa_delta( algo_config )
+
+    n_vars = length(x)
+
+    A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
+    l_e = get_eq_const( iter_data )  # == A_eq * x + b_eq
+    l_i = get_ineq_const( iter_data ) # == A_ineq * x + b_ineq 
+
+    opt_problem = JuMP.Model( OSQP.Optimizer )
+    JuMP.set_silent(opt_problem)
+
+    JuMP.set_optimizer_attribute( opt_problem, "eps_rel", 1e-5 );
+    JuMP.set_optimizer_attribute( opt_problem, "polish", true );
+
+    JuMP.@variable(opt_problem, n[1:n_vars])
+    JuMP.@variable(opt_problem, α >= 0 )
+
+    if variable_radius
+        JuMP.@variable(opt_problem, 0 <= del <= get_delta_max(algo_config) )
+        JuMP.@objective( opt_problem, Min, del )
+        
+        # this must be fullfilled in order for `n` to be compatible
+        # results from `min(1, κ_μ Δ^μ) = 1`.
+        # if this is not the case, `min(1, κ_μ*Δ^μ) \le 1` still makes it
+        # a necessary condition
+        JuMP.@constraint( opt_problem, α <= κ_Δ * del )
+    else
+        JuMP.@objective(opt_problem, Min, α )
+        # NOTE we don't use the trust region constraint normally so that in case
+        # of a linearly constrained problem we can use `n` as `r`
+        # and else use `n` as an initial guess for the nonlinear restoration
+    end
+
+    JuMP.@constraint( opt_problem, -α .<= n)
+    JuMP.@constraint( opt_problem, n .<= α)
+
+    JuMP.@constraint(opt_problem, linear_eq_const, l_e .+ A_eq * n .== 0)
+    JuMP.@constraint(opt_problem, linear_ineq_const, l_i .+ A_ineq * n .<= 0)
+
+    JuMP.optimize!(opt_problem)
+    
+    if JuMP.termination_status(opt_problem) == JuMP.MathOptInterface.INFEASIBLE
+        return fill(MIN_PRECISION, n_vars)  # this should happen anyways and triggers restoration
+    end
+
+    _Δ = !variable_radius ? -1 : JuMP.value( del )
+    return JuMP.value.(n), _Δ
 end

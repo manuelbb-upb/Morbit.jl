@@ -135,6 +135,13 @@ function fully_linear(sc :: AbstractSurrogateContainer)
     return prod(fully_linear( get_model(sw)) for sw in list_of_wrappers(sc))
 end
 
+function set_fully_linear!( sc :: AbstractSurrogateContainer, val :: Bool )
+    for sw = list_of_wrappers
+        set_fully_linear!( get_model(sw), val )
+    end
+    return nothing 
+end
+
 function get_function_indices( sc :: AbstractSurrogateContainer )
     return Iterators.flatten( ( 
         get_objective_indices( sc ),

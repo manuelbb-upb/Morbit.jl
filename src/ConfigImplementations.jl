@@ -12,7 +12,7 @@ use_db( ::DefaultConfig ) = ArrayDB
 # `AlgorithmConfig` is a struct with fields defining the method outputs.
 @with_kw struct AlgorithmConfig{ 
         D <: Union{Symbol,AbstractDescentConfig},
-        VS 
+        VS <: Union{Symbol, AbstractVarScaler}
     } <: AbstractConfig @deftype Float64
 
     eps_crit = _eps_crit( default_config )
@@ -70,9 +70,11 @@ use_db( ::DefaultConfig ) = ArrayDB
             [:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search] 
         ) "`descent_method` must be one of `:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search`."
 
-    var_scaler :: VS = var_scaler( default_config )
+    var_scaler :: Symbol = var_scaler( default_config )
     untransform_final_database :: Bool = untransform_final_database( default_config )
-    var_scaler_update :: Symbol = :none
+    var_scaler_update :: VS = :none
+
+    @assert var_scaler isa AbstractVarScaler || var_scaler in [:default, :none, :auto] "Invalid VarScaler. Try one of `:default, :none, :auto`."
 end
 
 for fn in fieldnames(AlgorithmConfig)

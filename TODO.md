@@ -1,20 +1,14 @@
 TODO
 ====
 
+* Make `ensure_precision` also convert to static array, e.g. for use in `IterData`?
+
 * Support half open intervals and individual unconstrained variables (should be relatively easy)
 ⇒ use a weighted trust region norm and a vector of Δ values
 * Saving/logging
 * Python Bridge (and OpenFoam example)
 
-# Lower Priority
-* Documentation (use corresponding Julia Package?)  
-
-# Archived
-* Introduce convenience functions to extract iteration information from optimized AlgoConfig struct.
-* More plotting recipes:  
-  - 3D plotting (decision space & objective space)
-  - Plotting of critical values.
-  - Animation of iteration and model construction.
+* Improve Docs
 
 ## Done
 * Warm start capabilities (work with populated AlgoConfig) [ does kind of work now ]u

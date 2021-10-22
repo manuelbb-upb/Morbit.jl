@@ -1,13 +1,17 @@
 
 ####### IterData
 @with_kw mutable struct IterData{ 
-        XT <: VecF, YT <: VecF, XS <: VecF, ET <: VecF, IT <: VecF, DT <: NumOrVecF, 
+        XT <: VecF, YT <: VecF, XS <: VecF,
+        E <: VecF, I <: VecF,
+        ET <: VecF, IT <: VecF, DT <: NumOrVecF, 
         XIndType, #<: AbstractDict{ FunctionIndexTuple, Int } 
-    } <: AbstractIterData{XT,YT,XS,ET,IT,DT}
+    } <: AbstractIterData
     
     x :: XT = MIN_PRECISION[]
     fx :: YT = MIN_PRECISION[]
     x_scaled :: XS = MIN_PRECISION[]
+    l_e :: E = MIN_PRECISION[]
+    l_i :: I = MIN_PRECISION[]
     c_e :: ET = MIN_PRECISION[] 
     c_i :: IT = MIN_PRECISION[]
     Δ :: DT = zero(MIN_PRECISION)
@@ -22,6 +26,8 @@ end
 get_x( id :: IterData ) = id.x
 get_fx( id :: IterData ) = id.fx
 get_x_scaled( id :: IterData ) = id.x_scaled
+get_eq_const( id :: IterData ) = id.l_e
+get_ineq_const( id :: IterData ) = id.l_i
 get_nl_eq_const( id :: IterData ) = id.c_e
 get_nl_ineq_const( id :: IterData ) = id.c_i
 get_delta( id :: IterData ) = id.Δ
@@ -43,6 +49,16 @@ end
 
 function _set_fx!( id :: IterData, y :: Vec ) :: Nothing 
     id.fx = y
+    return nothing
+end
+
+function _set_eq_const!( id :: IterData, c :: Vec ) :: Nothing 
+    id.l_e = c
+    return nothing
+end
+
+function _set_ineq_const!( id :: IterData, c :: Vec ) :: Nothing 
+    id.l_i = c
     return nothing
 end
 
@@ -86,18 +102,23 @@ end
 
 function _init_iter_data( ::Type{<:IterData}, x :: VecF, fx :: VecF,
     x_scaled :: VecF,
+    l_e :: VecF, l_i :: VecF, 
     c_e :: VecF, c_i :: VecF, Δ :: NumOrVecF, x_index_mapping; kwargs... )
-    return IterData(; x, fx, x_scaled, Δ, x_indices = x_index_mapping )
+    return IterData(; x, fx, x_scaled,l_e, l_i, c_e, c_i, Δ, x_indices = x_index_mapping )
 end
 
 ####### IterSaveable
 
 # Also, I store all additional meta data as Float64, input gets automatically converted.
 struct IterSaveable{
-        XT <: VecF, YT <: VecF, ET <: VecF, IT <: VecF, DT <: NumOrVecF } <: AbstractIterSaveable{XT,YT,ET,IT,DT}
+        XT <: VecF, YT <: VecF, 
+        E <: VecF, I <: VecF,
+        ET <: VecF, IT <: VecF, DT <: NumOrVecF } <: AbstractIterSaveable
     
     x :: XT 
     fx :: YT
+    l_e :: E
+    l_i :: I
     c_e :: ET
     c_i :: IT
     Δ :: DT
@@ -118,6 +139,8 @@ function get_saveable( :: Type{<:IterSaveable}, id :: AbstractIterData;
     return IterSaveable(
         get_x(id),
         get_fx(id),
+        get_eq_const(id),
+        get_ineq_const(id),
         get_nl_eq_const(id),
         get_nl_ineq_const(id),
         get_delta(id),

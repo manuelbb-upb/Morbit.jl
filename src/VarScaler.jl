@@ -135,6 +135,7 @@ full_upper_bounds_internal( scal :: LinearScaling ) = scal.ub_scaled
 # are as close to one as possible. 
 # `J'` is the jacobian of `f∘s` where `s` scales the variables with `c`.
 # Loosely inspired by “Scaling nonlinear programs”, Lasdon & Beck
+# Works only for constant and linear objectives!!! deactivated for now
 function _scaling_factors( J, RHS = nothing )
 	M, num_cols = size(J)
 	factors = ones( Base.promote_op( log, eltype(J) ), num_cols )
@@ -196,41 +197,44 @@ function get_var_scaler(x0, mop :: AbstractMOP, ac :: AbstractConfig)
 	n_vars = length(lb)
 
 	user_scaler = var_scaler( ac )
-	if !isnothing( user_scaler )
-		if user_scaler isa Type{<:NoVarScaling}
-			return NoVarScaling(lb, ub)
-		else
-			return user_scaler
-		end
+	
+	if user_scaler isa AbstractVarScaler
+		return user_scaler
 	end
 
 	if !(any( isinf.([lb;ub])) )
-		# the problem vars are finitely box constraint
-		# we scale every variable to the unit hypercube [0,1]^n 
-		w = ub .- lb
-		w_inv = 1 ./ w
-		t = - lb ./ w
-		return LinearScaling( lb, ub, w_inv, t )		
+		if user_scaler == :default || user_scaler == :auto
+			# the problem vars are finitely box constraint
+			# we scale every variable to the unit hypercube [0,1]^n 
+			w = ub .- lb
+			w_inv = 1 ./ w
+			t = - lb ./ w
+			return LinearScaling( lb, ub, w_inv, t )
+		end	
 	else
-		@warn """
-		Doing some finite differencing to estimate variable scaling.
-		You can disable this behavior with `var_scaler = NoVarScaling()`.
-		"""
+		if user_scaler == :auto
+			@warn """
+			Doing some finite differencing to estimate variable scaling.
+			You can disable this behavior with `var_scaler = NoVarScaling()`.
+			"""
 
-		x0_pert = _project_into_box( x0 .+ rand( -.1:1e-4:1, length(x0) ), lb, ub )
+			x0_pert = _project_into_box( x0 .+ rand( -.1:1e-4:1, length(x0) ), lb, ub )
 
-		J = vcat( [ let _J = get_objf_jacobian( _get(mop, ind), x0_pert );
-			J_ind = if isnothing(_J)
-				FD.finite_difference_jacobian( 
-				ξ -> eval_vec_mop_at_func_index_at_unscaled_site( mop, ξ, ind ), x0_pert ) 
-			else
-				_J
-			end
-			J_ind 
-		end for ind = get_function_indices(mop) ]... )
-		
-		return _estimate_linear_scaling( lb, ub, J )		
+			J = vcat( [ let _J = get_objf_jacobian( _get(mop, ind), x0_pert );
+				J_ind = if isnothing(_J)
+					FD.finite_difference_jacobian( 
+					ξ -> eval_vec_mop_at_func_index_at_unscaled_site( mop, ξ, ind ), x0_pert ) 
+				else
+					_J
+				end
+				J_ind 
+			end for ind = get_function_indices(mop) ]... )
+			
+			return _estimate_linear_scaling( lb, ub, J )
+		end
 	end
+
+	return NoVarScaling(lb, ub)
 end
 
 function new_var_scaler( x_scaled, old_scal :: AbstractVarScaler, mop :: AbstractMOP, 

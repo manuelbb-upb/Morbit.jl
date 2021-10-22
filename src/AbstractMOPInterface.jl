@@ -132,15 +132,29 @@ function num_objectives( mop :: AbstractMOP )
     return sum( num_outputs(func_ind) for func_ind = get_objective_indices(mop))
 end
 
+function _sum_inds( inds )
+    isempty(inds) && return 0
+    return sum( num_outputs(func_ind) for func_ind = inds )
+end
+
+function num_eq_constraints( mop :: AbstractMOP )
+    return _sum_inds( get_eq_constraint_indices( mop ) )
+end
+
+function num_ineq_constraints( mop :: AbstractMOP )
+    _sum_inds(get_ineq_constraint_indices(mop))
+end
+
 function num_nl_eq_constraints( mop :: AbstractMOP )
-    isempty(get_nl_eq_constraint_indices(mop)) && return 0
-    return sum( num_outputs(func_ind) for func_ind = get_nl_eq_constraint_indices(mop))
+    _sum_inds(get_nl_eq_constraint_indices(mop))
 end
 
 function num_nl_ineq_constraints( mop :: AbstractMOP )
-    isempty(get_nl_ineq_constraint_indices(mop)) && return 0
-    return sum( num_outputs(func_ind) for func_ind = get_nl_ineq_constraint_indices(mop))
+    _sum_inds(get_nl_ineq_constraint_indices(mop)) 
 end
+
+num_nl_constraints( mop :: AbstractMOP ) = num_nl_eq_constraints(mop) + num_nl_ineq_constraints(mop)
+num_lin_constraints( mop :: AbstractMOP ) = num_eq_constraints(mop) + num_ineq_constraints(mop)
 
 for func_name in [:add_objective!, :add_nl_eq_constraint!, :add_nl_ineq_constraint!]
     @eval begin
@@ -173,6 +187,7 @@ end
 function eval_mop_at_func_indices_at_unscaled_site( 
         mop :: AbstractMOP, x :: Vec, func_indices  
     )
+    isempty(func_indices) && return Base.ImmutableDict{FunctionIndexTuple,MIN_PRECISION}()
     return Base.ImmutableDict( 
         (func_ind => eval_vec_mop_at_func_index_at_unscaled_site( mop, x, func_ind ) for func_ind in func_indices)...
     )
@@ -241,14 +256,14 @@ end
 function Broadcast.broadcasted( ::typeof(eval_mop_at_func_indices_at_scaled_site), 
         mop :: AbstractMOP, scal :: AbstractVarScaler, X_scaled :: VecVec, func_ind :: FunctionIndex )
     X = untransform.( X_scaled, scal)
-    return eval_vec_mop_at_func_index_at_unscaled_site.(mop, X, func_ind )
+    return eval_vec_mop_at_func_index_at_unscaled_site.(mop, X, Ref(func_ind ))
 end
 
 function Broadcast.broadcasted( ::typeof(eval_vec_mop_at_func_indices_at_scaled_site), 
         mop :: AbstractMOP, scal :: AbstractVarScaler, X_scaled :: VecVec, func_ind :: FunctionIndex )
     return eval_result_to_vector.( 
         mop,
-        eval_vec_mop_at_func_index_at_unscaled_site.(mop, X, func_ind )
+        eval_vec_mop_at_func_index_at_unscaled_site.(mop, X, Ref(func_ind) )
     )
 end
 
@@ -263,6 +278,9 @@ end
 for eval_type in [:objective, :nl_eq_constraint, :nl_ineq_constraint]
     fn1 = Symbol("eval_mop_", eval_type, "s_at_scaled_site")
     fn2 = Symbol("eval_vec_mop_", eval_type, "s_at_scaled_site")
+
+    fn3 =  Symbol("eval_mop_", eval_type, "s_at_unscaled_site")
+    fn4 = Symbol("eval_vec_mop_", eval_type, "s_at_unscaled_site")
     getter_fun = Symbol("get_$(eval_type)_indices")
     @eval begin
         function $(fn1)(
@@ -282,7 +300,7 @@ for eval_type in [:objective, :nl_eq_constraint, :nl_ineq_constraint]
             mop :: AbstractMOP, scal :: AbstractVarScaler, X_scaled :: VecVec)
             X_unscaled = untransform.( X_scaled, scal )
             return eval_mop_at_func_indices_at_unscaled_site.(
-                mop, X_unscaled, $(getter_fun)(mop)
+                mop, X_unscaled, Ref($(getter_fun)(mop))
             )
         end
 
@@ -291,6 +309,30 @@ for eval_type in [:objective, :nl_eq_constraint, :nl_ineq_constraint]
             tmp_res = $(fn1).(mop, scal, X_scaled)
             return eval_result_to_vector.(mop, tmp_res)
         end
+
+        # unscaled 
+        function $(fn3)( mop :: AbstractMOP, x :: Vec )
+            return eval_mop_at_func_indices_at_unscaled_site( 
+                mop, x, $(getter_fun)(mop) 
+            )
+        end
+
+        function $(fn4)( mop :: AbstractMOP, x :: Vec )
+            tmp_res = $(fn3)( mop, x )
+            return eval_result_to_vector( mop, tmp_res )
+        end
+
+        function Base.broadcastable( :: typeof($(fn3)), mop :: AbstractMOP, X :: VecVec)
+            return eval_mop_at_func_indices_at_unscaled_site.(
+                mop, X, Ref($(getter_fun)(mop))
+            )
+        end
+
+        function Base.broadcastable( ::typeof($(fn4)), mop :: AbstractMOP, X :: VecVec )
+            tmp_res = $(fn3).(mop, X)
+            return eval_result_to_vector.(mop, tmp_res)
+        end
+
     end
 end
 
@@ -337,18 +379,19 @@ function _matrix_to_vector_affine_function( A :: AbstractMatrix{F}, b :: Abstrac
 	return MOI.VectorAffineFunction( terms, constants )
 end
 
-function add_ineq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector, vars :: Union{Nothing,AbstractVector{<:VarInd}} = nothing)
+function add_ineq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector = [], vars :: Union{Nothing,AbstractVector{<:VarInd}} = nothing)
 	_vars = isnothing( vars ) ? var_indices(mop) : vars
-    _matrix_to_vector_affine_function( A, b, _vars )
+    _b = isempty( b ) ? zeros( Bool, size(A,1) ) : b
 	return add_ineq_constraint!(mop, 
-		_matrix_to_vector_affine_function( A, b, _vars )
+		_matrix_to_vector_affine_function( A, _b, _vars )
 	)
 end
 
 function add_eq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector, vars :: Union{Nothing,AbstractVector{<:VarInd}} = nothing)
 	_vars = isnothing( vars ) ? var_indices(mop) : vars
+    _b = isempty( b ) ? zeros( Bool, size(A,1) ) : b
 	return add_ineq_constraint!(mop, 
-		_matrix_to_vector_affine_function( A, b, _vars )
+		_matrix_to_vector_affine_function( A, _b, _vars )
 	)
 end
 
@@ -394,7 +437,9 @@ function _construct_constraint_matrix_and_vector( vec_affine_funcs, vars )
     return sparse( row_inds, col_inds, coeff ), vcat( b_parts... )
 end
 
-function get_eq_matrix_and_vector( mop :: AbstractMOP )
+# These matrices are constant and we should assume that the
+# functions are called late enough
+@memoize ThreadSafeDict function get_eq_matrix_and_vector( mop :: AbstractMOP )
     eq_indices = get_eq_constraint_indices(mop)
     if isempty(eq_indices)
         return Matrix{Bool}(undef,0, num_vars(mop) ), Vector{Bool}(undef,0)
@@ -406,7 +451,7 @@ function get_eq_matrix_and_vector( mop :: AbstractMOP )
     end
 end
 
-function get_ineq_matrix_and_vector( mop :: AbstractMOP )
+@memoize ThreadSafeDict function get_ineq_matrix_and_vector( mop :: AbstractMOP )
 	ineq_indices = get_ineq_constraint_indices(mop)
     if isempty(ineq_indices)
         return Matrix{Bool}(undef,0, num_vars(mop) ), Vector{Bool}(undef,0)

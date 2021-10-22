@@ -125,8 +125,13 @@ function _project_into_box( z, lb, ub)
     return min.( max.( z, lb ), ub )
 end
 
-function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], A_eq = [], b_eq = [], A_ineq = [], b_ineq = []; ret_mode = :pos, impossible_val = 0 ) where R <: Real
+function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], 
+        A_eq = [], b_eq = [], A_ineq = [], b_ineq = []; 
+        ret_mode = :pos, impossible_val = 0, _eps = -1.0 ) where R <: Real
 	
+    T = Base.promote_type(R, MIN_PRECISION )
+    EPS = _eps <= 0 ? eps( T ) : T(_eps)
+
 	IMPOSSIBLE_VAL = R( impossible_val )
 	# TODO instead of returning 0, we could error 
 	
@@ -136,37 +141,39 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], A_eq = 
 		d_zero_index = iszero.(d)
 		d_not_zero_index = .!( d_zero_index )
 
-		# lb <= x + σd  ⇒  σ_i = (lb[i] - x[i]) / d[i]
+		# lb <= x + σd + ε  ⇒  σ_i = (lb[i] - x[i]) / d[i]
 		σ_lb = if isempty(lb)
-			R[]
+			T[]
 		else
-			( lb[ d_not_zero_index ] .- x[ d_not_zero_index ] ) ./ d[ d_not_zero_index ]
+			( lb[ d_not_zero_index ] .- x[ d_not_zero_index ] .- EPS) ./ d[ d_not_zero_index ]
 		end
 
 		# x + σ d <= ub  ⇒  σ_i = (ub[i] - x[i]) / d[i]
 		σ_ub = if isempty(ub)
-			R[]
+			T[]
 		else
-			( ub[ d_not_zero_index ] .- x[ d_not_zero_index ] ) ./ d[ d_not_zero_index ]
+			( ub[ d_not_zero_index ] .- x[ d_not_zero_index ] .- EPS) ./ d[ d_not_zero_index ]
 		end
 
 		# linear inequality constraints
+        # A * (x + d) + b .- ε =̂ 0
+        # A d = -Ax -b + ε
 		σ_ineq = if isempty( A_ineq)
-			R[] 
+			T[] 
 		else
 			denom_ineq = A_ineq * d
 			denom_ineq_not_zero_index = .!( iszero.( denom_ineq ) )
 			if isempty(b_ineq)
-				- (A_ineq[denom_ineq_not_zero_index, :] * x) ./ denom_ineq[ denom_ineq_not_zero_index ]
+				- (A_ineq[denom_ineq_not_zero_index, :] * x .- EPS) ./ denom_ineq[ denom_ineq_not_zero_index ]
 			else
-				- ( A_ineq[denom_ineq_not_zero_index, :] * x .+ b_ineq[denom_ineq_not_zero_index] ) ./ denom_ineq[ denom_ineq_not_zero_index ]
+				- ( A_ineq[denom_ineq_not_zero_index, :] * x .+ b_ineq[denom_ineq_not_zero_index] .- EPS) ./ denom_ineq[ denom_ineq_not_zero_index ]
 			end
 		end
 
 		σ = [ σ_lb; σ_ub; σ_ineq ]
 
 		if isempty(σ)
-			return ret_mode == :neg ? typemin(R) : typemax(R)
+			return ret_mode == :neg ? typemin(T) : typemax(T)
 		else
 			σ_non_neg_index = σ .>= 0
 			σ_neg_index = .!(σ_non_neg_index)
@@ -175,12 +182,12 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], A_eq = 
 			σ_neg = σ[ σ_neg_index ]
 			
 			if ret_mode in [:pos, :absmax]
-				σ_pos = isempty( σ_non_neg ) ? R(0) : minimum( σ_non_neg )
+				σ_pos = isempty( σ_non_neg ) ? T(0) : minimum( σ_non_neg )
 				ret_mode == :pos && return σ_pos
 			end
 			
 			if ret_mode in [:neg, :absmax]
-				σ_not_pos = isempty( σ_neg ) ? R(0) : maximum( σ_neg )
+				σ_not_pos = isempty( σ_neg ) ? T(0) : maximum( σ_neg )
 				ret_mode == :neg && return σ_not_pos
 			end
 			
@@ -200,7 +207,7 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], A_eq = 
 		# they have to be all fullfilled
 		N = size(A_eq, 1)
 		n = length(d)
-		_b = isempty(b_eq) ? zeros(R, N) : b_eq
+		_b = isempty(b_eq) ? zeros(T, N) : b_eq
 		
 		σ = missing
 		for i = 1 : N
@@ -227,8 +234,8 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], A_eq = 
 			return IMPOSSIBLE_VAL
 		end
 		
-		if N == 1 && σ ≈ 0
-			# check if lines are parallel?
+		if N == 1 && abs(σ) < EPS
+			# check if direction and single equality constraint are parallel?
 			if d[2] / d[1] ≈ -A_eq[1,1] / A_eq[1,2]
 				return steplength(x, d, lb, ub, [], [], A_ineq, b_ineq )
 			end
@@ -236,11 +243,11 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], A_eq = 
 			
 		# check if x + σd is compatible with the other constraints
 		x_trial = x + σ * d
-		_b_ineq = isempty(b_ineq) ? zeros( n ) : b_ineq
+		_b_ineq = isempty(b_ineq) ? zeros(T, n) : b_ineq
 		
-		lb_incompat = !isempty(lb) && any(x_trial .< lb )
-		ub_incompat = !isempty(ub) && any(x_trial .> ub )
-		ineq_incompat = !isempty(A_ineq) && any( A_ineq * x_trial .+ _b_ineq .> 0 )
+		lb_incompat = !isempty(lb) && any(x_trial .< lb .- EPS )
+		ub_incompat = !isempty(ub) && any(x_trial .> ub .+ EPS )
+		ineq_incompat = !isempty(A_ineq) && any( A_ineq * x_trial .+ _b_ineq .> EPS )
 		if lb_incompat || ub_incompat || ineq_incompat			
 			return IMPOSSIBLE_VAL
 		else
@@ -254,12 +261,12 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], A_eq = 
 	end
 end
 
-@memoize function _transform_linear_constraints( A, b, Tinv, offset )
+function _transform_linear_constraints( A, b, Tinv, offset )
     _A = A*Tinv
     return _A, b - _A * offset  
 end
 
-function transformed_linear_constraints( scal, mop )
+@memoize ThreadSafeDict function transformed_linear_constraints( scal, mop )
     _A_eq, _b_eq = get_eq_matrix_and_vector( mop )
     _A_ineq, _b_ineq = get_ineq_matrix_and_vector( mop )
     Tinv = unscaling_matrix(scal)
@@ -301,7 +308,17 @@ function _rand_box_point(lb, ub, type :: Type{<:Real} = MIN_PRECISION)
     return lb .+ (ub .- lb) .* rand(type, length(lb))
 end
 
+function eval_linear_constraints_at_unscaled_site( x, mop )
+    #A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
+    A_eq, b_eq = get_eq_matrix_and_vector( mop )
+    A_ineq, b_ineq = get_ineq_matrix_and_vector( mop )
+    return (A_eq * x .+ b_eq, A_ineq * x + b_ineq)
+end
 
+function eval_linear_constraints_at_scaled_site( x_scaled, mop, scal )
+    A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
+    return (A_eq * x_scaled .+ b_eq, A_ineq * x_scaled + b_ineq)
+end
 ######## Stopping
 
 function _budget_okay( mop :: AbstractMOP, ac :: AbstractConfig ) :: Bool
@@ -400,13 +417,49 @@ function _stop_info_str( ac :: AbstractConfig, mop :: Union{AbstractMOP,Nothing}
     ret_str *= @sprintf(" ω ≤ %g.", omega_tol_abs(ac))
 end
 
-function is_compatible( n, Δ, ac :: AbstractConfig )
+function is_compatible( n, Δ, ac :: AbstractConfig )   
     κ_Δ = filter_kappa_delta(ac)
     μ = filter_mu(ac)
     κ_μ = filter_kappa_mu(ac)
 
     return norm( n, Inf ) <= κ_Δ * Δ * min( 1, κ_μ * Δ^μ )
 end
+
+#=
+function find_compatible_radius( n, ac :: AbstractConfig )
+    κ_Δ = filter_kappa_delta(ac)
+    μ = filter_mu(ac)
+    κ_μ = filter_kappa_mu(ac)
+
+    Δ_max = get_delta_max( ac )
+    norm_n = norm( n, Inf )
+
+    # `κ_μ * Δ^μ` is monotonically increasing in `Δ`.
+    # what is the smallest `Δ` with `min(1, κ_μ*Δ^μ) = 1`?
+    _Δ = 1/(κ_μ ^ (1/μ))
+    
+    # first, assume that `min(1, κ_μ*Δ^μ) = κ_μ*Δ^μ`.
+    # then, if we require ‖n‖ == κ_Δ κ_μ Δ^{1+μ} we get 
+    Δ_1 = (norm_n / (κ_Δ * κ_μ))^(1/1+μ)
+
+    if Δ_1 > _Δ
+        # the solution is inconsistent with the assumption that `min…=κ_μ*Δ^μ`
+        # so assume that `min… = 1`.
+        Δ_2 = norm_n / κ_Δ
+        if Δ_2 < _Δ 
+            # again, solution is inconsistent
+            Δ_ret = -1
+        else 
+            Δ_ret = Δ_2
+        end
+    else
+        Δ_ret = Δ_1
+    end 
+    
+    Δ_ret > 0 && Δ_ret <= Δ_max && return Δ_ret
+    return -1
+end
+=#
 
 function get_return_values(iter_data)
     ret_x = get_x(iter_data)
@@ -441,4 +494,52 @@ function _prettify( vec :: Vec, len :: Int = 5) :: AbstractString
         length(vec) > len ? ", …" : "",
         "]"
     )
+end
+
+function copy_iter_data( id :: IterData, x_n_unscaled, 
+        fx_n, x_n_scaled, l_e_n, l_i_n, c_e_n, c_i_n, Δ, x_indices_n )
+    new_id = deepcopy(id)
+    set_x!(new_id, x_n_unscaled)
+    set_delta!(new_id, Δ)
+    set_fx!(new_id, fx_n)
+    set_x_scaled!(new_id, x_n_scaled)
+    set_eq_const!(new_id, l_e_n)
+    set_ineq_const!(new_id, l_i_n)
+    set_nl_eq_const!(new_id, c_e_n)
+    set_nl_ineq_const!(new_id, c_i_n)
+    for (ind, i) = x_indices_n 
+        set_x_index!(new_id, ind,i)
+    end
+    return new_id    
+end
+
+
+#########################################################################
+
+#=
+function x_index_mapping( sdb :: AbstractSuperDB, id :: AbstractIterData )
+    return Base.ImmutableDict( (inds => get_x_index( id, inds ) for inds in all_sub_db_indices( sdb ) )... )
+end
+=#
+
+function zeros_like( x :: AbstractVector{R} ) where R<:Number 
+	return zeros( R, length(x) )
+end
+
+function compute_constraint_val( filter :: AbstractFilter, iter_data :: AbstractIterData)
+    return compute_constraint_val( filter,
+        get_eq_const( iter_data ),
+        get_ineq_const( iter_data ),
+        get_nl_eq_const(iter_data),
+        get_nl_ineq_const(iter_data)
+    )
+end
+
+function _zero_for_constraints(θ :: R) where R<:Real
+    T = Base.promote_type( R, MIN_PRECISION )
+    return eps(T)*10
+end
+
+function constraint_violation_is_zero( θ )
+    return abs( θ ) <= _zero_for_constraints( θ )
 end

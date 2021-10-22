@@ -236,9 +236,9 @@ begin
 	lb = zeros(2)
 	ub = ones(2)
 	# start in center
-	x = fill(0.5, 2)
+	x = [ 0.5, 1.0 ] #fill(0.5, 2)
 	# move to top-right
-	d = ones(2) 
+	d = [ 1.0, 0 ] # ones(2) 
 	σ_box = steplength( x, d, lb, ub )
 	
 	σ_box, x + σ_box * d

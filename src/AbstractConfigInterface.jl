@@ -49,7 +49,7 @@ omega_tol_rel( :: AbstractConfig ) :: Float64 = 1e-3
 delta_tol_rel( :: AbstractConfig ) :: NumOrVec64 = 1e-2
 
 # stop if ω <= omega_tol_abs 
-omega_tol_abs(ac :: AbstractConfig ) :: Float64 = -1.0
+omega_tol_abs(ac :: AbstractConfig ) :: Float64 = eps(Float64)*10
 
 # stop if Δ .<= Δ_tol_abs 
 delta_tol_abs(ac :: AbstractConfig ) :: NumOrVec64 = 1e-6
@@ -80,9 +80,9 @@ filter_kappa_theta( :: AbstractConfig ) = 1e-4
 filter_psi( :: AbstractConfig ) = 1
 
 filter_kappa_delta(:: AbstractConfig) = 0.7
-filter_kappa_mu( :: AbstractConfig ) = 1e-2
+filter_kappa_mu( :: AbstractConfig ) = 1e2
 filter_mu( :: AbstractConfig ) = 1e-2
 
-var_scaler( :: AbstractConfig ) :: Union{Nothing, AbstractVarScaler} = nothing
+var_scaler( :: AbstractConfig ) :: Union{AbstractVarScaler,Symbol} = :default # :none, :auto, :default
 untransform_final_database( :: AbstractConfig ) = false
 var_scaler_update( :: AbstractConfig ) = :none

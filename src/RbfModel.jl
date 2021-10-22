@@ -37,6 +37,11 @@ end
 
 fully_linear( rbf :: RbfModel ) :: Bool = rbf.fully_linear
 
+function set_fully_linear!(rbf :: RbfModel, val :: Bool )
+	rbf.fully_linear = val
+	return nothing
+end
+
 # We offer a large range of configuration parameters in the `RBFConfig`, which implements 
 # a `SurrogateConfig`.
 """

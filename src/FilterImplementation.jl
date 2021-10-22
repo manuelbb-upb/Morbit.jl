@@ -33,8 +33,8 @@ function compute_objective_val( filter :: Union{Type{<:MaxFilter},MaxFilter}, fx
 	return maximum(fx)
 end
 
-function init_empty_filter( filter_type :: Type{<:MaxFilter}, fx, c_E, c_I; shift = 1e-3, kwargs... )
-	_θ, _f = compute_values( filter_type, fx, c_E, c_I )
+function init_empty_filter( filter_type :: Type{<:MaxFilter}, fx, l_E, l_I, c_E, c_I; shift = 1e-3, kwargs... )
+	_θ, _f = compute_values( filter_type, fx, l_E, l_I, c_E, c_I )
 	θ = _θ - shift * _θ
 	f = _f .- shift * _θ
 	return MaxFilter{ typeof(θ), typeof(f) }(; shift)
