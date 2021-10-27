@@ -106,18 +106,18 @@ end
 Base.broadcastable( sc :: AbstractSurrogateContainer ) = Ref(sc)
 
 # constructor 
-function init_surrogates( :: Type{<:AbstractSurrogateContainer}, :: AbstractMOP, :: AbstractVarScaler, :: AbstractIterData, 
+function init_surrogates( :: Type{<:AbstractSurrogateContainer}, :: AbstractMOP, :: AbstractVarScaler, :: AbstractIterate, 
 	:: AbstractConfig, groupings :: Vector{<:ModelGrouping}, :: AbstractSuperDB )
 	return nothing 
 end
 
 # update methods
-function update_surrogates!( :: AbstractSurrogateContainer, :: AbstractMOP, :: AbstractVarScaler, :: AbstractIterData,
+function update_surrogates!( :: AbstractSurrogateContainer, :: AbstractMOP, :: AbstractVarScaler, :: AbstractIterate,
 	:: AbstractSuperDB, :: AbstractConfig; ensure_fully_linear = false, kwargs... ) 
 	return nothing
 end
 
-function improve_surrogates!( :: AbstractSurrogateContainer, :: AbstractMOP, :: AbstractVarScaler, :: AbstractIterData,
+function improve_surrogates!( :: AbstractSurrogateContainer, :: AbstractMOP, :: AbstractVarScaler, :: AbstractIterate,
 	:: AbstractSuperDB, :: AbstractConfig; ensure_fully_linear = false, kwargs... ) 
 	return nothing
 end

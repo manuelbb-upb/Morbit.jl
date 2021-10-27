@@ -21,7 +21,7 @@ max_critical_loops( :: AbstractConfig ) :: Int = 5
 use_db( :: AbstractConfig ) :: Bool = true 
 
 # should iterations, where the models are not fully linear, be counted for stopping?
-count_nonlinear_iterations( :: AbstractConfig ) :: Bool = true
+#count_nonlinear_iterations( :: AbstractConfig ) :: Bool = true
 
 # initial box radius (for fully constrained problems this is relative to ``[0,1]^n```)
 get_delta_0(::AbstractConfig) :: NumOrVec64 = 0.1
@@ -73,10 +73,10 @@ _gamma_shrink_much(::AbstractConfig) :: Float64 = .501
 
 _combine_models_by_type(::AbstractConfig) :: Bool = true
 
-fiter_type( :: AbstractConfig ) = MaxFilter
+filter_type( :: AbstractConfig ) = MaxFilter
 filter_shift( :: AbstractConfig ) :: Float64 = 1e-4
 
-filter_kappa_theta( :: AbstractConfig ) = 1e-4
+filter_kappa_psi( :: AbstractConfig ) = 1e-4
 filter_psi( :: AbstractConfig ) = 1
 
 filter_kappa_delta(:: AbstractConfig) = 0.7
@@ -86,3 +86,5 @@ filter_mu( :: AbstractConfig ) = 1e-2
 var_scaler( :: AbstractConfig ) :: Union{AbstractVarScaler,Symbol} = :default # :none, :auto, :default
 untransform_final_database( :: AbstractConfig ) = false
 var_scaler_update( :: AbstractConfig ) = :none
+
+iter_saveable_type( :: AbstractConfig ) = IterSaveable

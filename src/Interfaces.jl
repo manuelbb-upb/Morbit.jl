@@ -51,16 +51,15 @@ abstract type AbstractMOP{T} end
 "Abstract super type for stuff stored in the database."
 abstract type AbstractResult{XT <: VecF, YT <: VecF} end
 
-# `AbstractIterData` is passed to functions and provides access to 
-# the current site and value vectors and the trust region radius.
-"Abstract super type for iteration data. Implemented by `IterData`."
-abstract type AbstractIterData end
+# `AbstractIterate` stores the current site and value vectors as well as the 
+# trust region radius for meta models.
+"Abstract super type for a container that stores the site and value vectors."
+abstract type AbstractIterate end 
 
-"Abstract super type for some saveable representation of `AbstractIterData`."
+"Abstract super type for some saveable iteration information."
 abstract type AbstractIterSaveable end 
 
 # A shorthand for everything that is either nothing or an `AbstractIterSaveable`:
-const NothingOrSaveable = Union{Nothing, AbstractIterSaveable}
 const NothingOrMeta = Union{Nothing, SurrogateMeta}
 
 # Everything is kept in a database:
@@ -90,11 +89,15 @@ abstract type DiffFn end
 # define them here:
 
 @enum ITER_TYPE begin
-    ACCEPTABLE = 1;     # accept trial point, shrink radius 
-    SUCCESSFULL = 2;    # accept trial point, grow radius 
-    MODELIMPROVING = 3; # reject trial point, keep radius 
-    INACCEPTABLE = 4;   # reject trial point, shrink radius (much)
-    RESTORATION = 5;    # apart from the above distinction: a restoration step has been computed and used as the next iterate
+    ACCEPTABLE     # accept trial point, shrink radius 
+    SUCCESSFULL    # accept trial point, grow radius 
+    MODELIMPROVING # reject trial point, keep radius 
+    INACCEPTABLE   # reject trial point, shrink radius (much)
+    RESTORATION    # apart from the above distinction: a restoration step has been computed and used as the next iterate
+    FILTER_FAIL    # trial point is not acceptable for filter
+    FILTER_ADD     # trial point acceptable to filter with large constraint violation
+    EARLY_EXIT
+    CRIT_LOOP_EXIT
 end
 
 @enum STOP_CODE begin
@@ -104,6 +107,13 @@ end
     CRITICAL = 4
     TOLERANCE = 5 
     INFEASIBLE = 6
+end
+
+@enum RADIUS_UPDATE begin 
+    LEAVE_UNCHANGED 
+    GROW
+    SHRINK
+    SHRINK_MUCH 
 end
 
 # ### Interface Definitions

@@ -223,7 +223,7 @@ function get_var_scaler(x0, mop :: AbstractMOP, ac :: AbstractConfig)
 			J = vcat( [ let _J = get_objf_jacobian( _get(mop, ind), x0_pert );
 				J_ind = if isnothing(_J)
 					FD.finite_difference_jacobian( 
-					ξ -> eval_vec_mop_at_func_index_at_unscaled_site( mop, ξ, ind ), x0_pert ) 
+					ξ -> eval_vec_mop_at_func_indices_at_unscaled_site( mop, [ind,] , ξ ), x0_pert ) 
 				else
 					_J
 				end

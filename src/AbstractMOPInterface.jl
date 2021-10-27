@@ -168,171 +168,106 @@ for func_name in [:add_objective!, :add_nl_eq_constraint!, :add_nl_ineq_constrai
     end
 end
 
-function eval_vec_mop_at_func_index_at_unscaled_site( 
-        mop :: AbstractMOP, x_unscaled :: Vec, func_ind :: FunctionIndex 
+# `eval_objf` respects custom batching
+
+"""
+    eval_dict_mop_at_func_indices_at_unscaled_sites(mop, sites, func_indices)
+
+Return a Dict with keys `func_indices` and values that are Vector-of-Vectors 
+of the corresponding objectives of `mop` evaluated on all `sites`."
+"""
+function eval_dict_mop_at_func_indices_at_unscaled_sites( 
+        mop :: AbstractMOP, func_indices, X_unscaled :: VecVec
     )
-    objf = _get(mop, func_ind)
-    y = eval_objf( objf, x_unscaled )
-    return y
+    return Base.Dict( func_ind => eval_objf.( _get(mop, func_ind), X_unscaled ) for func_ind=func_indices )
 end
 
-function eval_vec_mop_at_func_index_at_scaled_site( 
-        mop :: AbstractMOP, scal :: AbstractVarScaler, x_scaled :: Vec, 
-        func_ind :: FunctionIndex 
+"""
+    eval_dict_mop_at_func_indices_at_unscaled_site(mop, x, func_indices)
+
+Return a Dict with keys `func_indices` and values that are Vectors 
+of the corresponding objectives of `mop` evaluated at `x`."
+"""
+function eval_dict_mop_at_func_indices_at_unscaled_site( 
+        mop :: AbstractMOP, func_indices, x_unscaled :: Vec
     )
-    x = untransform( x_scaled, scal )
-    return eval_vec_mop_at_func_index_at_unscaled_site(mop, x, func_ind )
+    return Base.Dict( func_ind => eval_objf( _get(mop, func_ind), x_unscaled ) for func_ind=func_indices )
 end
 
-function eval_mop_at_func_indices_at_unscaled_site( 
-        mop :: AbstractMOP, x :: Vec, func_indices  
-    )
-    isempty(func_indices) && return Base.ImmutableDict{FunctionIndexTuple,MIN_PRECISION}()
-    return Base.ImmutableDict( 
-        (func_ind => eval_vec_mop_at_func_index_at_unscaled_site( mop, x, func_ind ) for func_ind in func_indices)...
-    )
-end 
-
-function eval_mop_at_func_indices_at_scaled_site( 
-        mop :: AbstractMOP, scal :: AbstractVarScaler, x_scaled :: Vec, 
-        func_indices  
-    )
-    x = untransform( x_scaled, scal )
-    return eval_mop_at_func_indices_at_unscaled_site( mop, x, func_indices )
+function flatten_mop_dicts( eval_dicts, _func_indices = nothing )
+   N = length(first(values(eval_dicts)))
+   func_indices = isnothing(_func_indices) ? keys(eval_dicts) : _func_indices
+   return flatten_vecs.( [eval_dicts[find][j] for find=func_indices] for j=1:N )
 end
 
-function eval_vec_mop_at_func_indices_at_scaled_site(
-        mop :: AbstractMOP, scal :: AbstractVarScaler, x_scaled :: Vec, 
-        func_indices  
-    )
-    return eval_result_to_vector( 
-        mop, 
-        eval_mop_at_func_indices_at_scaled_site( mop, scal, x_scaled, func_indices ) 
-    )
+function flatten_mop_dict( eval_dict, _func_indices = nothing )
+    func_indices = isnothing(_func_indices) ? keys(eval_dict) : _func_indices
+    flatten_vecs( [eval_dict[find] for find=func_indices])
 end
 
-function eval_mop_at_unscaled_site(
-        mop :: AbstractMOP, x :: Vec
-    ) 
-    return eval_mop_at_func_indices_at_unscaled_site(mop, x, get_function_indices(mop))
+function eval_vec_mop_at_func_indices_at_unscaled_sites( 
+        mop :: AbstractMOP, func_indices, X_unscaled :: VecVec
+    )
+    return flatten_mop_dicts(eval_dict_mop_at_func_indices_at_unscaled_sites(mop, func_indices, X_unscaled), func_indices)
 end
 
-#=
 function eval_vec_mop_at_func_indices_at_unscaled_site( 
-        mop :: AbstractMOP, x_scaled :: Vec, 
-        func_indices )
-    tmp = eval_mop_at_func_indices_at_unscaled_site( mop, x_scaled, func_indices )
-    return flatten_vecs(values(tmp))
-end
-=#
-
-function eval_result_to_vector( mop :: AbstractMOP, eval_result :: AbstractDict )
-    return eval_result_to_vector(eval_result, get_function_indices(mop))
+        mop :: AbstractMOP, func_indices, X_unscaled :: Vec
+    )
+    return flatten_mop_dict(eval_dict_mop_at_func_indices_at_unscaled_site(mop, func_indices, X_unscaled), func_indices)
 end
 
-function eval_result_to_vector( eval_result :: AbstractDict, func_indices  )
-    return flatten_vecs( 
-        get( eval_result, func_ind, MIN_PRECISION[] ) for func_ind in func_indices
-    )  
+function eval_dict_mop_at_unscaled_site( mop :: AbstractMOP, x :: Vec )
+    all_func_inds = get_function_indices(mop)
+    return eval_dict_mop_at_func_indices_at_unscaled_site(mop, all_func_inds, x)
 end
 
 function eval_result_to_all_vectors( 
-        eval_result :: AbstractDict,  mop :: Union{AbstractSurrogateContainer,AbstractMOP} 
+        eval_dict :: Union{AbstractDict, AbstractDictionary},  mop :: Union{AbstractSurrogateContainer,AbstractMOP} 
     )
     return (
-        eval_result_to_vector( eval_result, get_objective_indices(mop) ),
-        eval_result_to_vector( eval_result, get_nl_eq_constraint_indices(mop) ),
-        eval_result_to_vector( eval_result, get_nl_ineq_constraint_indices(mop) )
+        flatten_mop_dict( eval_dict, get_objective_indices(mop) ),
+        flatten_mop_dict( eval_dict, get_nl_eq_constraint_indices(mop) ),
+        flatten_mop_dict( eval_dict, get_nl_ineq_constraint_indices(mop) )
     )
 end    
 
-# custom broadcasting to exploit inner batching in `eval_missing!`
-function Broadcast.broadcasted( ::typeof( eval_vec_mop_at_func_index_at_unscaled_site ), 
-        mop :: AbstractMOP, X_unscaled :: VecVec, func_ind :: FunctionIndex )
-    objf = _get(mop, func_ind)
-    return eval_objf.( objf, X_unscaled )
-end
+for func_name = [:eval_dict_mop_at_func_indices, :eval_vec_mop_at_func_indices]
+    fn_scaled_sites = Symbol(func_name, "_at_scaled_sites")
+    fn_scaled_site = Symbol(func_name, "_at_scaled_site")
+    fn_unscaled_sites = Symbol(func_name, "_at_unscaled_sites")
+    fn_unscaled_site = Symbol(func_name, "_at_unscaled_site")
+    @eval begin 
+        function $(fn_scaled_sites)(mop :: AbstractMOP, func_indices, X_scaled :: VecVec, scal :: AbstractVarScaler )
+            X_unscaled = untransform.(X_scaled, scal)
+            return $(fn_unscaled_sites)( mop, func_indices, X_unscaled )
+        end
 
-function Broadcast.broadcasted( ::typeof(eval_mop_at_func_indices_at_scaled_site), 
-        mop :: AbstractMOP, scal :: AbstractVarScaler, X_scaled :: VecVec, func_ind :: FunctionIndex )
-    X = untransform.( X_scaled, scal)
-    return eval_vec_mop_at_func_index_at_unscaled_site.(mop, X, Ref(func_ind ))
-end
-
-function Broadcast.broadcasted( ::typeof(eval_vec_mop_at_func_indices_at_scaled_site), 
-        mop :: AbstractMOP, scal :: AbstractVarScaler, X_scaled :: VecVec, func_ind :: FunctionIndex )
-    return eval_result_to_vector.( 
-        mop,
-        eval_vec_mop_at_func_index_at_unscaled_site.(mop, X, Ref(func_ind) )
-    )
+        function $(fn_scaled_site)(mop :: AbstractMOP, func_indices, X_scaled :: Vec, scal :: AbstractVarScaler )
+            X_unscaled = untransform(X_scaled, scal)
+            return $(fn_unscaled_site)( mop, func_indices, X_unscaled )
+        end
+    end
 end
 
 # defined below:
-# eval_mop_objectives_at_scaled_site
-# eval_mop_nl_eq_constraints_at_scaled_site
-# eval_mop_nl_ineq_constraints_at_scaled_site
-# eval_vec_mop_objectives_at_scaled_site
-# eval_vec_mop_nl_eq_constraints_at_scaled_site
-# eval_vec_mop_nl_ineq_constraints_at_scaled_site
+# eval_vec_mop_objectives_at_scaled_site(s)
+# eval_vec_mop_nl_eq_constraints_at_scaled_site(s)
+# eval_vec_mop_nl_ineq_constraints_at_scaled_site(s)
 
 for eval_type in [:objective, :nl_eq_constraint, :nl_ineq_constraint]
-    fn1 = Symbol("eval_mop_", eval_type, "s_at_scaled_site")
-    fn2 = Symbol("eval_vec_mop_", eval_type, "s_at_scaled_site")
-
-    fn3 =  Symbol("eval_mop_", eval_type, "s_at_unscaled_site")
-    fn4 = Symbol("eval_vec_mop_", eval_type, "s_at_unscaled_site")
-    getter_fun = Symbol("get_$(eval_type)_indices")
-    @eval begin
-        function $(fn1)(
-                mop :: AbstractMOP, scal :: AbstractVarScaler, x_scaled :: Vec )
-            return eval_mop_at_func_indices_at_scaled_site( 
-                mop, scal, x_scaled, $(getter_fun)(mop) 
-            )
+    for suffix1 in [:scaled_site, :unscaled_site]
+        for suffix2 in ["", "s"]
+            getter = Symbol("get_$(eval_type)_indices")
+            base_fn = Symbol("eval_vec_mop_at_func_indices_at_",suffix1, suffix2)
+            fn_new = Symbol( "eval_vec_mop_", eval_type, "s_at_", suffix1, suffix2)
+            @eval begin
+                function $(fn_new)(mop, x, args...)
+                    func_indices = $(getter)(mop)
+                    return $(base_fn)(mop, func_indices, x, args...)
+                end
+            end
         end
-
-        function $(fn2)( 
-                mop :: AbstractMOP, scal :: AbstractVarScaler, x_scaled :: Vec )
-            tmp_res = $(fn1)( mop, scal, x_scaled )
-            return eval_result_to_vector( mop, tmp_res )
-        end
-
-        function Base.broadcastable( :: typeof($(fn1)), 
-            mop :: AbstractMOP, scal :: AbstractVarScaler, X_scaled :: VecVec)
-            X_unscaled = untransform.( X_scaled, scal )
-            return eval_mop_at_func_indices_at_unscaled_site.(
-                mop, X_unscaled, Ref($(getter_fun)(mop))
-            )
-        end
-
-        function Base.broadcastable( ::typeof($(fn2)), 
-            mop :: AbstractMOP, scal :: AbstractVarScaler, X_scaled :: VecVec )
-            tmp_res = $(fn1).(mop, scal, X_scaled)
-            return eval_result_to_vector.(mop, tmp_res)
-        end
-
-        # unscaled 
-        function $(fn3)( mop :: AbstractMOP, x :: Vec )
-            return eval_mop_at_func_indices_at_unscaled_site( 
-                mop, x, $(getter_fun)(mop) 
-            )
-        end
-
-        function $(fn4)( mop :: AbstractMOP, x :: Vec )
-            tmp_res = $(fn3)( mop, x )
-            return eval_result_to_vector( mop, tmp_res )
-        end
-
-        function Base.broadcastable( :: typeof($(fn3)), mop :: AbstractMOP, X :: VecVec)
-            return eval_mop_at_func_indices_at_unscaled_site.(
-                mop, X, Ref($(getter_fun)(mop))
-            )
-        end
-
-        function Base.broadcastable( ::typeof($(fn4)), mop :: AbstractMOP, X :: VecVec )
-            tmp_res = $(fn3).(mop, X)
-            return eval_result_to_vector.(mop, tmp_res)
-        end
-
     end
 end
 

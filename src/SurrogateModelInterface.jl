@@ -24,19 +24,19 @@ needs_hessians( :: SurrogateConfig ) :: Bool = false
 ## TODO: make `prepare_init_model` and `_init_model` have a `ensure_fully_linear` kwarg too
 function prepare_init_model( ::SurrogateConfig, ::FunctionIndexIterable, :: AbstractMOP,
     :: AbstractVarScaler,
-    :: AbstractIterData, ::AbstractSuperDB, :: AbstractConfig; kwargs... ) :: SurrogateMeta 
+    :: AbstractIterate, ::AbstractSuperDB, :: AbstractConfig; kwargs... ) :: SurrogateMeta 
     nothing
 end
 
 function init_model( ::SurrogateMeta, ::SurrogateConfig, FunctionIndexIterable, :: AbstractMOP, 
     :: AbstractVarScaler,
-    :: AbstractIterData, ::AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
+    :: AbstractIterate, ::AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
     nothing 
 end
 
 function update_model( mod :: SurrogateModel, meta ::SurrogateMeta, ::SurrogateConfig, :: FunctionIndexIterable, 
     :: AbstractMOP, :: AbstractVarScaler,
-    :: AbstractIterData, :: AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
+    :: AbstractIterate, :: AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
     mod, meta 
 end
 

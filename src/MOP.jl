@@ -19,11 +19,11 @@ end
 
 struct MOPTyped{
 		VarType <: Tuple{Vararg{<:VarInd}},
-		LbType <: AbstractDict{VarInd,<:AbstractFloat},
-		UbType <: AbstractDict{VarInd,<:AbstractFloat},
-		ObjfType <: AbstractDict, #{ObjectiveIndex,<:Union{AbstractVecFun,Nothing}},
-		NlEqType <: AbstractDict,   #{ConstraintIndex,<:Union{AbstractVecFun,Nothing}},
-		NlIneqType <: AbstractDict, #{ConstraintIndex,<:Union{AbstractVecFun,Nothing}},
+		LbType <: Union{AbstractDict, AbstractDictionary}, #{VarInd,<:AbstractFloat},
+		UbType <: Union{AbstractDict, AbstractDictionary}, #{VarInd,<:AbstractFloat},
+		ObjfType <: Union{AbstractDict, AbstractDictionary}, #{ObjectiveIndex,<:Union{AbstractVecFun,Nothing}},
+		NlEqType <: Union{AbstractDict, AbstractDictionary},   #{ConstraintIndex,<:Union{AbstractVecFun,Nothing}},
+		NlIneqType <: Union{AbstractDict, AbstractDictionary}, #{ConstraintIndex,<:Union{AbstractVecFun,Nothing}},
 		EqMatType, IneqMatType, EqVecType, IneqVecType
 	} <: AbstractMOP{false}
 
@@ -108,7 +108,7 @@ num_vars( mop :: BothMOP ) = length( mop.variables )
 get_objective_indices( mop :: BothMOP ) = keys( mop.objective_functions )
 get_nl_eq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_eq_constraints )
 get_eq_constraint_indices( mop :: MOP ) = keys( mop.eq_constraints )
-get_nl_ineq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_eq_constraints )
+get_nl_ineq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_ineq_constraints )
 get_ineq_constraint_indices( mop :: MOP ) = keys( mop.ineq_constraints )
 
 _get( mop :: BothMOP, ind::ObjectiveIndex ) = mop.objective_functions[ind]
@@ -132,7 +132,7 @@ function __get( mop :: MOP, ind :: ConstraintIndex )
 end
 
 _next_val( indices ) = isempty(indices) ? 1 : maximum( ind.value for ind in indices ) + 1 
-_next_val( dict :: AbstractDict ) = _next_val( keys(dict) )
+_next_val( dict :: Union{AbstractDict, AbstractDictionary} ) = _next_val( keys(dict) )
 
 function add_lower_bound!(mop :: MOP, vi :: VarInd, val :: Real) 
 	mop.lower_bounds[vi] = val

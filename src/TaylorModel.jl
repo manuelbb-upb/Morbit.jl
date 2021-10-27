@@ -156,7 +156,7 @@ end
 
 function prepare_init_model(cfg :: TaylorConfig, func_indices :: FunctionIndexIterable,
     mop :: AbstractMOP, scal :: AbstractVarScaler, 
-	id :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+	id :: AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	kwargs...)
     return prepare_update_model(nothing, TaylorIndexMeta(), cfg, func_indices, mop, scal, id, sdb, ac ; kwargs... )
 end
@@ -165,7 +165,7 @@ end
 function prepare_update_model( 
         mod :: Union{Nothing, TaylorModel}, meta :: TaylorIndexMeta, 
 		cfg :: TaylorConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, 
-		iter_data :: AbstractIterData, sdb :: AbstractSuperDB, algo_config :: AbstractConfig; kwargs... )
+		iter_data :: AbstractIterate, sdb :: AbstractSuperDB, algo_config :: AbstractConfig; kwargs... )
 
     db = get_sub_db( sdb, func_indices )
     x = get_x_scaled( iter_data )
@@ -221,7 +221,7 @@ end
 # If the meta data is set correctly, we only have to set the value vectors for the 
 # RFD trees and then ask for the right matrices:
 function init_model(meta :: TaylorIndexMeta, cfg :: TaylorConfig, func_indices :: FunctionIndexIterable,
-	mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
+	mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
     
     return update_model( nothing, meta, cfg, func_indices, mop, scal, iter_data, sdb, ac; kwargs...)
 end
@@ -229,7 +229,7 @@ end
 # Note, that we only perform updates if the iterate has changed, `x != mod.x0`, because 
 # we don't change the differencing parameters.
 function update_model( mod::Union{Nothing,TaylorModel}, meta :: TaylorIndexMeta, cfg :: TaylorConfig,
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
 	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	kwargs... )
     
@@ -302,7 +302,7 @@ struct TaylorCallbackMeta <: SurrogateMeta end
 # The initialization for the legacy config types is straightforward as they don't use 
 # the new 2-phase process:
 function prepare_init_model(cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
     return TaylorCallbackMeta()
 end
 
@@ -310,12 +310,12 @@ end
 # methods of the `AbstractVectorObjective`.
 
 function init_model(meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
     return update_model(nothing, meta, cfg, func_indices, mop, scal, id, sdb, ac; kwargs... )
 end
 
 function update_model( mod :: Union{Nothing,TaylorModel}, meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
 
     x0 = get_x_scaled(id)
     x0_unscaled = get_x(id)

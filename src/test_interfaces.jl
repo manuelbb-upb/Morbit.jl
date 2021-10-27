@@ -7,8 +7,8 @@ mop = M.MOP(n_vars)
 
 vars = M.var_indices(mop)
 
-f1 = x -> sum((x.-1).^2)
-f2 = x -> sum((x.+1).^2)
+f1 = x -> [ (x[1] - 2)^2 + sum( x[2:end] .- 1 ).^2 ] #x -> sum((x.-1).^2)
+f2 = x -> [ (x[1] - 2)^2 + sum( x[2:end] .+ 1 ).^2 ]#x -> sum((x.+1).^2)
 F = x -> [f1(x);f2(x)]
 
 oind = M.add_objective!(mop, f1; model_cfg = M.RbfConfig() )
@@ -18,8 +18,11 @@ oind = M.add_objective!(mop, f1; model_cfg = M.RbfConfig() )
 #oind2 = M.add_objective!(mop, f2; model_cfg = M.TaylorCallbackConfig(), diff_method = M.AutoDiffWrapper )
 oind2 = M.add_objective!(mop, f2; model_cfg = M.ExactConfig() )#, diff_method = M.AutoDiffWrapper )
 
-ineqconst = M.add_ineq_constraint!(mop, 
+#= ineqconst = M.add_ineq_constraint!(mop, 
 	[1 zeros(n_vars-1)'])
+=#
+ineqconst = M.add_nl_ineq_constraint!(mop, x -> 1 - sum( x.^2 ); model_cfg = M.ExactConfig())
+
 
 #algo_config = M.AlgoConfig( var_scaler = M.NoVarScaling)
 
@@ -40,5 +43,6 @@ M.iterate!(id, sdb, smop, sc, ac, filter, scal)
 
 #%%
 # single-call 
-x, fx, ret, sdb, id = M.optimize( mop, [3; 1.5]; algo_config = M.AlgoConfig(max_iter = 3))
+# TODO fix bug when input is int
+x, fx, ret, sdb, id = M.optimize( mop, [-2.0; 0.0]; algo_config = M.AlgoConfig(max_iter = 35))
 x

@@ -72,8 +72,8 @@ init_db( :: MockDB, R, I, args... ) = MockDB{R,I}()
 
 ####################################################
 @with_kw struct SuperDB{ 
-		T <: NothingOrSaveable, 
-		ST <: AbstractDict{FunctionIndexTuple,<:AbstractDB} 
+		T <: AbstractIterSaveable, 
+		ST <: Union{AbstractDict, AbstractDictionary},#{FunctionIndexTuple,<:AbstractDB} 
 	} <: AbstractSuperDB
     sub_dbs :: ST
     iter_data :: Vector{T} = T[]
@@ -82,7 +82,7 @@ end
 all_sub_db_indices( sdb :: SuperDB ) = keys(sdb.sub_dbs)
 get_sub_db( sdb :: SuperDB, key_indices :: FunctionIndexTuple ) = sdb.sub_dbs[key_indices]
 
-function stamp!( sdb :: SuperDB, ids :: NothingOrSaveable)
+function stamp!( sdb :: SuperDB, ids :: AbstractIterSaveable)
 	push!(sdb.iter_data, ids)
 	return nothing
 end

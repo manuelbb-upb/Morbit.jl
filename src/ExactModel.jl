@@ -60,14 +60,14 @@ combinable( :: ExactConfig ) = false
 
 # All "construction" work is done in the `init_model` function:
 function prepare_init_model(cfg :: ExactConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
     return ExactMeta()
 end
 
 @doc "Return an ExactModel build from a VecFun `objf`. 
 Model is the same inside and outside of criticality round."
 function init_model(meta :: ExactMeta, cfg :: ExactConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
+    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs...)
     
     em = ExactModel(func_indices, mop)
     return em, meta
@@ -78,7 +78,7 @@ end
 # ## Evaluation
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."
 function eval_models( em :: ExactModel,scal :: AbstractVarScaler, x_scaled :: Vec )
-    return eval_vec_mop_at_func_indices_at_scaled_site( em.mop[], scal, x_scaled, em.func_indices )
+    return eval_vec_mop_at_func_indices_at_scaled_site( em.mop[], em.func_indices, x_scaled, scal )
 end
 
 @memoize function func_index_and_relative_position_from_exact_model( em :: ExactModel, l :: Int )
@@ -88,7 +88,7 @@ end
 @doc "Evaluate output `ℓ` of the ExactModel `em` at scaled site `x̂`."
 function eval_models( em :: ExactModel, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ :: Int64)
     f_ind, rel_pos = func_index_and_relative_position_from_exact_model( em, ℓ )
-    return eval_vec_mop_at_func_index_at_scaled_site(em.mop[], scal, x_scaled, f_ind)[rel_pos]
+    return eval_vec_mop_at_func_indices_at_scaled_site(em.mop[], [f_ind,], x_scaled, scal)[rel_pos]
 end
 
 @doc "Gradient vector of output `ℓ` of `em` at scaled site `x̂`."

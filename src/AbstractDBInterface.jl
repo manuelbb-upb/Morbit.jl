@@ -189,7 +189,6 @@ end
 
 "Evaluate all unevaluated results in `db` using objectives of `mop`."
 function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, scal :: AbstractVarScaler, func_indices) :: Nothing
-
     missing_ids = copy(_missing_ids(db))
 
     n_missing = length(missing_ids)
@@ -198,10 +197,7 @@ function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, scal :: AbstractVa
     if n_missing > 0
         ## evaluate everything in one go to exploit parallelism
         eval_sites = untransform.( [ get_site( db, id ) for id in missing_ids ], scal )
-        eval_values = eval_result_to_vector.( 
-            mop,
-            eval_mop_at_func_indices_at_unscaled_site.(mop, eval_sites, Ref(func_indices)),
-        )
+        eval_values = eval_vec_mop_at_func_indices_at_unscaled_sites(mop, func_indices, eval_sites)
     
         @assert length(eval_sites) == length(eval_values) == length(missing_ids) "Number of evaluation results does not match."
         for (i,id) in enumerate(missing_ids)
@@ -291,19 +287,19 @@ end
 
 "Evaluate all unevaluated results in `db` using objectives of `mop`."
 function eval_missing!( sdb :: AbstractSuperDB, mop :: AbstractMOP, scal :: AbstractVarScaler )
-    for func_indices in all_sub_db_indices(sdb) 
+    for func_indices in all_sub_db_indices(sdb)
         eval_missing!( get_sub_db(sdb, func_indices), mop, scal, func_indices )
     end
     return nothing
 end
 
-stamp!( sdb :: AbstractSuperDB, ids :: NothingOrSaveable ) = nothing
+stamp!( sdb :: AbstractSuperDB, ids :: AbstractIterSaveable) = nothing
 
-function put_eval_result_into_db!( sdb :: AbstractSuperDB, eval_result :: AbstractDict, x :: Vec )
+function put_eval_result_into_db!( sdb :: AbstractSuperDB, eval_result :: Union{AbstractDict, AbstractDictionary}, x :: Vec )
     x_indices = Dict{FunctionIndexTuple, Int}()
     for func_indices in all_sub_db_indices(sdb)
         sub_db = get_sub_db( sdb, func_indices )
-        vals = flatten_vecs( [ eval_result[f_ind] for f_ind in func_indices ] )
+        vals = flatten_vecs( eval_result[f_ind] for f_ind=func_indices ) 
         ind = new_result!( sub_db, x, vals )
         x_indices[func_indices] = ind 
     end

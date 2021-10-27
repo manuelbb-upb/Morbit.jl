@@ -84,7 +84,7 @@ get_nl_ineq_constraint_indices( sc :: SurrogateContainer ) = sc.nl_ineq_constrai
 @doc "Return a SurrogateContainer initialized from the information provided in `mop`."
 function init_surrogates( ::Type{<:SurrogateContainer}, mop :: AbstractMOP,
     scal :: AbstractVarScaler, 
-    id :: AbstractIterData, ac :: AbstractConfig, 
+    id :: AbstractIterate, ac :: AbstractConfig, 
     groupings :: Vector{ModelGrouping}, sdb :: AbstractSuperDB )
     
     @logmsg loglevel2 "Initializing surrogate models."
@@ -118,7 +118,7 @@ end
 
 function update_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP,
     scal :: AbstractVarScaler, 
-    id :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+    id :: AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
     ensure_fully_linear :: Bool = false, kwargs... ) :: Nothing 
     
     @logmsg loglevel2 "Updating surrogate models."
@@ -155,7 +155,7 @@ end
 
 function improve_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP, 
     scal :: AbstractVarScaler,
-    id :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+    id :: AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
     ensure_fully_linear :: Bool = false, kwargs... ) :: Nothing 
     @logmsg loglevel2 "Improving surrogate models."
 

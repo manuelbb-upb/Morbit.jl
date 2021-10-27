@@ -30,6 +30,7 @@ function compute_values( filter :: Union{Type{<:AbstractFilter}, AbstractFilter}
 end
 
 function add_entry!( filter:: AbstractFilter, site, values)
+	@logmsg loglevel3 "Adding $(_prettify(site)) with $(values) to Filter."
 	θₖ, fₖ = values 
 	γ_θ = get_shift(filter)
 	θ = θₖ - γ_θ * θₖ
@@ -61,10 +62,15 @@ function is_acceptable( vals :: Tuple, filter :: AbstractFilter, other_vals :: T
 	θ,f = vals 
 	θₖ, fₖ = other_vals 
 	
-	acceptable_flag = ( (θ <= (1-γ_θ) * θₖ) && all( f .<= fₖ .- γ_θ * θ_k ) )
+	acceptable_flag = ( (θ <= (1-γ_θ) * θₖ) && all( f .<= fₖ .- γ_θ * θₖ ) )
 	if acceptable_flag
 		return is_acceptable( vals, filter )
 	else
 		return false
 	end
+end
+
+function is_acceptable(filter, fx, l_e, l_i, c_e, c_i , args... )
+	vals = compute_values( filter, fx, l_e, l_i, c_e, c_i )
+	return is_acceptable( vals, filter, args...)
 end

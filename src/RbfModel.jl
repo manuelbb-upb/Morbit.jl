@@ -181,7 +181,7 @@ end
 # We delegate the work to `prepare_update_model`.
 function prepare_init_model( cfg :: RbfConfig, func_indices :: FunctionIndexIterable, 
 	mop :: AbstractMOP, scal :: AbstractVarScaler, 
-	id :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+	id :: AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	ensure_fully_linear = true, kwargs...)
 	F = eltype( get_x_scaled(id) )
 	meta = RbfMeta{F, typeof(func_indices)}(; signature = _get_signature( cfg ), func_indices )
@@ -192,7 +192,7 @@ end
 # Because of the trick from above, we actually allow `nothing`, too.
 function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta, 
 		cfg :: RbfConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, 
-		iter_data :: AbstractIterData, sdb :: AbstractSuperDB, algo_config :: AbstractConfig;
+		iter_data :: AbstractIterate, sdb :: AbstractSuperDB, algo_config :: AbstractConfig;
 		ensure_fully_linear = false, force_rebuild = false, meta_array = nothing 
 	)
 	
@@ -563,7 +563,7 @@ end
 
 # An improvement step consists of adding a new site to the database, along an improving direction:
 function prepare_improve_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta, cfg :: RbfConfig, 
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, sdb :: AbstractSuperDB, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, sdb :: AbstractSuperDB, 
 	algo_config :: AbstractConfig; kwargs... )
 	
 	if !meta.fully_linear
@@ -602,12 +602,12 @@ end
 # As before, `_init_model` simply delegates work to `update_model`.
 
 function init_model( meta :: RbfMeta, cfg :: RbfConfig, func_indices :: FunctionIndexIterable,
-	mop :: AbstractMOP,	scal :: AbstractVarScaler, iter_data :: AbstractIterData, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
+	mop :: AbstractMOP,	scal :: AbstractVarScaler, iter_data :: AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
 	return update_model( nothing, meta, cfg, func_indices, mop, scal, iter_data, sdb, ac; kwargs... )
 end
 
 function update_model( mod::Union{Nothing,RbfModel}, meta :: RbfMeta, cfg :: RbfConfig,
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
 	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	kwargs... )
 	
@@ -631,7 +631,7 @@ end
 
 # The improvement function also simply cals the update function:
 function improve_model( mod::Union{Nothing,RbfModel},meta :: RbfMeta, cfg :: RbfConfig,
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterData, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
 	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
 	kwargs... )
 	

@@ -394,7 +394,7 @@ end
 # to build an initial surrogate model.
 # We delegate the work to `prepare_update_model`.
 function prepare_init_model( cfg :: LagrangeConfig, objf :: AbstractVecFun, mop :: AbstractMOP, 
-	id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
+	id :: AbstractIterate, db :: AbstractDB, ac :: AbstractConfig; 
 	ensure_fully_linear = true, kwargs...)
     
     n_vars = num_vars( mop )
@@ -443,7 +443,7 @@ function _scale_poly_basis( poised_basis, lb, ub )
 end
 
 function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractVecFun,
-    meta :: LagrangeMeta,  mop :: AbstractMOP, iter_data :: AbstractIterData, 
+    meta :: LagrangeMeta,  mop :: AbstractMOP, iter_data :: AbstractIterate, 
     db :: AbstractDB, algo_config :: AbstractConfig; 
     ensure_fully_linear = true, kwargs... )
 
@@ -538,7 +538,7 @@ end#function
 
 # The improvement preparation enforces a Λ-poised set:
 function prepare_improve_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractVecFun, meta :: LagrangeMeta, 
-    mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig; 
+    mop :: AbstractMOP, iter_data :: AbstractIterate, db :: AbstractDB, algo_config :: AbstractConfig; 
     kwargs... )
     return prepare_update_model( mod, objf, meta, mop, iter_data, db, algo_config; ensure_fully_linear = true, kwargs...)
 end
@@ -551,12 +551,12 @@ end
 # We also store the gradient (vector of polynomials) for each basis polynomial.
 
 function _init_model( cfg :: LagrangeConfig, objf :: AbstractVecFun, mop :: AbstractMOP,
-	iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig, meta :: LagrangeMeta; kwargs... )
+	iter_data :: AbstractIterate, db :: AbstractDB, ac :: AbstractConfig, meta :: LagrangeMeta; kwargs... )
 	return update_model( nothing, objf, meta, mop, iter_data, db, ac; kwargs... )
 end
 
 function update_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractVecFun,
-    meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
+    meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterate, db :: AbstractDB, ac :: AbstractConfig; 
 	kwargs... ) 
 
     coeff = [ c[ meta.out_indices ] for c in get_value.(db, meta.interpolation_indices) ]
@@ -572,7 +572,7 @@ function update_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractVecFun,
 end
 
 function improve_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractVecFun,
-    meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig; 
+    meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterate, db :: AbstractDB, ac :: AbstractConfig; 
 	kwargs... ) 
     return update_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...)
 end

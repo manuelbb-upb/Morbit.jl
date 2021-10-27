@@ -21,7 +21,7 @@ use_db( ::DefaultConfig ) = ArrayDB
    
     db :: Union{Nothing,Type{<:AbstractDB}} = ArrayDB
 
-    count_nonlinear_iterations :: Bool = count_nonlinear_iterations( default_config )
+    #count_nonlinear_iterations :: Bool = count_nonlinear_iterations( default_config )
     
     delta_0 :: NumOrVec64 = get_delta_0(default_config)
     delta_max :: NumOrVec64 = get_delta_max(default_config)

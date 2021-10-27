@@ -60,7 +60,7 @@ function build_super_db( groupings :: Vector{<:ModelGrouping}, x_scaled :: XT, e
     for group in groupings 
         index_tuple = Tuple(group.indices)
 
-        _group_vals = eval_result_to_vector( eval_res, group.indices )
+        _group_vals = flatten_mop_dict( eval_res, group.indices )
         group_vals = (Base.promote_eltype( _group_vals, MIN_PRECISION )).(_group_vals)
 
         res = Result(; x = SVector{n_vars}(x_scaled), y = MVector{length(group_vals)}(group_vals) )
@@ -467,13 +467,14 @@ function get_return_values(iter_data)
     return ret_x, ret_fx 
 end
 
-function _fin_info_str(iter_data :: AbstractIterData, mop = nothing, stopcode = nothing )
+function _fin_info_str(iter_data :: AbstractIterate, 
+        mop = nothing, stopcode = nothing, num_iterations = -1 )
     ret_x, ret_fx = get_return_values( iter_data )
     return """\n
         |--------------------------------------------
         | FINISHED ($stopcode)
         |--------------------------------------------
-        | No. iterations:  $(get_num_iterations(iter_data)) 
+        | No. iterations:  $(num_iterations)
     """ * (isnothing(mop) ? "" :
         "    | No. evaluations: $(num_evals(mop))" ) *
     """ 
@@ -496,37 +497,13 @@ function _prettify( vec :: Vec, len :: Int = 5) :: AbstractString
     )
 end
 
-function copy_iter_data( id :: IterData, x_n_unscaled, 
-        fx_n, x_n_scaled, l_e_n, l_i_n, c_e_n, c_i_n, Δ, x_indices_n )
-    new_id = deepcopy(id)
-    set_x!(new_id, x_n_unscaled)
-    set_delta!(new_id, Δ)
-    set_fx!(new_id, fx_n)
-    set_x_scaled!(new_id, x_n_scaled)
-    set_eq_const!(new_id, l_e_n)
-    set_ineq_const!(new_id, l_i_n)
-    set_nl_eq_const!(new_id, c_e_n)
-    set_nl_ineq_const!(new_id, c_i_n)
-    for (ind, i) = x_indices_n 
-        set_x_index!(new_id, ind,i)
-    end
-    return new_id    
-end
-
-
 #########################################################################
-
-#=
-function x_index_mapping( sdb :: AbstractSuperDB, id :: AbstractIterData )
-    return Base.ImmutableDict( (inds => get_x_index( id, inds ) for inds in all_sub_db_indices( sdb ) )... )
-end
-=#
 
 function zeros_like( x :: AbstractVector{R} ) where R<:Number 
 	return zeros( R, length(x) )
 end
 
-function compute_constraint_val( filter :: AbstractFilter, iter_data :: AbstractIterData)
+function compute_constraint_val( filter :: AbstractFilter, iter_data :: AbstractIterate )
     return compute_constraint_val( filter,
         get_eq_const( iter_data ),
         get_ineq_const( iter_data ),

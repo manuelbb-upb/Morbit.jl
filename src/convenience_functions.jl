@@ -2,13 +2,23 @@
 # Intended for use by the enduser.
 # Requires concrete types `MOP` and `VecFun`.
 
-export add_objective!, add_vector_objective!
+export add_objective!, add_vector_objective!, add_nl_ineq_constraint!, add_nl_eq_constraint!
 
 # adding objectives to a mixed problem
 @doc "Add a scalar objective to `mop::MOP` modelled according to `model_config`."
 function add_objective!(mop :: MOP, func :: Function;
         model_cfg :: SurrogateConfig = RbfConfig(), kwargs... )
     return add_objective!(mop, VecFun, func; model_cfg, n_out = 1, kwargs... )
+end
+
+function add_nl_eq_constraint!(mop :: MOP, func :: Function;
+        model_cfg :: SurrogateConfig = RbfConfig(), kwargs... )
+    return add_nl_eq_constraint!(mop, VecFun, func; model_cfg, n_out = 1, kwargs... )
+end
+
+function add_nl_ineq_constraint!(mop :: MOP, func :: Function;
+        model_cfg :: SurrogateConfig = RbfConfig(), kwargs... )
+    return add_nl_ineq_constraint!(mop, VecFun, func; model_cfg, n_out = 1, kwargs... )
 end
 
 # FUNCTIONS TO ADD VECTOR OBJECTIVES TO A MOP
