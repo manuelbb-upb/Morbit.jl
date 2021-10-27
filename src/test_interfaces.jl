@@ -44,5 +44,11 @@ M.iterate!(id, sdb, smop, sc, ac, filter, scal)
 #%%
 # single-call 
 # TODO fix bug when input is int
-x, fx, ret, sdb, id = M.optimize( mop, [-2.0; 0.0]; algo_config = M.AlgoConfig(max_iter = 35))
+algo_config = AlgoConfig(
+	max_iter = 30,
+	x_tol_rel = -Inf,
+	f_tol_rel = -Inf
+)
+
+x, fx, ret, sdb, id = M.optimize( mop, [-2.0; 0.0]; algo_config)
 x
