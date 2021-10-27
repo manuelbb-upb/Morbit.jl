@@ -419,19 +419,16 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 		θ_n = θ_k
 		
 		# these values are needed for tangent step calculation:
-		n = 0
 		iter_data_n = iter_data
 	end
 
     # calculate descent step and criticality value of x+n
-    ω, ω_data = get_criticality(mop, scal, iter_data_n, data_base, sc, algo_config; 
-		center_offset = n 
-	)
+    ω, ω_data = get_criticality(mop, scal, iter_data, iter_data_n, data_base, sc, algo_config )
     @logmsg loglevel1 "Criticality is ω = $(ω)."
     
     # stop at the end of the this loop run?
 	_θ_n_zero = constraint_violation_is_zero(θ_n)
-    if _θ_n_zero && ( ω_Δ_rel_test(ω, get_delta( iter_data_n ), algo_config) || 
+    if _θ_n_zero && ( ω_Δ_rel_test(ω, get_delta( iter_data ), algo_config) || 
 			ω_abs_test( ω, algo_config )
 		)
         return CRITICAL, EARLY_EXIT, scal, iter_data_n
@@ -441,7 +438,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 	Criticallity test
 	==============================#
 	_fully_linear_sc = fully_linear(sc)
-	if _θ_n_zero &&  ω <= ε_c && (!_fully_linear_sc|| all(get_delta( iter_data_n ) .> μ * ω))
+	if _θ_n_zero &&  ω <= ε_c && (!_fully_linear_sc|| all(get_delta( iter_data ) .> μ * ω))
 		@logmsg loglevel1 "Entered Criticallity Test."
 		
 		DO_CRIT_LOOPS = true
@@ -453,8 +450,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 				ensure_fully_linear = true )
             
 			# are we still critical?
-            ω, ω_data = get_criticality(mop, scal, iter_data_n, data_base, sc, algo_config; 
-				center_offset = n )
+            ω, ω_data = get_criticality(mop, scal, iter_data, iter_data_n, data_base, sc, algo_config)
             
 			if !fully_linear(sc)
 				DO_CRIT_LOOPS = false
@@ -468,9 +464,8 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 		num_critical_loops = 0
 		if DO_CRIT_LOOPS			
 
-			iter_data = iter_data_n 
-			n = 0
-
+			# if we are really near a critical point we compute the criticality from x+n hereafter
+			# that's wey in the while loop I use `iter_data_n` instead of `iter_data`
 			Δ = get_delta( iter_data_n )
 			Δ_0 = Δ
 
@@ -479,7 +474,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 				
 				if num_critical_loops >= max_critical_loops(algo_config)
 					@logmsg loglevel1 "Maximum number ($(max_critical_loops(algo_config))) of critical loops reached. Exiting..."
-					return CRITICAL
+					return CRITICAL, EARLY_EXIT, scal, iter_data_n
 				end
 				if !_budget_okay(mop, algo_config)
 					@logmsg loglevel1 "Computational budget exhausted. Exiting…"
@@ -490,11 +485,11 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 				Δ = γ_c .* Δ				
 				
 				# make models fully linear on smaller trust region
-				update_surrogates!( sc, mop, scal, iter_data, data_base, algo_config; ensure_fully_linear = true )
+				update_surrogates!( sc, mop, scal, iter_data_n, data_base, algo_config; ensure_fully_linear = true )
 
 				# (re)calculate criticality
-				ω, ω_data = get_criticality( mop, scal, iter_data, data_base, sc, algo_config; 
-					center_offset = n )
+				# it is fully intentional that the arguments read `…, iter_data_n, iter_data_n,…`
+				ω, ω_data = get_criticality( mop, scal, iter_data_n, iter_data_n, data_base, sc, algo_config )
 				num_critical_loops += 1
 
 				if Δ_abs_test( Δ, algo_config ) || 
@@ -520,9 +515,9 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 			# iter_data_n already has the right x, fx, … values
 			# (I guess, for convergence theory we should classify this by 
 			# its own ITER_TYPE)
-			set_delta!(iter_data, min( Δ_0, max( β * ω, Δ) ) )
-			stamp_content = get_saveable( SAVEABLE_TYPE, iter_data; 
-				rho = -Inf, omega = -Inf, steplength = -Inf, iter_counter, CRIT_LOOP_EXIT
+			set_delta!(iter_data_n, min( Δ_0, max( β * ω, Δ) ) )
+			stamp_content = get_saveable( SAVEABLE_TYPE, iter_data_n; 
+				rho = -Inf, omega = ω, steplength = -Inf, iter_counter, CRIT_LOOP_EXIT
 			)
 			stamp!( data_base, stamp_content )
 			return CONTINUE, CRIT_LOOP_EXIT, scal, iter_data_n
@@ -533,7 +528,8 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 
 	# Calculation of trial point and evaluation of Objective and Surrogates:
 	ω, x_trial_scaled, mx_trial, _ = compute_descent_step(
-		mop, scal, iter_data_n, data_base, sc, algo_config, ω, ω_data; center_offset = n )
+		mop, scal, iter_data, iter_data_n, data_base, sc, algo_config, ω, ω_data 
+	)
 
 	x_scaled = get_x_scaled( iter_data )
 	x_trial_unscaled = untransform( x_trial_scaled, scal )
@@ -635,7 +631,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 		# reject if trial point is not acceptable to filter
 		ACCEPT_TRIAL_POINT = false
 		IT_STAT = FILTER_FAIL
-		_RADIUS_UPDATE = SHRINK
+		_RADIUS_UPDATE = SHRINK_MUCH
 	end
 
 	#=

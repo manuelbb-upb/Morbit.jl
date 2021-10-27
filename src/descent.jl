@@ -16,26 +16,26 @@
 # the new trial point model values and the steplength (inf-norm)
 
 # method to only compute criticality
-function get_criticality( mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
+function get_criticality( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
         data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig;
         kwargs...
     )
 
-    return get_criticality( descent_method( algo_config ), mop, scal, iter_data, data_base, sc, algo_config; kwargs... ) 
+    return get_criticality( descent_method( algo_config ), mop, scal, x_it, x_it_n, data_base, sc, algo_config; kwargs... ) 
 end
 
 # methods to compute a local descent step
-function compute_descent_step( mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
+function compute_descent_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
        data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, args...; kwargs...
     )
-    return compute_descent_step( descent_method( algo_config ), mop, scal, iter_data, data_base, sc, algo_config, args... ; kwargs...)
+    return compute_descent_step( descent_method( algo_config ), mop, scal, x_it, x_it_n, data_base, sc, algo_config, args... ; kwargs...)
 end
 
 # fallback, if `get_criticality` allready does the whole job: simply return `ω` and `data`
-function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
+function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
         data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig; kwargs...
     )
-    ω, data = get_criticality(cfg, mop, scal, iter_data, data_base, sc, algo_config; kwargs...)
+    ω, data = get_criticality(cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config; kwargs...)
     return (ω, data...)
 end
 
@@ -56,16 +56,16 @@ end
 "Provided `x` and the (surrogate) jacobian `∇F` at `x`, as well as bounds `lb` and `ub`, return steepest multi descent direction."
 function _steepest_descent_direction(
     x :: AbstractVector{F}, ∇F :: Mat, lb :: Vec, ub :: Vec,
-    A_eq = [], b_eq = [], A_ineq = [], b_ineq = []
+    A_eq = [], b_eq = [], A_ineq = [], b_ineq = [],
     ) where F <: AbstractFloat
     
     n = length(x);
     try 
         opt_problem = JuMP.Model( OSQP.Optimizer );
-        JuMP.set_silent(opt_problem);
+        JuMP.set_silent(opt_problem)
 
-        JuMP.set_optimizer_attribute( opt_problem, "eps_rel", 1e-5 );
-        JuMP.set_optimizer_attribute( opt_problem, "polish", true );
+        JuMP.set_optimizer_attribute( opt_problem, "eps_rel", 1e-5 )
+        JuMP.set_optimizer_attribute( opt_problem, "polish", true )
 
         JuMP.@variable(opt_problem, α)  # criticality measure with flipped sign
         JuMP.@objective(opt_problem, Min, α)
@@ -79,12 +79,14 @@ function _steepest_descent_direction(
         JuMP.@constraint(opt_problem, global_scaled_var_bounds, lb .<= x .+ d .<= ub);
         if !isempty(A_eq)
             @assert size(A_eq, 1) == length(b_eq) "Equality constraint dimension mismatch."
-            JuMP.@constraint(opt_problem, linear_eq_constraints,  A_eq*(x.+d) .+ b_eq .== 0 )
+            JuMP.@constraint(opt_problem, linear_eq_constraints,  A_eq*d .+ b_eq .== 0 )
         end
+        
         if !isempty(A_ineq)
             @assert size(A_ineq, 1) == length(b_ineq) "Equality constraint dimension mismatch."
-            JuMP.@constraint(opt_problem, linear_ineq_constraints, A_ineq*(x.+d) .+ b_ineq .<= 0 )
+            JuMP.@constraint(opt_problem, linear_ineq_constraints, A_ineq*d .+ b_ineq .<= 0 )
         end
+
         JuMP.optimize!(opt_problem)
         return F.(JuMP.value.(d)), -F(JuMP.value(α))
     catch e
@@ -132,65 +134,77 @@ function _backtrack( x :: AbstractVector{F}, dir, ω, sc, cfg, scal ) where F<:A
             break
         end 
         step_size *= α
-        x₊ .= x .+ step_size .* dir
+        x₊ = x .+ step_size .* dir
         mx₊ .= eval_container_objectives_at_scaled_site( sc, scal, x₊ )
     end
 
-    step = step_size .* dir;
+    step = step_size .* dir
     return x₊, mx₊, step
 end
 
-function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, iter_data, 
-        data_base, sc, algo_config;
-        center_offset = 0 
+function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_it_n, 
+        data_base, sc, algo_config
     )
 
     @logmsg loglevel3 "Calculating steepest descent direction."
 
-    x = get_x_scaled(iter_data)
+    x_n = get_x_scaled(x_it_n)
+    x = get_x_scaled(x_it)
+
     ∇m = eval_container_objectives_jacobian_at_scaled_site(sc, scal, x)
 
     lb, ub = full_bounds_internal( scal )
     
-    _A_eq, _b_eq, _A_ineq, _b_ineq = transformed_linear_constraints(scal, mop)
+    # For computing a step `t`, starting at `x + n`, the linear constraints are 
+    # A⋅(x + n + t) + b ≤ 0
+    # As `x` and `n` are constant we use `b̃ = Ax + An + b` 
+    # which happens to be saved in `x_it_n` for constraints 
+    # A ⋅ t + b̃ ≦ 0
+    _b_eq = get_eq_const(x_it_n)   # A(x+n) + b
+    _b_ineq = get_ineq_const(x_it_n)
+    _A_eq, _, _A_ineq, _ = transformed_linear_constraints(scal, mop)
+   
+    # In theory, We approximate the nonlinear constraints via 
+    # c(ξ) = m(x) + Dm(x)⋅(x - ξ)
+    # Hence, when looking for a step `t` (taken from `x + n`),
+    # we get the constraint approximations 
+    # m(x) + Dm(x)⋅(n + t) ≦ 0
 
-    # TODO these should be returned by `compute_normal_step` so that we don't have 
-    # to evaluate the surrogates multiple times 
-    #x_c = x .- center_offset    # trust region center  # TODO what do we want here????
-    x_c = x
-    _A_nl_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal,x_c)    
-    _A_nl_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal,x_c)    
-    _b_nl_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x_c)
-    _b_nl_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x_c)
+    # Here, we actually do the Taylor Expansion around `x+n` and get constraints 
+    # m(x + n) + Dm(x+n)⋅t ≦ 0
+    # The only reason to do so is to directly use `b = m(x_n)` and `A = Dm(x_n)`:    
+    Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal,x_n)    # TODO these should be returned by `compute_normal_step` 
+    Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal,x_n)    
+    m_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x_n)
+    m_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x_n)
+    
+    A_eq = vcat( _A_eq, Dm_eq )
+    b_eq = vcat( _b_eq, m_eq )
+    A_ineq = vcat( _A_ineq, Dm_ineq )
+    b_ineq = vcat( _b_ineq, m_ineq )
 
-    A_eq = vcat( _A_eq, _A_nl_eq )
-    b_eq = vcat( _b_eq, _b_nl_eq )
-    @show A_ineq = vcat( _A_ineq, _A_nl_ineq )
-    @show b_ineq = vcat( _b_ineq, _b_nl_ineq )
-
-    # compute steepest descent direction and criticality
-    d, ω = _steepest_descent_direction( x, ∇m, lb, ub, A_eq, b_eq, A_ineq, b_ineq )
-    @show A_ineq * (x .+ d) .+ b_ineq
+    # compute steepest descent at `x+n`
+    d, ω = _steepest_descent_direction( x_n, ∇m, lb, ub, A_eq, b_eq, A_ineq, b_ineq)
     return ω, d
 end
 
-function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, iter_data, 
-        data_base, sc, algo_config, ω, d;  
-        center_offset = 0
+function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_it_n, 
+        data_base, sc, algo_config, ω, d        
     )
 
     @logmsg loglevel4 "Calculating steepest stepsize."
 
-    x = get_x_scaled( iter_data )
+    x = get_x_scaled( x_it )
+    x_n = get_x_scaled( x_it_n )
     
-    Δ = if iszero(center_offset)
-        get_delta( iter_data )
+    lb_eff, ub_eff = full_lower_bounds_internal(scal)
+    if x ≈ x_n
+        Δ = get_delta( x_it )
     else
         # if a normal step was taken, we have to respect the trust region boundary
         # with respect to x_n = x + n
-        lb, ub = full_bounds_internal(scal)
-        lb_eff, ub_eff = _local_bounds( x, get_delta(iter_data), lb, ub )
-        _intersect_bounds( x, d, lb_eff, ub_eff; ret_mode = :pos )
+        lb_eff, ub_eff = _local_bounds( x, get_delta(x_it), lb, ub )
+        Δ = _intersect_box( x_n, d, lb_eff, ub_eff; ret_mode = :pos )
     end
 
     # scale direction for backtracking as in paper
@@ -200,24 +214,40 @@ function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, ite
     else
         # Δ > 1
         if norm_d ≈ 1
-            intersect_bounds( x, d, mop, scal; Δ, return_vals = :pos )
+            # We need the linear constraint matrices to find a stepsize `σ` with 
+            # A * x_n + σt + b ≦ 0
+            _A_eq, _b_eq, _A_ineq, _b_ineq = transformed_linear_constraints(scal, mop)
+            
+            # Again we use a linearization of the constraints around `x_n` to find `σ` with
+            # m(x_n) + Dm(x_n)*σt ≦ 0:
+            Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal, x_n)    # TODO these should be returned by `compute_normal_step` 
+            Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal, x_n)    
+            m_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x_n)
+            m_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x_n)
+
+            A_eq = vcat( _A_eq, Dm_eq )
+            b_eq = vcat( _b_eq, m_eq )
+            A_ineq = vcat( _A_ineq, Dm_ineq )
+            b_ineq = vcat( _b_ineq, m_ineq )
+
+            _intersect_bounds(x_n, d, lb_eff, ub_eff, A_eq, b_eq, A_ineq, b_ineq)
         else
             1
         end
     end
-
+    
     if σ > desc_cfg.min_stepsize 
-        x₊, mx₊, step = _backtrack( x, σ * d, ω, sc, desc_cfg, scal )
+        x₊, mx₊, step = _backtrack( x_n, σ * d, ω, sc, desc_cfg, scal )
         return ω, x₊, mx₊, norm(step, Inf)
     end
     
-    return 0, copy(x), eval_container_objectives_at_scaled_site( sc, scal, x ), 0
+    return 0, copy(x_n), eval_container_objectives_at_scaled_site( sc, scal, x_n ), 0
 end 
 
 
-function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, iter_data, data_base, sc, algo_config; kwargs...)
-    ω, d = get_criticality( desc_cfg, mop, scal, iter_data, data_base, sc, algo_config; kwargs... )
-    return compute_descent_step(desc_cfg, mop, scal, iter_data, data_base, sc, algo_config, ω, d; kwargs... )
+function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_it_n, data_base, sc, algo_config; kwargs...)
+    ω, d = get_criticality( desc_cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config; kwargs... )
+    return compute_descent_step(desc_cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config, ω, d; kwargs... )
 end
 
 # PASCOLETTI-SERAFINI
@@ -529,37 +559,37 @@ function _cfg_from_symbol( desc_cfg :: Symbol, F :: Type )
 end
 
 # DefaultDescent -> Fallback to SteepestDescent
-function compute_descent_step( desc_cfg :: Symbol, mop, scal, iter_data, data_base, sc, algo_config, args...; kwargs... )
-    F = eltype(get_x(iter_data))
+function compute_descent_step( desc_cfg :: Symbol, mop, scal, x_it, x_it_n, data_base, sc, algo_config, args...; kwargs... )
+    F = eltype(get_x(x_it))
     true_cfg = _cfg_from_symbol( desc_cfg, F )
-    return compute_descent_step( true_cfg, mop, scal, iter_data, data_base, sc, algo_config, args...; kwargs... )
+    return compute_descent_step( true_cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config, args...; kwargs... )
 end
 
 # DefaultDescent -> Fallback to SteepestDescent
-function get_criticality( desc_cfg :: Symbol, mop, scal, iter_data, data_base, sc, algo_config, args...; kwargs... )
-    F = eltype(get_x(iter_data))
+function get_criticality( desc_cfg :: Symbol, mop, scal, x_it, x_it_n, data_base, sc, algo_config, args...; kwargs... )
+    F = eltype(get_x(x_it))
     true_cfg = _cfg_from_symbol( desc_cfg, F )
-    return get_criticality( true_cfg, mop, scal, iter_data, data_base, sc, algo_config, args...; kwargs... )
+    return get_criticality( true_cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config, args...; kwargs... )
 end
 
 ###################
-function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
+function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate,
     data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig;
     variable_radius :: Bool = false )
     
-    x = get_x_scaled( iter_data )
+    x = get_x_scaled( x_it )
     κ_Δ = filter_kappa_delta( algo_config )
 
     n_vars = length(x)
 
     A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
-    l_e = get_eq_const( iter_data )  # == A_eq * x + b_eq
-    l_i = get_ineq_const( iter_data ) # == A_ineq * x + b_ineq 
+    l_e = get_eq_const( x_it )  # == A_eq * x + b_eq
+    l_i = get_ineq_const( x_it ) # == A_ineq * x + b_ineq 
 
-    A_nl_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal,x)    
-    A_nl_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal,x)    
-    b_nl_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x)
-    b_nl_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x)
+    Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal,x)    
+    Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal,x)    
+    m_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x)
+    m_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x)
 
     opt_problem = JuMP.Model( OSQP.Optimizer )
     JuMP.set_silent(opt_problem)
@@ -592,8 +622,8 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, ite
     JuMP.@constraint(opt_problem, linear_eq_const, l_e .+ A_eq * n .== 0)
     JuMP.@constraint(opt_problem, linear_ineq_const, l_i .+ A_ineq * n .<= 0)
     
-    JuMP.@constraint(opt_problem, nl_eq_const, A_nl_eq * (x .+ n ) .+ b_nl_eq .== 0)
-    JuMP.@constraint(opt_problem, nl_ineq_const, A_nl_ineq * (x .+ n ) .+ b_nl_ineq .<= 0)
+    JuMP.@constraint(opt_problem, nl_eq_const, Dm_eq * n .+ m_eq .== 0)
+    JuMP.@constraint(opt_problem, nl_ineq_const, Dm_ineq * n .+ m_ineq .<= 0)
 
     JuMP.optimize!(opt_problem)
     

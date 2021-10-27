@@ -278,14 +278,6 @@ end
     return A_eq, b_eq, A_ineq, b_ineq
 end
 
-function intersect_bounds(x_scaled, d_scaled, mop, scal; Δ = Inf, return_vals = :both) 
-    lb_scaled, ub_scaled = local_bounds( scal, x_scaled, Δ )
-    A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
-    return _intersect_bounds(
-        x_scaled, d_scaled, lb_scaled, ub_scaled, A_eq, b_eq, A_ineq, b_ineq;
-        ret_mode = return_vals )
-end
-
 function intersect_box( x_scaled, d_scaled, lb_scaled, ub_scaled; return_vals = :absmax )
     return _intersect_bounds( x_scaled, d_scaled, lb_scaled, ub_scaled; ret_mode = return_vals)
 end
