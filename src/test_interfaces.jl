@@ -21,8 +21,8 @@ oind2 = M.add_objective!(mop, f2; model_cfg = M.ExactConfig() )#, diff_method = 
 #= ineqconst = M.add_ineq_constraint!(mop, 
 	[1 zeros(n_vars-1)'])
 =#
-ineqconst = M.add_nl_ineq_constraint!(mop, x -> 1 - sum( x.^2 ); model_cfg = M.ExactConfig())
-
+#ineqconst = M.add_nl_ineq_constraint!(mop, x -> 1 - sum( x.^2 ); model_cfg = M.ExactConfig())
+ineqconst = M.add_nl_ineq_constraint!(mop, x -> 1 - sum( x.^2 ); model_cfg = M.RbfConfig())
 
 #algo_config = M.AlgoConfig( var_scaler = M.NoVarScaling)
 
@@ -37,18 +37,22 @@ M.add_upper_bound!( mop, vars[3], 10)
 
 #%% manual iteration:
 #=
-smop, id, sdb, sc, ac, filter, scal = M.initialize_data( mop, ones(n_vars));
+@enter begin
+	smop, id, sdb, sc, ac, filter, scal = M.initialize_data( mop, [-2,1]);
+end
 M.iterate!(id, sdb, smop, sc, ac, filter, scal)
 =#
 
 #%%
 # single-call 
 # TODO fix bug when input is int
-algo_config = AlgoConfig(
+algo_config = M.AlgorithmConfig{Float32}(;
 	max_iter = 30,
 	x_tol_rel = -Inf,
-	f_tol_rel = -Inf
+	f_tol_rel = -Inf,
+	filter_type = M.StrictFilter,
+	#descent_method = :ps
 )
-
-x, fx, ret, sdb, id = M.optimize( mop, [-2.0; 0.0]; algo_config)
+#%%
+x, fx, ret, sdb, id = M.optimize( mop, [-2; 0]; algo_config)
 x

@@ -102,6 +102,11 @@ function eval_gradient_of_wrapper_output_at_scaled_site( sw :: AbstractSurrogate
     return get_gradient( get_model(sw), scal, x_scaled, sw_output )
 end
 
+function _get_optim_handle( sw :: AbstractSurrogateWrapper, scal :: AbstractVarScaler, sw_output :: Int )
+    return _get_optim_handle( get_model(sw), scal, sw_output )
+end
+
+
 # AbstractSurrogateContainer
 Base.broadcastable( sc :: AbstractSurrogateContainer ) = Ref(sc)
 
@@ -153,6 +158,8 @@ end
 # TODO get_wrapper can be improved
 get_wrapper(sc :: AbstractSurrogateContainer, i :: Int) = list_of_wrappers(sc)[i]
 
+#=
+# This function should work, but is never used atm
 function eval_container_at_scaled_site( sc :: AbstractSurrogateContainer, scal :: AbstractVarScaler, x_scaled :: Vec )
     return Base.ImmutableDict( Iterators.flatten( 
             let sw_res = eval_wrapper_at_scaled_site(sw, scal, x_scaled); 
@@ -163,14 +170,19 @@ function eval_container_at_scaled_site( sc :: AbstractSurrogateContainer, scal :
         )...
     )
 end
+=#
 
+#=
+# This function should work but is never used atm
 function eval_vec_container_at_scaled_site(sc :: AbstractSurrogateContainer, scal :: AbstractVarScaler, x_scaled :: Vec )
     tmp = eval_container_at_scaled_site( sc, scal, x_scaled )
     return eval_result_to_all_vectors( tmp, sc )
     # TODO benchmark against using `_sortperm`
 end
+=#
 
 #=
+# Don't know if this function still works, but it is never used atm
 function eval_container_jacobian_at_scaled_site( sc :: AbstractSurrogateContainer, scal :: AbstractVarScaler, x_scaled :: Vec )
     row_perm = _sortperm(sc)
     return vcat(
@@ -179,8 +191,20 @@ function eval_container_jacobian_at_scaled_site( sc :: AbstractSurrogateContaine
 end
 =#
 
+
 # more granular evaluation:
 
+"""
+    _sw_index_and_sw_outputs_from_func_index( wrapper_list, func_ind :: FunctionIndex)
+
+* Return the index of a `sw :: AbstractSurrogateWrapper` in `wrapper_list` that models `func_ind`.
+(A single wrapper `sw` can model multiple different objectives and nonlinear constraints if they 
+share the same combinable model type.)
+* Secondly, return the output indices of the vector-valued output of `sw` corresponding to the outputs 
+of the function referenced by `func_ind`.
+
+Return `nothing` if `func_ind` is not found.
+"""
 function _sw_index_and_sw_outputs_from_func_index( wrapper_list, func_ind :: FunctionIndex)
     for (sw_ind, sw) in enumerate(wrapper_list)
         sw_output = 1
@@ -196,7 +220,8 @@ function _sw_index_and_sw_outputs_from_func_index( wrapper_list, func_ind :: Fun
 end
 
 # TODO use dict in `sc`
-@memoize ThreadSafeDict function sw_index_and_sw_outputs_from_func_index( sc :: AbstractSurrogateContainer, func_ind :: FunctionIndex)
+@memoize ThreadSafeDict function sw_index_and_sw_outputs_from_func_index( 
+    sc :: AbstractSurrogateContainer, func_ind :: FunctionIndex)
     return _sw_index_and_sw_outputs_from_func_index( list_of_wrappers(sc), func_ind )
 end
 
@@ -212,6 +237,10 @@ end
 function eval_vec_container_at_func_index_at_scaled_site( sc :: AbstractSurrogateContainer, 
         scal :: AbstractVarScaler, x_scaled :: Vec, func_ind :: FunctionIndex )
     sw, sw_outputs = sw_and_sw_outputs_from_func_index( sc, func_ind )
+    # NOTE
+    # why are evaluating scalar-valued outputs instead of calling 
+    # `eval_wrapper_at_scaled_site` ?
+    # Because a single wrapper can model multiple vector valued functions (and have multiple `func_ind`s).
     return [ eval_output_of_wrapper_at_scaled_site( sw, scal, x_scaled, l ) for l = sw_outputs ]
 end
 
@@ -224,9 +253,8 @@ function eval_container_jacobian_at_func_index_at_scaled_site(  sc :: AbstractSu
     )
 end
 
-#=
 # this is used in sw_index_and_sw_output_from_XXXX_output
-# l ∈ [1, …, length(sc_index_list)]
+# l ∈ [1, …, num_outputs(func_indices)]
 function _sw_index_and_sw_output_from_func_indices_and_position( wrapper_list, 
     func_indices, l :: Int )
 
@@ -242,19 +270,22 @@ function _sw_index_and_sw_output_from_func_indices_and_position( wrapper_list,
     end
     return nothing
 end
-=#
 
-for mod_type in [:objectives, :nl_eq_constraints, :nl_ineq_constraints]
+for mod_type in ["objectives", "nl_eq_constraints", "nl_ineq_constraints"]
     fully_linear_func_name = Symbol("fully_linear_", mod_type )
     
     eval_container_XXX_at_scaled_site = Symbol("eval_container_", mod_type, "_at_scaled_site")
     eval_container_XXX_jacobian_at_scaled_site = Symbol("eval_container_", mod_type, "_jacobian_at_scaled_site")
     
+    get_indices_func = Symbol("get_", String(mod_type)[1:end-1], "_indices")
+    
     sw_index_and_sw_output_from_sc_XXX_output = Symbol("sw_index_and_sw_output_from_sc_", mod_type, "_output")
     sw_and_sw_output_from_sc_XXX_output = Symbol("sw_and_sw_output_from_sc_", mod_type, "_output")
+    
+    get_XXX_optim_handles = Symbol("get_", mod_type, "_optim_handles") 
 
-    get_indices_func = Symbol("get_", String(mod_type)[1:end-1], "_indices")
     #=
+
     optim_handle_func_name = Symbol("get_", mod_type, "_surrogate_optim_handle")
   
     eval_handle_func_name = Symbol("eval_", mod_type, "_surrogates_handle")
@@ -288,16 +319,38 @@ for mod_type in [:objectives, :nl_eq_constraints, :nl_ineq_constraints]
             )
         end
 
-        #=
+        function $(get_XXX_optim_handles)( sc :: AbstractSurrogateContainer, scal :: AbstractVarScaler )
+            return Iterators.flatten(
+                let (sw, sw_out) = sw_and_sw_outputs_from_func_index( sc, func_ind );
+                    [ _get_optim_handle( sw, scal, ℓ ) for ℓ = sw_out ]
+                end
+                for func_ind = $(get_indices_func)(sc)
+            )
+        end
+
+        """ 
+            $($(sw_index_and_sw_output_from_sc_XXX_output))( sc, l :: Int )
+
+        Helper function to return the index `sw_ind` of the `AbstractSurrogateWrapper`
+        with `get_wrapper(sc, sw_ind)` that models (scalar output) `l` of the $($(mod_type))
+        referenced in `sc`. 
+        """
         function $(sw_index_and_sw_output_from_sc_XXX_output)( sc :: AbstractSurrogateContainer, l :: Int )
             return _sw_index_and_sw_output_from_sc_index_list( list_of_wrappers(sc), $(get_indices_func)(sc), l)
         end
 
-        function $(sw_and_sw_output_from_sc_XXX_output)( sc :: AbstractSurrogateContainer, l :: Int )
+        """ 
+            $($(sw_and_sw_output_from_sc_XXX_output))( sc, l :: Int )
+
+        Helper function to return the `sw :: AbstractSurrogateWrapper`
+        that models (scalar output) `l` of the $($(mod_type)) referenced in `sc`. 
+        """
+        @memoize ThreadSafeDict function $(sw_and_sw_output_from_sc_XXX_output)( sc :: AbstractSurrogateContainer, l :: Int )
             sw_ind, sw_out = $(sw_index_and_sw_output_from_sc_XXX_output)( sc, l)
             return get_wrapper( sc, sw_ind ), sw_out 
         end
 
+        #=
         """
             $(optim_handle_func_name)(sc, l)
         Return a function handle to be used with `NLopt` for $(mod_type) output `l` of `sc`.

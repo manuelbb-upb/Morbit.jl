@@ -39,3 +39,15 @@ function init_empty_filter( filter_type :: Type{<:MaxFilter}, fx, l_E, l_I, c_E,
 	f = _f .- shift * _θ
 	return MaxFilter{ typeof(θ), typeof(f) }(; shift)
 end
+
+struct StrictFilter{T} <: AbstractFilter
+	inner :: T
+end
+
+compute_objective_val( filter :: Union{Type{<:StrictFilter},StrictFilter}, fx ) = fx
+function init_empty_filter( filter_type :: Type{<:StrictFilter}, args...; kwargs... )
+	return StrictFilter( init_empty_filter(MaxFilter, args...;kwargs...) )
+end
+
+
+@forward StrictFilter.inner get_all_filter_ids, get_values, get_shift, remove_entry!, _add_entry!

@@ -261,23 +261,6 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [],
 	end
 end
 
-function _transform_linear_constraints( A, b, Tinv, offset )
-    _A = A*Tinv
-    return _A, b - _A * offset  
-end
-
-@memoize ThreadSafeDict function transformed_linear_constraints( scal, mop )
-    _A_eq, _b_eq = get_eq_matrix_and_vector( mop )
-    _A_ineq, _b_ineq = get_ineq_matrix_and_vector( mop )
-    Tinv = unscaling_matrix(scal)
-    offset = scaling_offset(scal)
-
-    A_eq, b_eq = _transform_linear_constraints( _A_eq, _b_eq, Tinv, offset)
-    A_ineq, b_ineq = _transform_linear_constraints( _A_ineq, _b_ineq, Tinv, offset)
-
-    return A_eq, b_eq, A_ineq, b_ineq
-end
-
 function intersect_box( x_scaled, d_scaled, lb_scaled, ub_scaled; return_vals = :absmax )
     return _intersect_bounds( x_scaled, d_scaled, lb_scaled, ub_scaled; ret_mode = return_vals)
 end

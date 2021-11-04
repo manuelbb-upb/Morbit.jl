@@ -32,11 +32,20 @@ function compute_descent_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_
 end
 
 # fallback, if `get_criticality` allready does the whole job: simply return `ω` and `data`
-function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
+
+function compute_descent_step(cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
+        x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
+        data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, ω_data; kwargs...
+    )
+    return ω, ω_data...
+end
+
+function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
+        x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
         data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig; kwargs...
     )
     ω, data = get_criticality(cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config; kwargs...)
-    return (ω, data...)
+    return ω, data...
 end
 
 # ## STEEPEST DESCENT AND BACKTRACKING
@@ -51,12 +60,14 @@ end
 
     max_loops :: Int = 30
     min_stepsize :: Float64 = -1.0
+
+    normalize :: Bool = true
 end
 
 "Provided `x` and the (surrogate) jacobian `∇F` at `x`, as well as bounds `lb` and `ub`, return steepest multi descent direction."
 function _steepest_descent_direction(
     x :: AbstractVector{F}, ∇F :: Mat, lb :: Vec, ub :: Vec,
-    A_eq = [], b_eq = [], A_ineq = [], b_ineq = [],
+    A_eq = [], b_eq = [], A_ineq = [], b_ineq = [], normalize = true
     ) where F <: AbstractFloat
     
     n = length(x);
@@ -71,8 +82,17 @@ function _steepest_descent_direction(
         JuMP.@objective(opt_problem, Min, α)
 
         JuMP.@variable(opt_problem, d[1:n]) # steepest descent direction 
-      
-        JuMP.@constraint(opt_problem, descent_constraints, ∇F*d .<= α)
+
+        if normalize
+            JuMP.@constraint(opt_problem, descent_constraints, ∇F*d .<= α .* norm.(eachrow(∇F)) )
+            
+            #JuMP.@variable(opt_problem, β)
+            #JuMP.@constraint(opt_problem, -β .<= d)
+            #JuMP.@constraint(opt_problem, d .<= β )
+            #JuMP.@constraint(opt_problem, ∇F*d + β .<= 0)
+        else
+            JuMP.@constraint(opt_problem, descent_constraints, ∇F*d .<= α)
+        end
         JuMP.@constraint(opt_problem, norm_constraints, -1 .<= d .<= 1 )
 
         # original problem constraints (have to be transformed beforehand)
@@ -149,9 +169,8 @@ function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_
     @logmsg loglevel3 "Calculating steepest descent direction."
 
     x_n = get_x_scaled(x_it_n)
-    x = get_x_scaled(x_it)
 
-    ∇m = eval_container_objectives_jacobian_at_scaled_site(sc, scal, x)
+    ∇m = eval_container_objectives_jacobian_at_scaled_site(sc, scal, x_n)
 
     lb, ub = full_bounds_internal( scal )
     
@@ -184,12 +203,13 @@ function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_
     b_ineq = vcat( _b_ineq, m_ineq )
 
     # compute steepest descent at `x+n`
-    d, ω = _steepest_descent_direction( x_n, ∇m, lb, ub, A_eq, b_eq, A_ineq, b_ineq)
+    d, ω = _steepest_descent_direction( x_n, ∇m, lb, ub, A_eq, b_eq, A_ineq, b_ineq, desc_cfg.normalize)
     return ω, d
 end
 
-function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_it_n, 
-        data_base, sc, algo_config, ω, d        
+function compute_descent_step(desc_cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
+        x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
+        data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, d; kwargs...
     )
 
     @logmsg loglevel4 "Calculating steepest stepsize."
@@ -197,12 +217,13 @@ function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, x_i
     x = get_x_scaled( x_it )
     x_n = get_x_scaled( x_it_n )
     
-    lb_eff, ub_eff = full_lower_bounds_internal(scal)
+    lb, ub = full_lower_bounds_internal(scal)
     if x ≈ x_n
         Δ = get_delta( x_it )
+        lb_eff, ub_eff = _local_bounds(x, Δ, lb, ub )
     else
         # if a normal step was taken, we have to respect the trust region boundary
-        # with respect to x_n = x + n
+        # with respect to x but measure Δ from x+n.
         lb_eff, ub_eff = _local_bounds( x, get_delta(x_it), lb, ub )
         Δ = _intersect_box( x_n, d, lb_eff, ub_eff; ret_mode = :pos )
     end
@@ -244,15 +265,8 @@ function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, x_i
     return 0, copy(x_n), eval_container_objectives_at_scaled_site( sc, scal, x_n ), 0
 end 
 
-
-function compute_descent_step( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_it_n, data_base, sc, algo_config; kwargs...)
-    ω, d = get_criticality( desc_cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config; kwargs... )
-    return compute_descent_step(desc_cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config, ω, d; kwargs... )
-end
-
 # PASCOLETTI-SERAFINI
-#=
-# TODO would it matter to allow single precision reference_point?
+
 # Does NLopt honour precision?
 @with_kw struct PascolettiSerafiniConfig <: AbstractDescentConfig
     
@@ -278,76 +292,77 @@ end
     
     "Specify local algorithm to polish Pascoletti-Serafini solution. Uses 1/4 of maximum allowed evals."
     ps_polish_algo :: Union{Nothing, Symbol} = nothing 
+
+    @assert all( reference_direction .> 0 ) "The components of the `reference_direction` cannot be negative."
 end
 
-function _get_local_dir( cfg :: PascolettiSerafiniConfig, fx, sorting_indices )
+"""
+    _get_global_dir( cfg, fx )
+
+Return the objective space direction `r ≥ 0`.
+If a direction is stored in `cfg`, then it is returned.
+If a global ideal point `i` is stored in `cfg`, then `fx .- i` is returned.
+Else `nothing` is returned.
+"""
+function _get_global_dir( cfg :: PascolettiSerafiniConfig, fx )
     if !isempty( cfg.reference_direction )
-        return cfg.reference_direction[ sorting_indices ]
+        return cfg.reference_direction
     elseif !isempty( cfg.reference_point ) 
-        return fx .- cfg.reference_point[ sorting_indices ]
+        return fx .- cfg.reference_point
     else
         return nothing
     end
 end
 
-function _min_component( x, n_vars, lb, ub, algo_name, MAX_EVALS, opt_handle )
+function _min_component( n_vars, x_scaled, lb, ub, opt_handle, eq_handles, ineq_handles, algo_name, MAX_EVALS )
     opt = NLopt.Opt( algo_name, n_vars )
+    
     opt.lower_bounds = lb
     opt.upper_bounds = ub
+    
     opt.xtol_rel = 1e-3 
     opt.maxeval = MAX_EVALS
-    #opt.min_objective = get_optim_handle( sc, mop, l )
+    
     opt.min_objective = opt_handle 
-    minf, _ = NLopt.optimize( opt, x );
+    for eq_handle in eq_handles 
+        NLopt.equality_constraint!(opt, eq_handle)
+    end
+    for ineq_handle in ineq_handles
+        NLopt.inequality_constraint!(opt, ineq_handle)
+    end  
+    minf, _ = NLopt.optimize( opt, x_scaled )
     return minf
 end
 
+function get_raw_optim_handles( mop, sc, scal )
+    objf_handles = collect(get_objectives_optim_handles( sc, scal ))
+    
+    eq_handles = [ 
+        collect(get_nl_eq_constraints_optim_handles(sc, scal)); 
+        collect(get_eq_constraints_optim_handles( mop, scal ))
+    ]
+    ineq_handles = [ 
+        collect(get_nl_ineq_constraints_optim_handles( sc, scal ));
+        collect(get_ineq_constraints_optim_handles( mop, scal ))
+    ]
 
-function _local_ideal_point( x :: AbstractVector{F}, lb, ub, optim_handles, max_evals, algo_name ) where F
-    @logmsg loglevel4 "Computing local ideal point. This can take a bit…"
-    
-    num_objectives = length( optim_handles )
-    n_vars = length(x)
-    
-    MAX_EVALS = max_evals < 0 ? 500 * (n_vars+1) : max_evals
-    
-    # preallocate local ideal point:
-    ȳ = fill( -F(Inf), num_objectives )
-
-    # minimize each individual scalar surrogate output 
-    for (l, opt_handle) in enumerate( optim_handles )
-        ȳ[l] = _min_component(x, n_vars, lb, ub, algo_name, MAX_EVALS, opt_handle)
-    end
-    return ȳ
+    return objf_handles, eq_handles, ineq_handles
 end
 
+function compute_local_ideal_point( x_it_n, lb_eff, ub_eff, objf_handles, eq_handles, ineq_handles, MAX_EVALS, algo_name)
+    x_n = get_x_scaled( x_it_n )
+    n_vars = length(x_n)
 
-function get_criticality( desc_cfg :: PascolettiSerafiniConfig, mop, iter_data, data_base, sc, algo_config )
-    
-    @logmsg loglevel3 "Calculating Pascoletti-Serafini descent."
-    x = get_x( iter_data )
-    fx = get_fx( iter_data )
-    Δ = get_delta( iter_data )
-    n_vars = length( x )
-    n_out = num_objectives(mop);
-    
-    r = _get_local_dir( desc_cfg, fx, mop )
-    if isnothing(r)
-        opt_handles = [ get_optim_handle(sc, l) for l = 1 : num_objectives ]
-        lb, ub = local_bounds(mop, x, desc_cfg.reference_trust_region_factor * Δ )
-        ip = _local_ideal_point(x,lb, ub, opt_handles, desc_cfg.MAX_EVALS, desc_cfg.algo_name)
-        r = fx .- ip 
-    end
+    return [ 
+        _min_component(n_vars, x_n, lb_eff, ub_eff, opt_handle, eq_handles, ineq_handles, 
+            algo_name, MAX_EVALS ) for opt_handle = objf_handles 
+    ]
+end
 
-    @logmsg loglevel4 "Local image direction is $(_prettify(r))"
-
-    # If any component is not positive, we are critical
-    if any( r .<= 0 )
-        return 0, copy(x), eval_container_objectives_at_scaled_site(sc, x), 0
-    end
-
+function _ps_max_evals( desc_cfg, n_vars )
     # total number of sub solver evaluations
     MAX_EVALS = desc_cfg.max_ps_problem_evals < 0 ? 500 * (n_vars+1) : desc_cfg.max_ps_problem_evals
+    
     # number of evaluations for the global optimization algo
     if isnothing( desc_cfg.ps_polish_algo )
         MAX_EVALS_global = MAX_EVALS 
@@ -361,94 +376,38 @@ function get_criticality( desc_cfg :: PascolettiSerafiniConfig, mop, iter_data, 
             MAX_EVALS_local = desc_cfg.max_ps_polish_evals
         end
     end
-
-    mx = eval_container_objectives_at_scaled_site( sc, x );
-    lb, ub = local_bounds(mop, x, decs_cfg.trust_region_factor * Δ)
-    
-    τ, χ_min, ret = _ps_optimization(sc, desc_cfg.main_algo, lb, ub,
-        MAX_EVALS_global, [-0.5;x], mx, r, n_vars, n_out)
-
-    if MAX_EVALS_local > 0
-        @logmsg loglevel4 "Local polishing for PS enabled."
-       
-        τₗ, χ_minₗ, retₗ = _ps_optimization(sc, desc_cfg.ps_polish_algo, lb, ub,
-            MAX_EVALS_local, χ_min, mx, r, n_vars, n_out);
-        if !(retₗ == :FAILURE || isinf(τₗ) || isnan(τₗ) || any(isnan.(χ_minₗ)) )
-            τ, χ_min, ret = τₗ, χ_minₗ, retₗ
-        end
-    end
-
-    if (ret == :FAILURE || isinf(τ) || isnan(τ) || any(isnan.(χ_min)) )
-        return 0, copy(x), eval_container_objectives_at_scaled_site(sc, x), 0
-    else
-        ω = abs( τ );
-        x₊ = χ_min[2 : end];
-        mx₊ = eval_container_objectives_at_scaled_site( sc, x₊ );
-        sl = norm( x .- x₊, Inf );
-
-        return ω, x₊, mx₊, sl
-    end
+    return MAX_EVALS_global, MAX_EVALS_local
 end
 
-"Construct and solve Pascoletti Serafini subproblem using surrogates from `sc`."
-function _ps_optimization( sc :: SurrogateContainer, algo :: Symbol, 
-    lb :: Vec, ub :: Vec, MAX_EVALS :: Int, χ0 :: AbstractVector{F}, 
-    mx :: Vec, r :: Vec, n_vars :: Int, n_out :: Int ) where F
-    
-    opt = NLopt.Opt( algo, n_vars + 1 );
-    opt.lower_bounds = [-1.0 ; lb ];
-    opt.upper_bounds = [ 0.0 ; ub ];
-    opt.xtol_rel = 1e-3;
-    opt.maxeval = MAX_EVALS;
-    opt.min_objective = _get_ps_objective_func();
-    
-    #NLopt.inequality_constraint!( opt, _get_ps_constraint_func(sc,mx,r), 1e-12 );
-    for l = 1 : n_out 
-        NLopt.inequality_constraint!( opt, _get_ps_constraint_func(sc, mx, r, l), eps(F) )
-    end
-
-    @logmsg loglevel4 "Starting PS optimization."
-    τ, χ_min, ret = NLopt.optimize(opt, χ0 );
-    @logmsg loglevel4 "Finished with $(ret) after $(opt.numevals) model evals."
-    
-    return τ, χ_min, ret 
+function _get_ps_constraint_functions( objf_handles, mx, dir )
+    return [
+        function(χ, g)
+            if !isempty(g)
+                g[1] = -dir[l]
+                _g = @view(g[2:end])
+            else 
+                _g = Float32[]
+            end
+            ret_val = objf_handle(χ[2:end], _g) - mx[l] - χ[1] * dir[l]
+            return ret_val
+        end for (l, objf_handle) = enumerate(objf_handles)
+    ]
 end
 
-#=
-NOTE Does not work using the whole jacobian somehow
-function _get_ps_constraint_func( sc :: SurrogateContainer, mx :: RVec, dir :: RVec ) :: Function
-    # return the l-th constraint functions for pascoletti_serafini
-    # dir .>= 0 is the image direction
-    # χ = [t;x] is the augmented variable vector
-    # g is a matrix of gradients (columns are grads, hence g is a jacobian transposed)
-    return function(χ, g)
-        if !isempty(g)
-            g[1, :] .= -dir;
-            g[2:end, :] .= transpose(get_jacobian( sc, χ[2:end]));
+function _augment_constraint_functions( constraint_handles, x )
+    return [
+        function(χ, g)
+            #ξ = χ[2:end] .+ x
+            ξ = χ[2:end]
+            if !isempty(g)
+                g[1] = 0
+                _g = @view(g[2:end])
+            else
+                _g = Float32[]
+            end
+            return c_handle(ξ, _g)
         end
-        return eval_container_objectives_at_scaled_site(sc, χ[2:end]) .- mx .- χ[1] .* dir
-    end
-end
-=#
-
-"""
-    _get_ps_constraint_func( sc :: SurrogateContainer, mx, dir, l )
-
-Return the `l`-th (possibly non-linear) constraint function 
-for Pascoletti-Serafini.
-`dir` .>= 0 is the image direction;
-`χ = [t;x]` is the augmented variable vector;
-
-"""
-function _get_ps_constraint_func( sc :: SurrogateContainer, mx, dir, l )
-    return function(χ, g)
-        if !isempty(g)
-            g[1] = -dir[l]
-            g[2:end] .= get_gradient(sc, χ[2:end], l)
-        end
-        ret_val = eval_container_objectives_at_scaled_site(sc, χ[2:end], l) - mx[l] - χ[1] * dir[l]
-        return ret_val
-    end
+    for c_handle = constraint_handles ]
 end
 
 """
@@ -457,13 +416,117 @@ Return objective function for Pascoletti-Serafini, modifying gradient in place.
 function _get_ps_objective_func()
     function( χ, g )
         if !isempty(g)
-            g[1] = 1.0;
-            g[2:end] .= 0.0;
+            g[1] = 1
+            g[2:end] .= 0
         end
         return χ[1]
     end
 end
-=#
+
+function _ps_optimization( t0, x, lb, ub, ps_constraints, ps_eq_constraints, ps_ineq_constraints, MAX_EVALS, algo )
+    
+    n_vars = length(x)
+
+    opt = NLopt.Opt( algo, n_vars + 1 )
+    opt.lower_bounds = [-1.0 ; lb ]
+    opt.upper_bounds = [ 0.0 ; ub ]
+    opt.xtol_rel = 1e-3
+    opt.maxeval = MAX_EVALS
+    
+    opt.min_objective = _get_ps_objective_func()
+    
+    for constr_func in ps_constraints
+        NLopt.inequality_constraint!( opt, constr_func )
+    end
+
+    
+    for constr_func in ps_eq_constraints
+        NLopt.equality_constraint!( opt, constr_func )
+    end
+
+    for constr_func in ps_ineq_constraints
+        NLopt.inequality_constraint!( opt, constr_func )
+    end
+    
+    @logmsg loglevel4 "Starting PS optimization."
+    χ0 = [t0; x]
+    τ, χ_min, ret = NLopt.optimize(opt, χ0 )
+    
+    @logmsg loglevel4 "Finished with $(ret) after $(opt.numevals) model evals."
+    
+    return τ, χ_min[2:end], ret 
+end
+
+function get_criticality( desc_cfg :: PascolettiSerafiniConfig, mop, scal, x_it, x_it_n, 
+        data_base, sc, algo_config
+    )
+    
+    @logmsg loglevel3 "Calculating Pascoletti-Serafini descent."
+    x = get_x_scaled( x_it )
+    x_n = get_x_scaled( x_it_n )
+    Xet = eltype(x_n)
+    fx_n = get_fx( x_it_n )
+    Yet = eltype(fx_n)
+
+    n_vars = length( x_n )
+    
+    _r = _get_global_dir( desc_cfg, fx_n )
+
+    MAX_EVALS = desc_cfg.max_ideal_point_problem_evals < 0 ? 500 * (n_vars+1) : desc_cfg.max_ideal_point_problem_evals
+
+    # prepare nonlinear optimization:
+    objf_handles, eq_handles, ineq_handles = get_raw_optim_handles(mop, sc, scal)
+
+    lb_eff, ub_eff = local_bounds( scal, x, get_delta(x_it) )
+    # TODO trust region factor 
+    r = if isnothing(_r)
+        fx_n .- compute_local_ideal_point( x_it_n, lb_eff, ub_eff, objf_handles, 
+            eq_handles, ineq_handles, MAX_EVALS, desc_cfg.reference_algo )
+    else
+        _r
+    end
+
+    @logmsg loglevel4 "Local image direction is $(_prettify(r))"
+
+    mx = eval_container_objectives_at_scaled_site( sc, scal, x_n)
+
+    # If any component is not positive, we are critical
+    if any( r .<= 0 )
+        return 0, copy(x_n), mx, 0
+    end
+
+    MAX_EVALS_global, MAX_EVALS_local = _ps_max_evals( desc_cfg, n_vars )
+    ps_constraints = _get_ps_constraint_functions(objf_handles, mx, r)
+    ps_eq_constraints = _augment_constraint_functions( eq_handles, x_n )
+    ps_ineq_constraints = _augment_constraint_functions( ineq_handles, x_n )
+    
+    τ, x_min, ret = _ps_optimization(-.5f0, x_n, lb_eff, ub_eff, ps_constraints, ps_eq_constraints, 
+        ps_ineq_constraints, MAX_EVALS_global, desc_cfg.main_algo)
+
+    RET_FAIL = (ret == :FAILURE || isinf(τ) || isnan(τ) || any(isnan.(x_min)) )
+    
+    if MAX_EVALS_local > 0 && !RET_FAIL
+        @logmsg loglevel4 "Local polishing for PS enabled."
+       
+        τ_loc, x_min_loc, ret_loc = _ps_optimization(τ, x_min, lb_eff, ub_eff,
+            ps_constraints, ps_eq_constraints, ps_ineq_constraints, MAX_EVALS_local, desc_cfg.ps_polish_algo)
+
+        if !( ret_loc == :FAILURE || isinf(τ_loc) || isnan(τ_loc) || any(isnan.(x_min_loc)) )
+            τ, x_min = τ_loc, x_min_loc
+        end
+    end
+
+    if RET_FAIL
+        return 0, copy(x), eval_container_objectives_at_scaled_site(sc, scal, x_n), 0
+    else
+        ω = Xet(abs( τ ))
+        x_trial = Xet.(x_min)
+        mx₊ = eval_container_objectives_at_scaled_site( sc, scal, x_trial )
+        sl = norm( x .- x_trial, Inf )
+
+        return ω, (x_trial, mx₊, sl)
+    end
+end
 
 # Directed Search
 #=

@@ -53,7 +53,7 @@ prepare_update_model( mod, meta, cfg, func_indices, mop, scal, iter_data, db, al
 prepare_improve_model( mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; kwargs...) = meta
 
 # overwrite if possible, this is inefficient:
-eval_models( sm :: SurrogateModel, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ :: Int) = eval_models(sm, x̂)[ℓ]
+eval_models( sm :: SurrogateModel, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ :: Int) = eval_models(sm, scal, x_scaled)[ℓ]
 
 improve_model( mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; kwargs...) = mod, meta
 
@@ -79,6 +79,6 @@ function _get_optim_handle( model :: SurrogateModel, scal :: AbstractVarScaler, 
         if !isempty(g)
             g[:] = get_gradient( model, scal, x, ℓ)
         end
-        return eval_models( model, scal, x, ℓ)
+        return eval_models( model, scal, x, ℓ )
     end
 end

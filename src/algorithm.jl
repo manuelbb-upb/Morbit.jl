@@ -212,9 +212,11 @@ end
 function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB, 
 		mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
 		filter :: AbstractFilter = DummyFilter(), _scal :: AbstractVarScaler = nothing;
-		iter_counter :: Int = 1, last_it_stat :: ITER_TYPE = ACCEPTABLE 
+		iter_counter :: Int = 1, last_it_stat :: ITER_TYPE = ACCEPTABLE, logger = Logging.current_logger(), 
 	)
 	
+	Logging.with_logger( logger ) do 
+
 	x = get_x( iter_data )
 	fx = get_fx( iter_data )
 
@@ -424,6 +426,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 
     # calculate descent step and criticality value of x+n
     ω, ω_data = get_criticality(mop, scal, iter_data, iter_data_n, data_base, sc, algo_config )
+	ω_data
     @logmsg loglevel1 "Criticality is ω = $(ω)."
     
     # stop at the end of the this loop run?
@@ -678,38 +681,50 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 	end
 
 	return CONTINUE, IT_STAT, scal, next_iterate
+
+	end# with_logger
 end
 
 ############################################
 function optimize( mop :: AbstractMOP, x0 :: Vec;
     algo_config :: Union{AbstractConfig, Nothing} = nothing, 
-    populated_db :: Union{AbstractSuperDB, Nothing} = nothing, kwargs... )
-    
-	mop, iter_data, super_data_base, sc, ac, filter, scal = initialize_data(
-		mop, x0; algo_config, populated_db, kwargs...)
-    @logmsg loglevel1 _stop_info_str( ac, mop )
+    populated_db :: Union{AbstractSuperDB, Nothing} = nothing,
+	verbosity :: Int = 0, kwargs... )
 
-    @logmsg loglevel1 "Entering main optimization loop."
-	
-	ret_code = CONTINUE
-	iter_counter = 1
-	it_stat = ACCEPTABLE
-    while ret_code == CONTINUE
-        ret_code, it_stat, scal, iter_data = iterate!(
-			iter_data, super_data_base, mop, sc, ac, filter, scal;
-			iter_counter, last_it_stat = it_stat 
-		)
-		iter_counter += 1
-    end# while
-
-	ret_x, ret_fx = get_return_values( iter_data )
-   
-    @logmsg loglevel1 _fin_info_str(iter_data, mop, ret_code, iter_counter - 1 )
-
-	if untransform_final_database( ac )
-		untransform!( super_data_base, scal )
+	logger = if verbosity != 0 
+		get_morbit_logger( LogLevel(-verbosity) )
+	else
+		Logging.current_logger()
 	end
 
-    return ret_x, ret_fx, ret_code, super_data_base, iter_data, filter
+	Logging.with_logger( logger ) do 
+		
+		mop, iter_data, super_data_base, sc, ac, filter, scal = initialize_data(
+			mop, x0; algo_config, populated_db, kwargs...)
+		@logmsg loglevel1 _stop_info_str( ac, mop )
+
+		@logmsg loglevel1 "Entering main optimization loop."
+		
+		ret_code = CONTINUE
+		iter_counter = 1
+		it_stat = ACCEPTABLE
+		while ret_code == CONTINUE
+			ret_code, it_stat, scal, iter_data = iterate!(
+				iter_data, super_data_base, mop, sc, ac, filter, scal;
+				iter_counter, last_it_stat = it_stat 
+			)
+			iter_counter += 1
+		end# while
+
+		ret_x, ret_fx = get_return_values( iter_data )
+	
+		@logmsg loglevel1 _fin_info_str(iter_data, mop, ret_code, iter_counter - 1 )
+
+		if untransform_final_database( ac )
+			untransform!( super_data_base, scal )
+		end
+
+		return ret_x, ret_fx, ret_code, super_data_base, iter_data, filter
+	end
 end# function optimize
 

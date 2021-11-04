@@ -397,3 +397,53 @@ end
         )
     end
 end
+
+## Scaled constraints 
+
+function _transform_linear_constraints( A, b, Tinv, offset )
+    _A = A*Tinv
+    return _A, b - _A * offset  
+end
+
+function transformed_linear_eq_constraints(scal, mop)
+    A, b = get_eq_matrix_and_vector( mop )
+
+    Tinv = unscaling_matrix(scal)
+    offset = scaling_offset(scal)
+
+    return _transform_linear_constraints( A, b, Tinv, offset)
+end
+
+function transformed_linear_ineq_constraints(scal, mop)
+    A, b = get_ineq_matrix_and_vector( mop )
+
+    Tinv = unscaling_matrix(scal)
+    offset = scaling_offset(scal)
+
+    return _transform_linear_constraints( A, b, Tinv, offset)
+end
+
+@memoize ThreadSafeDict function transformed_linear_constraints( scal, mop )
+    return (transformed_linear_eq_constraints(scal, mop)..., transformed_linear_ineq_constraints(scal,mop)...)
+end
+
+function _get_optim_handle( mat_row, offset )
+    opt_fun = function( x, g )
+        if !isempty(g)
+            g[:] .= mat_row[:]
+        end
+        return mat_row'x .+ offset
+    end
+    return opt_fun
+end
+
+function get_eq_constraints_optim_handles( mop, scal )
+    A, b = transformed_linear_eq_constraints( scal, mop )
+    return [_get_optim_handle(A[i,:], b[i]) for i = 1:length(b)]
+end
+ 
+function get_ineq_constraints_optim_handles( mop, scal )
+    A, b = transformed_linear_ineq_constraints( scal, mop )
+    return [_get_optim_handle(A[i,:], b[i]) for i = 1:length(b)]
+end
+    

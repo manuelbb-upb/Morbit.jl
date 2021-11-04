@@ -1,5 +1,7 @@
 module Morbit 
 
+using Dictionaries
+
 using DocStringExtensions
 
 using Printf: @sprintf

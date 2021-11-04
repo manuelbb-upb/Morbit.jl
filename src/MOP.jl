@@ -1,7 +1,9 @@
 # this is NOT a MOI.ModelLike !!
 # but I tried to design it with MOI in mind 
 # to have an easy time writing a wrapper eventually
-using DataStructures: SortedDict
+
+# using DataStructures: SortedDict
+# I am now using Dictionaries.jl which should also preserve the order :)
 
 @with_kw struct MOP <: AbstractMOP{true}
 	variables :: Vector{VarInd} = []
@@ -9,12 +11,12 @@ using DataStructures: SortedDict
 	lower_bounds :: Dict{VarInd, Real} = Dict()
 	upper_bounds :: Dict{VarInd, Real} = Dict()
 
-	objective_functions :: SortedDict{ObjectiveIndex, AbstractVecFun} = Dict()
-	nl_eq_constraints :: SortedDict{ConstraintIndex, AbstractVecFun} = Dict()
-	nl_ineq_constraints :: SortedDict{ConstraintIndex, AbstractVecFun} = Dict()
+	objective_functions :: Dictionary{ObjectiveIndex, AbstractVecFun} = Dictionary()
+	nl_eq_constraints :: Dictionary{ConstraintIndex, AbstractVecFun} = Dictionary()
+	nl_ineq_constraints :: Dictionary{ConstraintIndex, AbstractVecFun} = Dictionary()
 
-	eq_constraints :: SortedDict{ConstraintIndex, MOI.VectorAffineFunction} = Dict()
-	ineq_constraints :: SortedDict{ConstraintIndex, MOI.VectorAffineFunction} = Dict()
+	eq_constraints :: Dictionary{ConstraintIndex, MOI.VectorAffineFunction} = Dictionary()
+	ineq_constraints :: Dictionary{ConstraintIndex, MOI.VectorAffineFunction} = Dictionary()
 end
 
 struct MOPTyped{
@@ -40,31 +42,23 @@ struct MOPTyped{
 	ineq_vec :: IneqVecType
 end
 
+function _create_dict(mop, indices, index_type = FunctionIndex )
+	if isempty( indices )
+		return Base.ImmutableDict{index_type, Nothing}()
+	else
+		num_indices = length(indices)
+		dict_vals = [ _get(mop, ind) for ind = indices ]
+		return ArrayDictionary{ index_type, eltype(dict_vals) }( SVector{num_indices}(collect(indices)), dict_vals )
+	end
+end
+
 function MOPTyped( mop :: AbstractMOP )
 	variables = Tuple( var_indices(mop) )
 	lower_bounds = Base.ImmutableDict( ( vi => ensure_precision( get_lower_bound( mop, vi ) ) for vi in variables )... )
 	upper_bounds = Base.ImmutableDict( ( vi => ensure_precision( get_upper_bound( mop, vi ) ) for vi in variables )... )
-	objective_functions = let indices = get_objective_indices(mop);
-		if isempty(indices)
-			Base.ImmutableDict{ObjectiveIndex, Nothing}()
-		else
-			SortedDict( ind => _get(mop, ind) for ind = indices ) 
-		end
-	end
-	nl_eq_constraints = let indices = get_nl_eq_constraint_indices(mop);
-		if isempty(indices)
-			Base.ImmutableDict{ConstraintIndex, Nothing}()
-		else
-			SortedDict( ind => _get(mop, ind) for ind = indices ) 
-		end
-	end
-	nl_ineq_constraints = let indices = get_nl_ineq_constraint_indices(mop);
-		if isempty(indices)
-			Base.ImmutableDict{ConstraintIndex, Nothing}()
-		else
-			SortedDict( ind => _get(mop, ind) for ind = indices )
-		end
-	end
+	objective_functions = _create_dict(mop, get_objective_indices(mop), ObjectiveIndex ) 
+	nl_eq_constraints = _create_dict(mop, get_nl_eq_constraint_indices(mop), ConstraintIndex )
+	nl_ineq_constraints = _create_dict(mop, get_nl_ineq_constraint_indices(mop), ConstraintIndex ) 
 
 	eq_mat, eq_vec = get_eq_matrix_and_vector( mop )
 	ineq_mat, ineq_vec = get_ineq_matrix_and_vector( mop )
@@ -132,7 +126,7 @@ function __get( mop :: MOP, ind :: ConstraintIndex )
 end
 
 _next_val( indices ) = isempty(indices) ? 1 : maximum( ind.value for ind in indices ) + 1 
-_next_val( dict :: Union{AbstractDict, AbstractDictionary} ) = _next_val( keys(dict) )
+_next_val( dict :: Union{AbstractDict, AbstractDictionary} ) = _next_val( collect(keys(dict) ))
 
 function add_lower_bound!(mop :: MOP, vi :: VarInd, val :: Real) 
 	mop.lower_bounds[vi] = val
@@ -165,7 +159,7 @@ function _add_objective!(mop :: MOP, fun :: AbstractVecFun)
 		_next_val( mop.objective_functions ),
 		num_outputs( fun ) 
 	)
-	mop.objective_functions[ind] = fun 
+	insert!(mop.objective_functions, ind, fun)
 	return ind
 end
 
@@ -175,7 +169,7 @@ function _add_nl_eq_constraint!( mop :: MOP, fun :: AbstractVecFun )
 		num_outputs( fun ),
 		:nl_eq
 	)
-	mop.nl_eq_constraints[ind] = fun 
+	insert!(mop.nl_eq_constraints, ind, fun)
 	return ind
 end
 
@@ -185,7 +179,7 @@ function _add_nl_ineq_constraint!( mop :: MOP, fun :: AbstractVecFun )
 		num_outputs( fun ),
 		:nl_ineq
 	)
-	mop.nl_ineq_constraints[ind] = fun 
+	insert!( mop.nl_ineq_constraints, ind, fun )
 	return ind
 end
 
@@ -195,7 +189,7 @@ function add_eq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction )
 		MOI.output_dimension( aff_func ),
 		:eq
 	)
-	mop.eq_constraints[ind] = aff_func
+	insert!( mop.eq_constraints, ind, aff_func )
 	return ind 
 end
 
@@ -205,6 +199,6 @@ function add_ineq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction 
 		MOI.output_dimension( aff_func ),
 		:ineq
 	)
-	mop.ineq_constraints[ind] = aff_func
+	insert!(mop.ineq_constraints,ind, aff_func )
 	return ind 
 end

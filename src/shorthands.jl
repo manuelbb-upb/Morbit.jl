@@ -13,6 +13,7 @@ const MatF = AbstractMatrix{<:AbstractFloat}
 const NumOrVecF = Union{AbstractFloat, VecF}
 const MIN_PRECISION = Float32
 
+
 #%%
 
 # used instead of list comprehension
@@ -56,7 +57,7 @@ end
 const FunctionIndex = Union{ObjectiveIndex, ConstraintIndex}
 Base.broadcastable( ind :: FunctionIndex ) = Ref(ind)
 
-Base.isless(fi :: FunctionIndex, fi2 :: FunctionIndex) = isless(fi.value, fi2.value)
+#Base.isless(fi :: FunctionIndex, fi2 :: FunctionIndex) = isless(fi.value, fi2.value)
 
 const FunctionIndexTuple = Tuple{Vararg{<:FunctionIndex}}
 const FunctionIndexIterable = Union{FunctionIndexTuple, Vector{<:FunctionIndex}}
