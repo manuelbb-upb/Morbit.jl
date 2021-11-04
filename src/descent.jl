@@ -59,7 +59,7 @@ end
     armijo_const_shrink :: Float64 = .5 
 
     max_loops :: Int = 30
-    min_stepsize :: Float64 = -1.0
+    min_stepsize :: Float64 = 1e-15
 
     normalize :: Bool = true
 end
@@ -134,8 +134,8 @@ function _backtrack( x :: AbstractVector{F}, dir, ω, sc, cfg, scal ) where F<:A
     MIN_STEPSIZE = cfg.min_stepsize >= 0 ? cfg.min_stepsize : eps(F)
     MAX_LOOPS = cfg.max_loops
     strict_backtracking = cfg.strict_backtracking 
-    α = cfg.armijo_const_shrink
-    c = cfg.armijo_const_rhs
+    α = F(cfg.armijo_const_shrink)
+    c = F(cfg.armijo_const_rhs)
 
     step_size = 1 
 
@@ -146,6 +146,7 @@ function _backtrack( x :: AbstractVector{F}, dir, ω, sc, cfg, scal ) where F<:A
     mx₊ = eval_container_objectives_at_scaled_site(sc, scal, x₊ )
 
     for i = 1 : MAX_LOOPS 
+        step_size * c * ω
         if _armijo_condition( Val(strict_backtracking), mx, mx₊, step_size, ω, c )
             break
         end
@@ -207,7 +208,7 @@ function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_
     return ω, d
 end
 
-function compute_descent_step(desc_cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
+function compute_descent_step(desc_cfg :: SteepestDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
         x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
         data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, d; kwargs...
     )
@@ -217,15 +218,16 @@ function compute_descent_step(desc_cfg :: AbstractDescentConfig, mop :: Abstract
     x = get_x_scaled( x_it )
     x_n = get_x_scaled( x_it_n )
     
-    lb, ub = full_lower_bounds_internal(scal)
+    lb, ub = full_bounds_internal(scal)
     if x ≈ x_n
         Δ = get_delta( x_it )
         lb_eff, ub_eff = _local_bounds(x, Δ, lb, ub )
     else
         # if a normal step was taken, we have to respect the trust region boundary
         # with respect to x but measure Δ from x+n.
+        get_delta( x_it )
         lb_eff, ub_eff = _local_bounds( x, get_delta(x_it), lb, ub )
-        Δ = _intersect_box( x_n, d, lb_eff, ub_eff; ret_mode = :pos )
+        Δ = intersect_box( x_n, d, lb_eff, ub_eff; return_vals = :pos )
     end
 
     # scale direction for backtracking as in paper
@@ -641,6 +643,7 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     variable_radius :: Bool = false )
     
     x = get_x_scaled( x_it )
+    Xet = eltype(x)
     κ_Δ = filter_kappa_delta( algo_config )
 
     n_vars = length(x)
@@ -657,7 +660,7 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     opt_problem = JuMP.Model( OSQP.Optimizer )
     JuMP.set_silent(opt_problem)
 
-    JuMP.set_optimizer_attribute( opt_problem, "eps_rel", 1e-5 );
+    JuMP.set_optimizer_attribute( opt_problem, "eps_rel", Xet(1e-5) );
     JuMP.set_optimizer_attribute( opt_problem, "polish", true );
 
     JuMP.@variable(opt_problem, n[1:n_vars])
@@ -669,7 +672,7 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
         
         # this must be fullfilled in order for `n` to be compatible
         # results from `min(1, κ_μ Δ^μ) = 1`.
-        # if this is not the case, `min(1, κ_μ*Δ^μ) \le 1` still makes it
+        # if this is not the case, `min(1, κ_μ*Δ^μ) ≤ 1` still makes it
         # a necessary condition
         JuMP.@constraint( opt_problem, α <= κ_Δ * del )
     else
@@ -691,9 +694,10 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     JuMP.optimize!(opt_problem)
     
     if JuMP.termination_status(opt_problem) == JuMP.MathOptInterface.INFEASIBLE
-        return fill(MIN_PRECISION, n_vars)  # this should happen anyways and triggers restoration
+        return fill(MIN_PRECISION(NaN64), n_vars), -MIN_PRECISION(Inf)  # this should happen anyways and triggers restoration
     end
 
     _Δ = !variable_radius ? -1 : JuMP.value( del )
-    return JuMP.value.(n), _Δ
+    n = Xet.(JuMP.value.(n))
+    return n, Xet(_Δ)
 end

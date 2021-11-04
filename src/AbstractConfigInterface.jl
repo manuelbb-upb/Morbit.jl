@@ -45,11 +45,11 @@ f_tol_abs( :: AbstractConfig ) = MIN_PRECISION(-1)
 x_tol_abs( :: AbstractConfig ) = MIN_PRECISION(-1)
 
 # stop if ω ≤ omega_tol_rel && Δ .≤ Δ_tol_rel
-omega_tol_rel( ac :: AbstractConfig ) = 10 * omega_tol_abs( ac )
-delta_tol_rel( ac :: AbstractConfig )= 100 * f_tol_rel( ac )
+omega_tol_rel( ac :: AbstractConfig ) = 10 * f_tol_rel( ac )[end]
+delta_tol_rel( ac :: AbstractConfig )= x_tol_rel( ac )[end]
 
 # stop if ω <= omega_tol_abs 
-omega_tol_abs(:: AbstractConfig ) = sqrt(eps(MIN_PRECISION))
+omega_tol_abs(:: AbstractConfig ) = MIN_PRECISION(-Inf) #sqrt(eps(MIN_PRECISION))
 
 # stop if Δ .<= Δ_tol_abs 
 delta_tol_abs(ac :: AbstractConfig ) = f_tol_rel( ac )

@@ -1,8 +1,14 @@
 using Morbit
 M = Morbit
 
-M.print_all_logs()
+#%%
+using CairoMakie
+Makie.convert_arguments(x::Circle) = (decompose(Point2f, x),)
+
+#M.print_all_logs()
 n_vars = 2
+
+#%%
 mop = M.MOP(n_vars)
 
 vars = M.var_indices(mop)
@@ -35,6 +41,43 @@ M.add_lower_bound!( mop, vars[3], -10)
 M.add_upper_bound!( mop, vars[3], 10)
 =#
 
+#%%
+mop = M.MOP(2)
+M.add_objective!( mop, x -> (x[1] + 1)^2 + x[2]^2; model_cfg = M.ExactConfig() )
+M.add_objective!( mop, x -> (x[1] - 1)^2 + x[2]^2; model_cfg = M.ExactConfig() )
+#M.add_objective!( mop, x -> x[1]^2 + x[2]^2; model_cfg = M.ExactConfig() )
+
+centers = collect(Iterators.flatten( [
+	[[ -1.0, 2*i ] for i = 1:4 ],
+	[[ 1.0, 2*i ] for i = 1:4 ],
+	[[ 0.0, 2*i + 1 ] for i = 1:4 ],
+]))
+
+radii = fill( 1/sqrt(2), length(centers) )
+
+circles = Circle[]
+for (c,r) = zip( centers, radii )
+	push!(circles, Circle(Point(c...), r))
+	M.add_nl_ineq_constraint!(mop, x -> r^2 - sum( (x .- c ).^2 ); model_cfg = M.ExactConfig() )
+end
+
+x0 = [0.2, 10.0]
+x, fx, ret, sdb, id = M.optimize( mop, x0; verbosity = 1);
+
+#%%
+fig = Figure(resolution = (250, 800))
+ax = Axis(fig[1,1])
+ax.aspect = DataAspect()
+
+lines!(ax, [-1.0, 1.0], [0.0, 0.0], color = :blue)
+for circ in circles 
+	lines!(ax, circ; color = :blue)
+end
+
+lines!(ax, Tuple.( t.x for t = sdb.iter_data) )
+scatter!(ax, Tuple.( t.x for t = sdb.iter_data); color = collect(cgrad(:blues, length(sdb.iter_data))) )
+
+fig
 #%% manual iteration:
 #=
 @enter begin
@@ -54,5 +97,16 @@ algo_config = M.AlgorithmConfig{Float32}(;
 	#descent_method = :ps
 )
 #%%
-x, fx, ret, sdb, id = M.optimize( mop, [-2; 0]; algo_config)
+x0 = [-0.5f0, 0]
+
+x0 = [-2.0, 0.0]
+x, fx, ret, sdb, id = M.optimize( mop, x0; algo_config, verbosity = 4);
 x
+
+#%%#%%
+circ = Circle( Point2(0.0,0.0), 1.0 )
+fig, ax, _ = lines(circ)
+ax.aspect = DataAspect(1.0)
+lines!(ax, Tuple.( t.x for t = sdb.iter_data) )
+scatter!(ax, Tuple.( t.x for t = sdb.iter_data) )
+fig

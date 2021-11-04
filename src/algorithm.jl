@@ -156,7 +156,11 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	end
 	filter = init_empty_filter( filterT, fx, l_e, l_i, c_e, c_i; shift = filter_shift(ac) )
 
-    sdb = SuperDB(; sub_dbs, iter_data = get_saveable_type(IterSaveable, id)[] )
+
+	init_stamp_content = get_saveable( IterSaveable, id; 
+		rho = -Inf, omega = -Inf, steplength = -Inf, iter_counter = 0, it_stat = INITIALIZATION
+	)
+	sdb = SuperDB(; sub_dbs, iter_data = [init_stamp_content,]) # get_saveable_type(IterSaveable, id)[] )
 
 	# initialize surrogate models
 	sc = init_surrogates(SurrogateContainer, smop, scal, id, ac, groupings, sdb )
@@ -170,7 +174,13 @@ function restoration(iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 		r_guess_scaled = nothing
 	)
 	
+	# TODO This is a very expensive task:
+	# We are minimizing the constraint violation `θ`
+	# by using the true constraint functions and NLopt.
+	# Maybe we should instead do this with Morbit itself?
+
 	x = get_x( iter_data )
+	Xet = eltype(x)
 	n_vars = length(x)	
 	r0 = isnothing( r_guess_scaled ) ? zeros_like(x) : untransform( r_guess_scaled, scal )
 	
@@ -196,10 +206,12 @@ function restoration(iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 	opt.ftol_rel = 1e-3
 	opt.stopval = _zero_for_constraints(θ_k)
 	opt.maxeval = 500 * n_vars
-	minθ, rfin, ret = NLopt.optimize( opt, r0 )
+	minθ, _rfin, ret = NLopt.optimize( opt, r0 )
+	rfin = Xet.(_rfin)
 
 	r_scaled = transform( rfin, scal )
 	x_r = get_x_scaled( iter_data ) .+ r_scaled
+	
 	mop_res_restoration = eval_dict_mop_at_unscaled_site(mop, x_r )
 	fx_r, c_e_r, c_i_r, = eval_result_to_all_vectors( mop_res_restoration, mop )
 	l_e_r, l_i_r = eval_linear_constraints_at_unscaled_site( x_r, mop )
@@ -302,7 +314,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 	if !( constraint_violation_is_zero(θ_k) )
 		@assert last_it_stat != CRIT_LOOP_EXIT "This should be impossible!"
 
-		LAST_ITER_WAS_RESTORATION = (last_it_stat == RESTORATION)
+		@show LAST_ITER_WAS_RESTORATION = (last_it_stat == RESTORATION)
 		if LAST_ITER_WAS_RESTORATION
 			n, _Δ = compute_normal_step( mop, scal, iter_data, data_base, sc, algo_config; variable_radius = true )
 		else
@@ -318,7 +330,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 		
 		# for debugging, uncomment to see what happens with an invalid step `n`
 		# n = fill( NaN32, length(x) )
-
+		@show n
 		_isnan_n = any( isnan.(n) )
 
 		EXIT_FOR_NEXT_ITERATION = false	# this is used to avoid nonlinear restoration for linearly constrained problems
@@ -465,6 +477,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 		end
 		
 		num_critical_loops = 0
+		RETURN_CRITICAL = false
 		if DO_CRIT_LOOPS			
 
 			# if we are really near a critical point we compute the criticality from x+n hereafter
@@ -497,11 +510,13 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 
 				if Δ_abs_test( Δ, algo_config ) || 
 					ω_Δ_rel_test(ω, Δ, algo_config) || ω_abs_test( ω, algo_config )
-					return CRITICAL, EARLY_EXIT, scal, iter_data_n
+					RETURN_CRITICAL = true
+					break
 				end
 				if !fully_linear(sc)
 					@logmsg loglevel2 "Could not make all models fully linear."
-					return CRITICAL, EARLY_EXIT, scal, iter_data_n
+					RETURN_CRITICAL = true 
+					break
 				end
 			end
 
@@ -510,8 +525,12 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 			
 			@logmsg loglevel1 """
 				Exiting after $(num_critical_loops) loops with 
-				ω = $(ω) and Δ = $(get_delta(iter_data)).
+				ω = $(ω) and Δ = $(Δ)).
 			"""
+
+			if RETURN_CRITICAL
+				return CRITICAL, EARLY_EXIT, scal, iter_data_n
+			end
 
 			# if we are here, we deem the point x+n not critical (enough)
 			# let's make x+n the next iterate 
@@ -520,7 +539,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 			# its own ITER_TYPE)
 			set_delta!(iter_data_n, min( Δ_0, max( β * ω, Δ) ) )
 			stamp_content = get_saveable( SAVEABLE_TYPE, iter_data_n; 
-				rho = -Inf, omega = ω, steplength = -Inf, iter_counter, CRIT_LOOP_EXIT
+				rho = -Inf, omega = ω, steplength = -Inf, iter_counter, it_stat = CRIT_LOOP_EXIT
 			)
 			stamp!( data_base, stamp_content )
 			return CONTINUE, CRIT_LOOP_EXIT, scal, iter_data_n
@@ -564,9 +583,9 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 	#========================
 	Trust region updates
 	========================#	
-	
-	IS_ACCEPTABLE_FOR_FILTER = is_acceptable( filter, fx_trial, l_e_trial, 
-		l_i_trial, c_e_trial, c_i_trial, (θ_k, compute_objective_val(filter,fx)) )
+	θ_trial = compute_constraint_val( filter, l_e_trial, l_i_trial, c_e_trial, c_i_trial )
+	IS_ACCEPTABLE_FOR_FILTER = is_acceptable( (θ_trial, compute_objective_val(filter,fx_trial)), 
+		filter, (θ_k, compute_objective_val(filter,fx)) )
 
 	# we only need to compute ρ and ω(x) - ω(x₊) ≥ κ_ψ θ^ψ IF 
 	# the trial point is acceptable for F ∪ {x}
@@ -665,6 +684,8 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 	end
 
 	@logmsg loglevel1 """\n
+		ρ = $(ρ)
+		θ_+ = $(θ_trial)
 		The trial point was $(ACCEPT_TRIAL_POINT ? "" : "not ")accepted.
 		The iteration is $(IT_STAT).
 		Moreover, the radius was updated as below:
@@ -691,7 +712,7 @@ function optimize( mop :: AbstractMOP, x0 :: Vec;
     populated_db :: Union{AbstractSuperDB, Nothing} = nothing,
 	verbosity :: Int = 0, kwargs... )
 
-	logger = if verbosity != 0 
+	logger = if verbosity >= 0 
 		get_morbit_logger( LogLevel(-verbosity) )
 	else
 		Logging.current_logger()

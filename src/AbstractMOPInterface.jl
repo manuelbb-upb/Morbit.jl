@@ -202,7 +202,7 @@ end
 
 function flatten_mop_dict( eval_dict, _func_indices = nothing )
     func_indices = isnothing(_func_indices) ? keys(eval_dict) : _func_indices
-    flatten_vecs( [eval_dict[find] for find=func_indices])
+    flatten_vecs( [eval_dict[find] for find=func_indices] )
 end
 
 function eval_vec_mop_at_func_indices_at_unscaled_sites( 

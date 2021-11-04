@@ -62,7 +62,7 @@ function is_acceptable( vals :: Tuple, filter :: AbstractFilter, other_vals :: T
 	θ,f = vals 
 	θₖ, fₖ = other_vals 
 	
-	acceptable_flag = ( (θ <= (1-γ_θ) * θₖ) && all( f .<= fₖ .- γ_θ * θₖ ) )
+    acceptable_flag = ( (θ <= (1-γ_θ) * θₖ) || all( f .<= fₖ .- γ_θ * θₖ ) )
 	if acceptable_flag
 		return is_acceptable( vals, filter )
 	else

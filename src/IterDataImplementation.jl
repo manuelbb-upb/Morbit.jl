@@ -73,7 +73,7 @@ function get_saveable( :: Type{<:IterSaveable}, id :: AbstractIterate;
         get_x( id ),
         get_delta( id ),
         get_x_index_dict( id ),
-        rho, steplength, omega
+        Float64(rho), Float64(steplength), Float64(omega)
     )
 end
 

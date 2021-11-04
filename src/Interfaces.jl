@@ -98,6 +98,7 @@ abstract type DiffFn end
     FILTER_ADD     # trial point acceptable to filter with large constraint violation
     EARLY_EXIT
     CRIT_LOOP_EXIT
+    INITIALIZATION
 end
 
 @enum STOP_CODE begin
