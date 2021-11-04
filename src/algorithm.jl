@@ -160,7 +160,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	init_stamp_content = get_saveable( IterSaveable, id; 
 		rho = -Inf, omega = -Inf, steplength = -Inf, iter_counter = 0, it_stat = INITIALIZATION
 	)
-	sdb = SuperDB(; sub_dbs, iter_data = [init_stamp_content,]) # get_saveable_type(IterSaveable, id)[] )
+	sdb = SuperDB(; sub_dbs, iter_data = [init_stamp_content,] ) #, get_saveable_type(IterSaveable, id)[] )
 
 	# initialize surrogate models
 	sc = init_surrogates(SurrogateContainer, smop, scal, id, ac, groupings, sdb )
@@ -310,11 +310,11 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 	c_i = get_nl_ineq_const( iter_data )
 
 	θ_k = compute_constraint_val( filter, l_e, l_i, c_e, c_i )
-	
+	@logmsg loglevel1 "Constraint Violation is $(θ_k)"
 	if !( constraint_violation_is_zero(θ_k) )
 		@assert last_it_stat != CRIT_LOOP_EXIT "This should be impossible!"
 
-		@show LAST_ITER_WAS_RESTORATION = (last_it_stat == RESTORATION)
+		LAST_ITER_WAS_RESTORATION = (last_it_stat == RESTORATION)
 		if LAST_ITER_WAS_RESTORATION
 			n, _Δ = compute_normal_step( mop, scal, iter_data, data_base, sc, algo_config; variable_radius = true )
 		else
@@ -330,7 +330,6 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 		
 		# for debugging, uncomment to see what happens with an invalid step `n`
 		# n = fill( NaN32, length(x) )
-		@show n
 		_isnan_n = any( isnan.(n) )
 
 		EXIT_FOR_NEXT_ITERATION = false	# this is used to avoid nonlinear restoration for linearly constrained problems
@@ -370,13 +369,17 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 				iter_data, data_base, mop, algo_config, filter, scal; 
 				r_guess_scaled = r_guess
 			)
-
+			@show x_r
+			@show untransform( x_r, scal )
 			if is_acceptable( (θ_r, fx_r), filter )
-				@logmsg loglevel2 "Found an acceptable restoration step."
+				@logmsg loglevel2 "Found an acceptable restoration step. Going to next iteration."
 				iter_data_r = init_iterate( IterData, untransform(x_r, scal), x_r,
 						fx_r, l_e_r, l_i_r, c_e_r, c_i_r, get_delta( iter_data ), x_indices_r )
 
-				
+				stamp_content = get_saveable( SAVEABLE_TYPE, iter_data_r; 
+					rho = -Inf, omega = -Inf, steplength = -Inf, iter_counter, it_stat = RESTORATION
+				)
+				stamp!( data_base, stamp_content )
 				# For debugging, uncomment the below to lines to see what 
 				# happens if no good restoration step is found.
 				# iter_data_r = iter_data 
@@ -665,13 +668,6 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 		add_entry!( filter, x_trial_unscaled, vals_trial )
 	end
 
-	# before updating `iter_data`, retrieve a saveable
-	# (order is important here to have current index and next index)
-	stamp_content = get_saveable( SAVEABLE_TYPE, iter_data; 
-		rho = Float64(ρ), omega = Float64(ω), steplength = Float64(steplength), iter_counter, it_stat = IT_STAT 
-	)
-	stamp!( data_base, stamp_content )
-
 	Δ, Δ_old = do_radius_update(iter_data, _RADIUS_UPDATE, algo_config, steplength)
 
 	next_iterate = if ACCEPT_TRIAL_POINT
@@ -692,6 +688,11 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 		old radius : $(Δ_old)
 		new radius : $(Δ)) ($(round(Δ/Δ_old * 100; digits=1)) %)
 	"""
+
+	stamp_content = get_saveable( SAVEABLE_TYPE, next_iterate; 
+		rho = Float64(ρ), omega = Float64(ω), steplength = Float64(steplength), iter_counter, it_stat = IT_STAT 
+	)
+	stamp!( data_base, stamp_content )
 
 	if ( x_tol_rel_test( x, x_trial_unscaled, algo_config  ) || 
 			x_tol_abs_test( x, x_trial_unscaled, algo_config ) ||

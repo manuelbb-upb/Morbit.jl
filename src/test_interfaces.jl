@@ -7,7 +7,29 @@ Makie.convert_arguments(x::Circle) = (decompose(Point2f, x),)
 
 #M.print_all_logs()
 n_vars = 2
+#%%
+mop = M.MOP(n_vars)
 
+M.add_objective!(mop, x -> (x[1] - .5)^2 + (x[2] - 1)^2; model_cfg = M.ExactConfig())
+M.add_objective!(mop, x -> (x[1] - .5)^2 + (x[2] + 1)^2; model_cfg = M.ExactConfig())
+
+g1 = x -> x[2] - sin(10*x[1])	# x[2] <= sin(10x[1])
+g2 = x -> -x[2] + sin(10*x[1]) - .1 + 0.5*x[1] # sin(10x[1]) -.1 + 0.5*x <= x[2]
+M.add_nl_ineq_constraint!(mop, g1; model_cfg = M.RbfConfig())
+M.add_nl_ineq_constraint!(mop, g2; model_cfg = M.RbfConfig())
+
+x0 = [-2., -1.5]
+x, fx, ret, sdb, id = M.optimize( mop, x0; max_iter = 15, verbosity = 2, descent_method = M.SteepestDescentConfig(; normalize = false));
+#%%
+_g1 = x -> sin(10*x)
+_g2 = x -> sin(10*x) - .1 + 0.5*x
+X = LinRange(-2.0, 0.5, 100)
+fig, ax, _ = lines(X, _g1.(X); color = :green)
+ax.xticks = LinearTicks(10)
+lines!(X, _g2.(X); color = :teal)
+lines!(Tuple.( t.x for t = sdb.iter_data) )
+scatter!(Tuple.( t.x for t = sdb.iter_data); color = collect(cgrad(:blues, length(sdb.iter_data))) )
+fig
 #%%
 mop = M.MOP(n_vars)
 
@@ -43,9 +65,8 @@ M.add_upper_bound!( mop, vars[3], 10)
 
 #%%
 mop = M.MOP(2)
-M.add_objective!( mop, x -> (x[1] + 1)^2 + x[2]^2; model_cfg = M.ExactConfig() )
-M.add_objective!( mop, x -> (x[1] - 1)^2 + x[2]^2; model_cfg = M.ExactConfig() )
-#M.add_objective!( mop, x -> x[1]^2 + x[2]^2; model_cfg = M.ExactConfig() )
+M.add_objective!( mop, x -> (x[1] + 1)^2 + x[2]^2; model_cfg = M.RbfConfig() )
+M.add_objective!( mop, x -> (x[1] - 1)^2 + x[2]^2; model_cfg = M.RbfConfig() )
 
 centers = collect(Iterators.flatten( [
 	[[ -1.0, 2*i ] for i = 1:4 ],
@@ -58,7 +79,7 @@ radii = fill( 1/sqrt(2), length(centers) )
 circles = Circle[]
 for (c,r) = zip( centers, radii )
 	push!(circles, Circle(Point(c...), r))
-	M.add_nl_ineq_constraint!(mop, x -> r^2 - sum( (x .- c ).^2 ); model_cfg = M.ExactConfig() )
+	M.add_nl_ineq_constraint!(mop, x -> r^2 - sum( (x .- c ).^2 ); model_cfg = M.RbfConfig() )
 end
 
 x0 = [0.2, 10.0]
