@@ -200,9 +200,13 @@ function flatten_mop_dicts( eval_dicts, _func_indices = nothing )
    return flatten_vecs.( [eval_dicts[find][j] for find=func_indices] for j=1:N )
 end
 
-function flatten_mop_dict( eval_dict, _func_indices = nothing )
+function flatten_mop_dict( eval_dict :: Union{AbstractDict{K,V}, AbstractDictionary{K,V}}, _func_indices = nothing ) where{K,V}
     func_indices = isnothing(_func_indices) ? keys(eval_dict) : _func_indices
-    flatten_vecs( [eval_dict[find] for find=func_indices] )
+    if isempty( func_indices )
+        return eltype(V)[]
+    else
+        return flatten_vecs( [eval_dict[find] for find=func_indices] )
+    end
 end
 
 function eval_vec_mop_at_func_indices_at_unscaled_sites( 

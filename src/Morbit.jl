@@ -35,7 +35,7 @@ import Logging
 
 include("custom_logging.jl")
 
-include("shorthands.jl");
+include("shorthands.jl");	# has types meant to be available globally -> import first
 include("Interfaces.jl");
 
 # implementations (order should not matter)
@@ -49,6 +49,8 @@ include("IterDataImplementation.jl")
 include("RbfModel.jl")
 include("ExactModel.jl")
 include("TaylorModel.jl")
+include("LagrangeModel.jl")
+
 include("SurrogateContainerImplementation.jl")
 
 include("ConfigImplementations.jl")

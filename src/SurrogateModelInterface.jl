@@ -22,21 +22,26 @@ needs_hessians( :: SurrogateConfig ) :: Bool = false
 # TODO make combinable bi-variate to check for to concrete configs if they are combinable
 
 ## TODO: make `prepare_init_model` and `_init_model` have a `ensure_fully_linear` kwarg too
-function prepare_init_model( ::SurrogateConfig, ::FunctionIndexIterable, :: AbstractMOP,
+function prepare_init_model( model_cfg, func_indices, mop, scal, x_it, sdb, algo_config; kwargs...) :: SurrogateMeta
+    #=::SurrogateConfig, ::FunctionIndexIterable, :: AbstractMOP,
     :: AbstractVarScaler,
-    :: AbstractIterate, ::AbstractSuperDB, :: AbstractConfig; kwargs... ) :: SurrogateMeta 
+    :: AbstractIterate, ::AbstractSuperDB, :: AbstractConfig; kwargs... ) :: SurrogateMeta =#
     nothing
 end
 
-function init_model( ::SurrogateMeta, ::SurrogateConfig, FunctionIndexIterable, :: AbstractMOP, 
+function init_model( meta, model_cfg, func_indices, mop, scal, x_it, sdb, algo_config; kwargs...) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
+    #=::SurrogateMeta, ::SurrogateConfig, FunctionIndexIterable, :: AbstractMOP, 
     :: AbstractVarScaler,
     :: AbstractIterate, ::AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
+    =#
     nothing 
 end
 
-function update_model( mod :: SurrogateModel, meta ::SurrogateMeta, ::SurrogateConfig, :: FunctionIndexIterable, 
+function update_model( mod, meta, model_cfg, func_indices, mop, scal, x_it, sdb, algo_config; kwargs... )
+    #= mod :: SurrogateModel, meta ::SurrogateMeta, ::SurrogateConfig, :: FunctionIndexIterable, 
     :: AbstractMOP, :: AbstractVarScaler,
     :: AbstractIterate, :: AbstractSuperDB, :: AbstractConfig; kwargs... ) :: Tuple{<:SurrogateModel,<:SurrogateMeta}
+    =#
     mod, meta 
 end
 

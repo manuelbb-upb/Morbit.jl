@@ -21,7 +21,7 @@ const MIN_PRECISION = Float32
 flatten_vecs( x :: Number) = [x,]
 
 function flatten_vecs(x)
-	return [ e for e in Iterators.flatten(x) ]
+	return [ e for e in Iterators.flatten(x) ]  # TODO check performance
 end
 
 function mat_from_row_vecs( row_vecs )

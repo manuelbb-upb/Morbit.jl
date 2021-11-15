@@ -1,11 +1,9 @@
 using Morbit
 M = Morbit
-
 #%%
 using CairoMakie
 Makie.convert_arguments(x::Circle) = (decompose(Point2f, x),)
 
-#M.print_all_logs()
 n_vars = 2
 #%%
 mop = M.MOP(n_vars)

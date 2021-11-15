@@ -102,7 +102,7 @@ function _scale( x, lb, ub )
     w = ub .- lb
     _w = [ isinf(ω) ? 1 : ω for ω=w ]
     _lb = [ isinf(ℓ) ? 0 : ℓ for ℓ=lb ]
-    return (x .- _lb)./_w
+    return _scale_lb_w(x, _lb, _w)
 end
 
 function _unscale!( x_scaled, lb, ub )
@@ -119,6 +119,14 @@ end
 function _unscale( x_scaled, lb, ub )
     w = ub .- lb
     return [ isinf(w[i]) ? x_scaled[i] : x_scaled[i]*w[i] + lb[i] for i = eachindex(w) ]
+end
+
+function _unscale_lb_w( x_scaled, lb, w )
+    return x_scaled .* w .+ lb 
+end
+
+function _scale_lb_w( x, lb, w )
+    return ( x .- lb ) ./ w
 end
 
 function _project_into_box( z, lb, ub)
