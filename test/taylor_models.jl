@@ -109,28 +109,28 @@ const test_stamps16 = [
 
 end#testset
 
-@testset "Accurate Linear Models, Unconstrained " begin
-	mop = Morbit.MixedMOP(2)
+@testset "Accurate Linear Models, Unconstrained" begin
+	mop = Morbit.MOP(2)
 	
 	# The gradients for a linear objective will be exact and a linear model 
 	# should then equal the linear objective globally
-	Morbit.add_objective!( mop, x -> sum(x), Morbit.TaylorConfig(;degree=1) )
+	Morbit.add_objective!( mop, x -> sum(x); model_cfg = Morbit.TaylorConfig(;degree=1) )
 
 	x0 = [π, -ℯ]
 
-	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
-	Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+	smop, iter_data, data_base, sc, ac, filter, scal = Morbit.initialize_data(mop, x0)
+	Morbit.update_surrogates!( sc, mop, scal, iter_data, data_base, ac )
 
-	mod = sc.surrogates[1].model
+	mod = Morbit.get_model(Morbit.list_of_wrappers(sc)[1])
 	objf = Morbit.list_of_objectives(smop)[1]
 
-	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
-	@test Morbit.get_gradient( mod, x0, 1 ) ≈ [1, 1]
-	@test Morbit.get_jacobian(sc, x0) ≈ [ 1 1 ]
-
+	@test Morbit.eval_models( mod, scal, x0 ) ≈ Morbit.eval_objf(objf,x0)
+	@test Morbit.get_gradient( mod, scal, x0, 1 ) ≈ [1, 1]
+	@test Morbit.get_jacobian( mod, scal, x0) ≈ [ 1 1 ]
+	@test Morbit.eval_container_objectives_jacobian_at_scaled_site( sc, scal, x0 ) ≈ [1 1]
 end#testset
 
-@testset "Accurate Linear Models, Constrained " begin
+@testset "Accurate Linear Models, Constrained" begin
 	mop = Morbit.MixedMOP( fill(-10.0, 2), fill(10.0, 2) )
 
 	Morbit.add_objective!( mop, x -> sum(x), Morbit.TaylorConfig(;degree=1) )

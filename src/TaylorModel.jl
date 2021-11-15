@@ -110,6 +110,9 @@ get_saveable( meta :: TaylorIndexMeta ) = TaylorIndexMeta(;
     hess_setter_indices = meta.hess_setter_indices
 )
 
+# And the configs should easily be available:
+export TaylorConfig, TaylorCallbackConfig 
+
 # The new construction process it is a bit complicated. 
 # We set up a recursive finite diff tree and 
 # need this little helper:
@@ -176,7 +179,7 @@ function prepare_update_model(
     
     XT = typeof(x)
     
-    lb, ub = full_bounds_internal( mop )
+    lb, ub = full_bounds_internal( scal )
 
     if cfg.degree >= 2
         RFD.substitute_leaves!(hess_wrapper)
@@ -391,7 +394,7 @@ end
 
 # And for the Jacobian, we again iterate:
 function get_jacobian( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec )
-    grad_list = [ get_gradient(tm, x̂, ℓ) for ℓ=eachindex( tm.g ) ]
+    grad_list = [ get_gradient(tm, scal, x̂, ℓ) for ℓ=eachindex( tm.g ) ]
     return transpose( hcat( grad_list... ) )
 end
 

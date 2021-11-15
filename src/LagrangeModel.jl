@@ -72,7 +72,6 @@ $(FIELDS)
     optimized_sampling :: Bool = true
 
     ## if optimized_sampling = false, shall we try to use saved sites?
-
     "Path to look at for a pre-saved poised set of interpolation points in [0,1]^n."
     save_path :: String = ""
 

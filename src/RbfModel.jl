@@ -53,44 +53,44 @@ $(FIELDS)
 
 """
 @with_kw struct RbfConfig <: SurrogateConfig
-	"(default `:cubic`) RBF kernel (Symbol), either `:cubic`, `:inv_multiquadric`, `:multiquadric`, `:exp` or `:thin_plate_spline`."
+	"RBF kernel (Symbol), either `:cubic`, `:inv_multiquadric`, `:multiquadric`, `:exp` or `:thin_plate_spline`."
 	kernel :: Symbol = :inv_multiquadric
 
-	"(default `NaN` for automatic) RBF shape paremeter, either a number or a string containing `Δ`."
+	"RBF shape paremeter, either a number or a string containing `Δ`."
 	shape_parameter :: Union{String, Float64} = NaN
 
-	"(default `1`) Degree of polynomial attached to RBF. `-1` means no polynomial."
+	"Degree of polynomial attached to RBF. `-1` means no polynomial."
 	polynomial_degree :: Int64 = 1;
 
-	"(default `2`) Local enlargment factor of trust region for sampling."
+	"Local enlargment factor of trust region for sampling."
 	θ_enlarge_1 :: Float64 = 2
 
-	"(default `2`) Maximum enlargment factor of maximum trust region for sampling."
+	"Maximum enlargment factor of maximum trust region for sampling."
 	θ_enlarge_2 :: Float64 = 2
 
-	"(default `1/(2*θ_enlarge_1)` Sampling parameter to generate Λ-poised set. The higher, the more poised."
+	"Sampling parameter to generate Λ-poised set. The higher, the more poised."
 	θ_pivot :: Float64 = 1 / (2 * θ_enlarge_1)
 
-	"(default `1e-7`) Parameter for 2nd sampling algorithm to ensure boundedness of Cholesky factors."
+	"Parameter for 2nd sampling algorithm to ensure boundedness of Cholesky factors."
 	θ_pivot_cholesky :: Float64 = 1e-7
 
-	"(default `false`) Require models to be fully linear in each iteration."
+	"Require models to be fully linear in each iteration."
 	require_linear :: Bool = false
 
-	"(default `-1`) Maximum number of training sites. `-1` is reset to `2n+1`."
+	"Maximum number of training sites. `-1` is reset to `2n+1`."
 	max_model_points :: Int64 = -1 # is probably reset in the algorithm
-	"(default `false`) Sample new sites to always use the maximum number of points."
+	"Sample new sites to always use the maximum number of points."
 	use_max_points :: Bool = false
 
 	"Whether or not to re-construct the training set in each iteration."
 	optimized_sampling = true
 
-	"(default `typemax(Int64)`) Maximum number of objective evaluations."
+	"Maximum number of objective evaluations."
 	max_evals :: Int64 = typemax(Int64)
 
 	@assert θ_enlarge_1 * θ_pivot ≤ 1 "θ_pivot must be <= θ_enlarge_1^(-1)."
 
-	##	@assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
+	## @assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
 	@assert kernel ∈ Symbol.(["gaussian", "inv_multiquadric", "multiquadric", "cubic", "thin_plate_spline"]) "Kernel '$kernel' not supported yet."
 
 	## Some sanity checks for the shape parameters:
