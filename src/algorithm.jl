@@ -64,7 +64,8 @@ function new_algo_config( ac :: Union{Nothing, DefaultConfig}; kwargs... )
 	if isempty( kwargs )
 		return DefaultConfig()
 	else
-		return AlgoConfig(; kwargs...)
+		T = Base.promote_type( [ eltype(v) for v in values(kwargs) if v isa AbstractFloat ]... )
+		return AlgorithmConfig{T}(; kwargs...)
 	end
 end
 

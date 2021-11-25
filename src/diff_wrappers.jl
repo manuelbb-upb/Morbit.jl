@@ -2,6 +2,7 @@ get_gradient( :: DiffFn, x :: Vec, l :: Int) = nothing
 get_jacobian( :: DiffFn, x :: Vec ) = nothing
 get_hessian( :: DiffFn, x :: Vec, l :: Int) = nothing
 
+#=
 @with_kw struct CallBackWrapper{
         G<:Union{AbstractVector{<:Function},Nothing}, 
         J<:Union{Function, Nothing},
@@ -25,28 +26,29 @@ end
 CallBackWrapper(objf, gradients :: Function, jacobian, hessian) = CallBackWrapper(objf, [gradients,], jacobian, hessian)
 
 # list of gradients provided
-function get_gradient(gw :: CallBackWrapper{G,J,H}, x :: Vec, l :: Int) where{G <: AbstractVector{<:Function}, J, H}
+function get_gradient(gw :: CallBackWrapper{<:AbstractVector{<:Function},<:Any,<:Any}, x :: Vec, l :: Int)
     return gw.gradients[l](x)
 end
 
 # no list of gradients, but a jacobian handle
-function get_gradient(gw :: CallBackWrapper{G,J,H}, x :: Vec, l :: Int) where{G <: Nothing, J <: Function, H}
+function get_gradient(gw :: CallBackWrapper{<:Nothing,<:Function,<:Any}, x :: Vec, l :: Int)
     return vec(gw.jacobian(x)[l,:])
 end
 
 # jacobian handle set
-function get_jacobian(gw :: CallBackWrapper{G,J,H}, x :: Vec ) where{G,J <: Function,H}
+function get_jacobian(gw :: CallBackWrapper{<:Any,<:Function,<:Any}, x :: Vec )
     return gw.jacobian(x)
 end
 
 # gradient handle set
-function get_jacobian(gw :: CallBackWrapper{G,J,H}, x :: Vec ) where{G,J <: Nothing,H}
+function get_jacobian(gw :: CallBackWrapper{<:AbstractVector{<:Function},<:Nothing,<:Any}, x :: Vec )
     return mat_from_row_vecs( get_gradient(gw, x, l) for l = eachindex(gw.gradients) )
 end
 
-function get_hessian( gw :: CallBackWrapper{G,J,<:Function}, x :: Vec, l :: Int ) where{G,J}
+function get_hessian( gw :: CallBackWrapper{<:Any,<:Any,<:Function}, x :: Vec, l :: Int )
     return gw.hessians[l](x)
 end
+=#
 
 for (WrapperName,gradient_method,jacobian_method,hessian_method) in (
         ( :AutoDiffWrapper, Meta.parse("AD.gradient"), Meta.parse("AD.jacobian"), Meta.parse("AD.hessian") ),
@@ -72,12 +74,12 @@ for (WrapperName,gradient_method,jacobian_method,hessian_method) in (
         end
 
         # no jacobian handle set but gradients provided
-        function get_jacobian( adw :: $(WrapperName){O,G,J,H}, x :: Vec ) where{O,G<:AbstractVector{<:Function},J<:Nothing,H}
+        function get_jacobian( adw :: $(WrapperName){<:Any,<:AbstractVector,<:Nothing,<:Any}, x :: Vec )
             return mat_from_row_vecs( adw.gradients[l](x) for l = eachindex( adw.gradients ) )
         end
 
         # jacobian handle set
-        function get_jacobian( adw :: $(WrapperName){O,G,J,H}, x :: Vec ) where{O,G,J<:Function,H}
+        function get_jacobian( adw :: $(WrapperName){<:Any,<:Any,<:Function,<:Any}, x :: Vec ) 
             return adw.jacobian( x )
         end
 
@@ -90,12 +92,12 @@ for (WrapperName,gradient_method,jacobian_method,hessian_method) in (
         end
 
         # no jacobian handle set but gradients provided
-        function get_gradient( adw :: $(WrapperName){O,G,J,H}, x :: Vec, l :: Int ) where{O,G<:AbstractVector{<:Function},J<:Nothing,H}
+        function get_gradient( adw :: $(WrapperName){<:Any,<:AbstractVector,<:Any,<:Any}, x :: Vec, l :: Int ) #where{O,G<:AbstractVector{<:Function},J<:Nothing,H}
             return adw.gradients[l](x)
         end
 
         # no gradients but jacobian handle set
-        function get_gradient( adw :: $(WrapperName){O,G,J,H}, x :: Vec, l :: Int ) where{O,G,J<:Function,H}
+        function get_gradient( adw :: $(WrapperName){<:Any,<:Nothing,<:Function,<:Any}, x :: Vec, l :: Int ) #where{O,G,J<:Function,H}
             return vec( adw.jacobian(x)[l,:] )
         end
 
@@ -108,7 +110,7 @@ for (WrapperName,gradient_method,jacobian_method,hessian_method) in (
         end  
 
         # hessian, if functions are provided
-        function get_hessian( adw :: $(WrapperName){O,G,J,H}, x :: Vec, l :: Int) where{O,G,J,H<:AbstractVector{<:Function}}
+        function get_hessian( adw :: $(WrapperName){<:Any,<:Any,<:Any,<:AbstractVector}, x :: Vec, l :: Int) #where{O,G,J,H<:AbstractVector{<:Function}}
             return adw.hessians[l](x)
         end
 
@@ -119,6 +121,10 @@ for (WrapperName,gradient_method,jacobian_method,hessian_method) in (
     end#eval 
 end#for
 
-function get_hessian( fdw :: FiniteDiffWrapper{O,G,J,H}, x :: Vec, l :: Int) where{O,G<:AbstractVector{<:Function}, J, H}
+function get_hessian( fdw :: FiniteDiffWrapper{<:Any,<:AbstractVector,<:Any,<:Nothing}, x :: Vec, l :: Int)
     return FD.finite_difference_jacobian( ξ -> get_gradient( fdw, ξ, l), x )
+end
+
+function get_hessian( fdw :: FiniteDiffWrapper{<:Any,<:Nothing,<:Function,<:Nothing}, x :: Vec, l :: Int)
+    return FD.finite_difference_jacobian( ξ -> get_jacobian( fdw, ξ, x )[l,:] )
 end

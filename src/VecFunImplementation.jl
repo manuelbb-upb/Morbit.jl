@@ -27,32 +27,49 @@ function _wrap_func( ::Type{<:VecFun}, fn :: VecFuncWrapper;
         diff_method :: Union{Type{<:DiffFn}, Nothing} = FiniteDiffWrapper
     )
       
-    if needs_gradients( model_cfg ) && ( isnothing(gradients) && isnothing(jacobian) )
-        if isnothing(diff_method)
-            error("""
-            According to `model_cfg` we need gradient information.
-            You can provide a list of functions with the `gradients` keyword or a 
-            `jacobian` function. 
-            Alternatively, you can use the keyword argument `diff_method` with 
-            `Morbit.FiniteDiffWrapper` or `Morbit.AutoDiffWrapper`.
-            """)
+    callback_gradients = false
+    if needs_gradients( model_cfg )
+        if ( isnothing(gradients) && isnothing(jacobian) )
+            if isnothing(diff_method)
+                error("""
+                According to `model_cfg` we need gradient information.
+                You can provide a list of functions with the `gradients` keyword or a 
+                `jacobian` function. 
+                Alternatively, you can use the keyword argument `diff_method` with 
+                `Morbit.FiniteDiffWrapper` or `Morbit.AutoDiffWrapper`.
+                """)
+            else
+                @warn "Using $(diff_method) for gradients."
+            end
         else
-            @warn "Using $(diff_method) for gradients."
+            callback_gradients = true
         end
     end
 
-    if needs_hessians( model_cfg ) && isnothing(hessians)
-        if isnothing(diff_method)
-            error("""
-            According to `model_cfg` we need hessian information.
-            You can provide a list of functions with the `hessians` keyword.
-            Alternatively, you can use the keyword argument `diff_method` with 
-            `Morbit.FiniteDiffWrapper` or `Morbit.AutoDiffWrapper`.
-            """)
+    callback_hessians = false
+    if needs_hessians( model_cfg )
+        if isnothing(hessians)
+            if isnothing(diff_method)
+                error("""
+                According to `model_cfg` we need hessian information.
+                You can provide a list of functions with the `hessians` keyword.
+                Alternatively, you can use the keyword argument `diff_method` with 
+                `Morbit.FiniteDiffWrapper` or `Morbit.AutoDiffWrapper`.
+                """)
+            else
+                @warn "Using $(diff_method) for hessians."
+            end
         else
-            @warn "Using $(diff_method) for hessians."
+            callback_hessians = true
         end
     end
+
+    #=
+    if callback_gradients && callback_hessians
+        # TODO This should not matter much and I think I should be able to remove `CallBackWrapper`
+        diff_method = CallBackWrapper
+    end
+    =#
 
     diff_wrapper = if (needs_gradients(model_cfg) || needs_hessians(model_cfg)) && !isnothing(diff_method)
         diff_method(;
@@ -64,7 +81,7 @@ function _wrap_func( ::Type{<:VecFun}, fn :: VecFuncWrapper;
     else
         nothing
     end
-
+    
     return VecFun(;
         n_out = n_out,
         function_handle = fn, 
