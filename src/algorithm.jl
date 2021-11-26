@@ -64,7 +64,8 @@ function new_algo_config( ac :: Union{Nothing, DefaultConfig}; kwargs... )
 	if isempty( kwargs )
 		return DefaultConfig()
 	else
-		T = Base.promote_type( [ eltype(v) for v in values(kwargs) if v isa AbstractFloat ]... )
+		float_types = [ eltype(v) for v in values(kwargs) if v isa AbstractFloat ]
+		T = isempty(float_types) ? MIN_PRECISION : Base.promote_type( float_types... )
 		return AlgorithmConfig{T}(; kwargs...)
 	end
 end
@@ -291,7 +292,13 @@ function iterate!( iter_data :: AbstractIterate, data_base :: AbstractSuperDB,
 			db_scaler = combined_untransform_transform_scaler( _scal, scal )
 			transform!( data_base, db_scaler )
 		end
-		set_x_scaled!( iter_data, transform( x, scal ) )
+		#set_x_scaled!( iter_data, transform( x, scal ) )
+		iter_data = _init_iterate( IterData,
+    		get_x(iter_data), transform(get_x(iter_data), scal) , get_fx(iter_data),
+			get_eq_const(iter_data), get_ineq_const(iter_data),
+    		get_nl_eq_const(iter_data), get_nl_ineq_const(iter_data), get_delta(iter_data),
+			get_x_index_dict(iter_data)
+		)
 	end
 
     # update surrogate models

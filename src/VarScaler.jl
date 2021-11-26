@@ -75,7 +75,6 @@ function combined_untransform_transform_scaler( scal1 :: NoVarScaling, :: NoVarS
 	return scal1 
 end
 
-
 full_lower_bounds_internal( scal :: NoVarScaling ) = scal.lb 
 full_upper_bounds_internal( scal :: NoVarScaling ) = scal.ub
 
@@ -133,7 +132,8 @@ full_upper_bounds_internal( scal :: LinearScaling ) = scal.ub_scaled
 # provided the m×n jacobian `J` of `f: ℝⁿ → ℝᵐ`, return a vector `c`
 # of `n` scaling vectors so that the absolute values of `J' = J⋅diagm(c)` 
 # are as close to one as possible. 
-# `J'` is the jacobian of `f∘s` where `s` scales the variables with `c`.
+# If `f` is linear, then `J'` is the jacobian 
+# of `f∘s` where `s` scales the variables with `c`.
 # Loosely inspired by “Scaling nonlinear programs”, Lasdon & Beck
 # Works only for constant and linear objectives!!! deactivated for now
 function _scaling_factors( J, RHS = nothing )
@@ -208,7 +208,7 @@ function get_var_scaler(x0, mop :: AbstractMOP, ac :: AbstractConfig)
 			# we scale every variable to the unit hypercube [0,1]^n 
 			w = ub .- lb
 			w_inv = 1 ./ w
-			t = - lb ./ w
+			t = - lb .* w_inv
 			return LinearScaling( lb, ub, w_inv, t )
 		end	
 	else

@@ -27,7 +27,6 @@ function _wrap_func( ::Type{<:VecFun}, fn :: VecFuncWrapper;
         diff_method :: Union{Type{<:DiffFn}, Nothing} = FiniteDiffWrapper
     )
       
-    callback_gradients = false
     if needs_gradients( model_cfg )
         if ( isnothing(gradients) && isnothing(jacobian) )
             if isnothing(diff_method)
@@ -41,12 +40,9 @@ function _wrap_func( ::Type{<:VecFun}, fn :: VecFuncWrapper;
             else
                 @warn "Using $(diff_method) for gradients."
             end
-        else
-            callback_gradients = true
         end
     end
 
-    callback_hessians = false
     if needs_hessians( model_cfg )
         if isnothing(hessians)
             if isnothing(diff_method)
@@ -59,17 +55,8 @@ function _wrap_func( ::Type{<:VecFun}, fn :: VecFuncWrapper;
             else
                 @warn "Using $(diff_method) for hessians."
             end
-        else
-            callback_hessians = true
         end
     end
-
-    #=
-    if callback_gradients && callback_hessians
-        # TODO This should not matter much and I think I should be able to remove `CallBackWrapper`
-        diff_method = CallBackWrapper
-    end
-    =#
 
     diff_wrapper = if (needs_gradients(model_cfg) || needs_hessians(model_cfg)) && !isnothing(diff_method)
         diff_method(;

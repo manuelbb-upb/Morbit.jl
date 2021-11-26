@@ -72,9 +72,9 @@ use_db( ::DefaultConfig ) = ArrayDB
             [:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search] 
         ) "`descent_method` must be one of `:steepest_descent, :ps, :pascoletti_serafini, :ds, :directed_search`."
 
-    var_scaler :: Symbol = var_scaler( default_config )
+    var_scaler :: VS = var_scaler( default_config )
     untransform_final_database :: Bool = untransform_final_database( default_config )
-    var_scaler_update :: VS = var_scaler_update( default_config )
+    var_scaler_update :: Symbol = var_scaler_update( default_config )
 
     filter_type :: FilterType = filter_type(default_config)
 
