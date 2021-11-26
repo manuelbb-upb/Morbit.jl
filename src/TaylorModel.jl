@@ -323,6 +323,7 @@ function update_model( mod :: Union{Nothing,TaylorModel}, meta :: TaylorCallback
     x0 = get_x_scaled(id)
     x0_unscaled = get_x(id)
 
+    # if there is no model yet OR x0 has changed
     if isnothing(mod) || (x0 != mod.x0)
         fx0 = get_vals( id, sdb, func_indices )
 

@@ -201,87 +201,51 @@ end#testset
 end#testset
 
 @testset "Two Parabolas, Derivative Accuracy" begin
-	# deg 1 autodiff
-	mop = Morbit.MixedMOP( 2 )
+	for diff_method ∈ [Morbit.AutoDiffWrapper, Morbit.FiniteDiffWrapper]
+		# deg 1
+		mop = Morbit.MOP( 2 )
 
-	Morbit.add_objective!( mop, x -> sum(x), Morbit.TaylorApproximateConfig(;degree=1, mode=:autodiff) )
+		objf_ind = Morbit.add_objective!( mop, x -> sum(x);
+		model_cfg = Morbit.TaylorCallbackConfig(;degree=1),
+		diff_method 
+		)
 
-	x0 = [π, -ℯ]
+		x0 = [π, -ℯ]
 
-	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
-#	Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+		smop, iter_data, data_base, sc, ac, filter, scal = Morbit.initialize_data(mop, x0)
 
-	mod = sc.surrogates[1].model
-	objf = Morbit.list_of_objectives(smop)[1]
+		mod = Morbit.get_model( Morbit.get_wrapper_from_func_index(sc, objf_ind) )
+		objf = Morbit._get( smop, objf_ind )
 
-	x̂0 = Morbit.scale( x0, smop)
+		x̂0 = Morbit.transform( x0, scal )
 
-	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
-	@test Morbit.get_gradient( mod, x0, 1 ) ≈ [1, 1]
-	@test Morbit.get_jacobian(sc, x0) ≈ [ 1 1 ]
+		@test Morbit.eval_models( mod, scal, x̂0 ) ≈ Morbit.eval_objf(objf, x0)
+		@test Morbit.get_gradient( mod, scal, x̂0, 1 ) ≈ [1, 1]
+		@test Morbit.get_jacobian( mod, scal, x̂0) ≈ [ 1 1 ]
 
-	#===================================================================#
-	# deg 2 autodiff
-	mop = Morbit.MixedMOP( 2 )
+		#===================================================================#
+		# deg 2 autodiff
+		mop = Morbit.MOP( 2 )
 
-	Morbit.add_objective!( mop, x -> sum(x.^2), Morbit.TaylorApproximateConfig(;degree=2, mode=:autodiff) )
+		objf_ind = Morbit.add_objective!( mop, x -> sum(x.^2);
+		model_cfg = Morbit.TaylorCallbackConfig(;degree=2),
+		diff_method 
+		)
 
-	x0 = [π, -ℯ]
+		x0 = [π, -ℯ]
 
-	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
-	# Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
+		smop, iter_data, data_base, sc, ac, filter, scal = Morbit.initialize_data(mop, x0);
 
-	mod = sc.surrogates[1].model
-	objf = Morbit.list_of_objectives(smop)[1]
+		mod = Morbit.get_model( Morbit.get_wrapper_from_func_index(sc, objf_ind) )
+		objf = Morbit._get( smop, objf_ind )
 
-	x̂0 = Morbit.scale( x0, smop)
+		x̂0 = Morbit.transform( x0, scal )
 
-	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
-	@test Morbit.get_gradient( mod, x0, 1 ) ≈ 2 .* x0
-	@test Morbit.get_jacobian(sc, x0) ≈ 2 .* x0'
-	@test mod.H[1] ≈ [ 2.0 0.0; 0.0 2.0 ]	# hessian of Taylor Model
-
-	#===================================================================#
-	# deg 1 finite diff
-	mop = Morbit.MixedMOP( 2 )
-
-	Morbit.add_objective!( mop, x -> sum(x), Morbit.TaylorApproximateConfig(;degree=1, mode=:fdm) )
-
-	x0 = [π, -ℯ]
-
-	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
-	#Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
-
-	mod = sc.surrogates[1].model
-	objf = Morbit.list_of_objectives(smop)[1]
-
-	x̂0 = Morbit.scale( x0, smop)
-
-	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
-	@test Morbit.get_gradient( mod, x0, 1 ) ≈ [1, 1]
-	@test Morbit.get_jacobian(sc, x0) ≈ [ 1 1 ]
-
-	#===================================================================#
-	# deg 2 autodiff
-	mop = Morbit.MixedMOP( 2 )
-
-	Morbit.add_objective!( mop, x -> sum(x.^2), Morbit.TaylorApproximateConfig(;degree=2, mode=:fdm) )
-
-	x0 = [π, -ℯ]
-
-	smop, iter_data, data_base, sc, ac = Morbit.initialize_data(mop, x0, Float32[] )
-#	Morbit.update_surrogates!( sc, mop, iter_data, data_base, ac )
-
-	mod = sc.surrogates[1].model
-	objf = Morbit.list_of_objectives(smop)[1]
-
-	x̂0 = Morbit.scale( x0, smop)
-
-	@test Morbit.eval_models( mod, x0 ) ≈ Morbit.eval_objf(objf,x0)
-	@test Morbit.get_gradient( mod, x0, 1 ) ≈ 2 .* x0
-	@test Morbit.get_jacobian(sc, x0) ≈ 2 .* x0'
-	@test norm(mod.H[1] .- [ 2.0 0.0; 0.0 2.0 ]) <= 0.1	# hessian of Taylor Model
-	
+		@test Morbit.eval_models( mod, scal, x̂0 ) ≈ Morbit.eval_objf(objf, x0)
+		@test Morbit.get_gradient( mod, scal, x̂0, 1) ≈ 2 .* x0 
+		@test Morbit.get_jacobian( mod, scal, x̂0) ≈ 2 .* x0'
+		@test mod.H[1] ≈ [ 2.0 0.0; 0.0 2.0 ] 
+	end
 end
 
 end#module
