@@ -86,10 +86,12 @@ function _steepest_descent_direction(
         if normalize
             JuMP.@constraint(opt_problem, descent_constraints, ∇F*d .<= α .* norm.(eachrow(∇F)) )
             
-            #JuMP.@variable(opt_problem, β)
-            #JuMP.@constraint(opt_problem, -β .<= d)
-            #JuMP.@constraint(opt_problem, d .<= β )
-            #JuMP.@constraint(opt_problem, ∇F*d + β .<= 0)
+            #=
+            JuMP.@variable(opt_problem, 0 <= d_norm <= 1)
+            JuMP.@constraint(opt_problem, -d_norm .<= d)
+            JuMP.@constraint(opt_problem, d .<= d_norm )
+            JuMP.@constraint(opt_problem, ∇F*d .<= -d_norm )
+            =#
         else
             JuMP.@constraint(opt_problem, descent_constraints, ∇F*d .<= α)
         end
