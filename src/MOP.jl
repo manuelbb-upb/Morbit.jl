@@ -5,11 +5,15 @@
 # using DataStructures: SortedDict
 # I am now using Dictionaries.jl which should also preserve the order :)
 
+# depends on `RefVecFun` and `ExprVecFun`
+
 @with_kw struct MOP <: AbstractMOP{true}
 	variables :: Vector{VarInd} = []
 
 	lower_bounds :: Dict{VarInd, Real} = Dict()
 	upper_bounds :: Dict{VarInd, Real} = Dict()
+	
+	functions :: Dictionary{NLIndex, AbstractVecFun} = Dictionary()
 
 	objective_functions :: Dictionary{ObjectiveIndex, AbstractVecFun} = Dictionary()
 	nl_eq_constraints :: Dictionary{ConstraintIndex, AbstractVecFun} = Dictionary()
@@ -21,17 +25,21 @@ end
 
 struct MOPTyped{
 		VarType <: Tuple{Vararg{<:VarInd}},
-		LbType <: Union{AbstractDict, AbstractDictionary}, #{VarInd,<:AbstractFloat},
-		UbType <: Union{AbstractDict, AbstractDictionary}, #{VarInd,<:AbstractFloat},
-		ObjfType <: Union{AbstractDict, AbstractDictionary}, #{ObjectiveIndex,<:Union{AbstractVecFun,Nothing}},
-		NlEqType <: Union{AbstractDict, AbstractDictionary},   #{ConstraintIndex,<:Union{AbstractVecFun,Nothing}},
-		NlIneqType <: Union{AbstractDict, AbstractDictionary}, #{ConstraintIndex,<:Union{AbstractVecFun,Nothing}},
+		LbType <: Union{AbstractDict, AbstractDictionary}, 
+		UbType <: Union{AbstractDict, AbstractDictionary},
+		FunType <: Union{AbstractDict, AbstractDictionary},
+		ObjfType <: Union{AbstractDict, AbstractDictionary},
+		NlEqType <: Union{AbstractDict, AbstractDictionary}, 
+		NlIneqType <: Union{AbstractDict, AbstractDictionary},
 		EqMatType, IneqMatType, EqVecType, IneqVecType
 	} <: AbstractMOP{false}
 
 	variables :: VarType
 	lower_bounds :: LbType
 	upper_bounds :: UbType 
+
+	functions :: FunType
+
 	objective_functions :: ObjfType
 	nl_eq_constraints :: NlEqType
 	nl_ineq_constraints :: NlIneqType
@@ -56,6 +64,9 @@ function MOPTyped( mop :: AbstractMOP )
 	variables = Tuple( var_indices(mop) )
 	lower_bounds = Base.ImmutableDict( ( vi => ensure_precision( get_lower_bound( mop, vi ) ) for vi in variables )... )
 	upper_bounds = Base.ImmutableDict( ( vi => ensure_precision( get_upper_bound( mop, vi ) ) for vi in variables )... )
+
+	functions = _create_dict(mop, get_NLIndices(mop), NLIndex )
+
 	objective_functions = _create_dict(mop, get_objective_indices(mop), ObjectiveIndex ) 
 	nl_eq_constraints = _create_dict(mop, get_nl_eq_constraint_indices(mop), ConstraintIndex )
 	nl_ineq_constraints = _create_dict(mop, get_nl_ineq_constraint_indices(mop), ConstraintIndex ) 
@@ -67,6 +78,7 @@ function MOPTyped( mop :: AbstractMOP )
 		variables,
 		lower_bounds,
 		upper_bounds,
+		functions,
 		objective_functions,
 		nl_eq_constraints,
 		nl_ineq_constraints,
@@ -104,6 +116,8 @@ get_nl_eq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_eq_constraints )
 get_eq_constraint_indices( mop :: MOP ) = keys( mop.eq_constraints )
 get_nl_ineq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_ineq_constraints )
 get_ineq_constraint_indices( mop :: MOP ) = keys( mop.ineq_constraints )
+
+_get( mop :: BothMOP, ind :: NLIndex ) = mop.functions[ind]
 
 _get( mop :: BothMOP, ind::ObjectiveIndex ) = mop.objective_functions[ind]
 
@@ -154,13 +168,38 @@ function add_variable!(mop :: MOP)
 	return var_ind
 end
 
-function _add_objective!(mop :: MOP, fun :: AbstractVecFun)
-	ind = ObjectiveIndex( 
-		_next_val( mop.objective_functions ),
+function _add_function!(mop, fun :: AbstractVecFun )
+	ind = NLIndex( 
+		_next_val( mop.functions ),
 		num_outputs( fun ) 
 	)
-	insert!(mop.objective_functions, ind, fun)
+	insert!(mop.functions, ind, fun)
 	return ind
+end
+
+function _add_objective!(mop :: MOP, nl_ind :: NLIndex, expr_str = "" , n_out = 0)
+	_fun = if isempty(expr_str)
+		# if there is no expr, simply use a `RefVecFun` that stores 
+		# a reference to `fun` and forwards all relevant methods
+		RefVecFun( _get(mop,nl_ind) )
+	else
+		# else, we have to generate a function from `expr_str`
+		ExprVecFun( _get(mop,nl_ind), expr_str, n_out )
+	end
+	# obtain next `ObjectiveIndex`
+	ind = ObjectiveIndex( 
+		_next_val( mop.objective_functions ),
+		num_outputs( _fun ) 
+	)
+	# put `_fun` into `objective_functions` dict
+	insert!(mop.objective_functions, ind, _fun)
+	return ind
+end
+
+function _add_objective!(mop :: MOP, fun :: AbstractVecFun, expr_str = "", n_out = 0)
+	# add the function to the `functions` dict in `MOP`
+	nl_ind = _add_function!(mop, fun)
+	return _add_objective!(mop, nl_ind, expr_str, n_out)
 end
 
 function _add_nl_eq_constraint!( mop :: MOP, fun :: AbstractVecFun )

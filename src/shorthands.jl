@@ -54,6 +54,12 @@ struct ConstraintIndex
     end
 end
 
+struct NLIndex
+    value :: Int
+    num_out :: Int
+end 
+Base.broadcastable( ind :: NLIndex ) = Ref(ind)
+
 const FunctionIndex = Union{ObjectiveIndex, ConstraintIndex}
 Base.broadcastable( ind :: FunctionIndex ) = Ref(ind)
 

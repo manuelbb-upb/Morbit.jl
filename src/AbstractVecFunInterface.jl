@@ -1,5 +1,4 @@
 # depends on abstract type SurrogateConfig & combinable( :: SurrogateConfig )
-using Lazy: @forward
 
 Broadcast.broadcastable( objf::AbstractVecFun ) = Ref( objf );
 
@@ -14,6 +13,8 @@ end
 num_vars( :: AbstractVecFun ) :: Int = nothing
 num_outputs( :: AbstractVecFun ) :: Int = nothing
 
+model_cfg( :: AbstractVecFun ) :: SurrogateConfig = nothing
+
 wrapped_function( :: AbstractVecFun ) :: VecFuncWrapper = nothing
 
 # (optional) only required for certain SorrogateConfigs
@@ -22,7 +23,12 @@ get_objf_jacobian( ::AbstractVecFun, x :: Vec) = nothing
 get_objf_hessian(  :: AbstractVecFun, x :: Vec, l :: Int = 1) = nothing
 
 # Derived 
-function _wrap_func( T :: Type{<:AbstractVecFun}, fn :: Function; can_batch = false, kwargs... )
+has_gradients( vf::AbstractVecFun ) = needs_gradients( model_cfg(vf) )
+has_hessians( vf::AbstractVecFun ) = needs_hessians( model_cfg(vf) )
+
+function _wrap_func( T :: Type{<:AbstractVecFun}, fn :: Function; 
+    can_batch = false, kwargs... 
+    )
     wrapped_fn = VecFuncWrapper( fn; can_batch )
     return _wrap_func(T, wrapped_fn; kwargs...)
 end

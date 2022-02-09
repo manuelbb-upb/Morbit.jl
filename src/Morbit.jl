@@ -27,27 +27,35 @@ import UUIDs
 import FiniteDiff#erences
 const FD = FiniteDiff#erences
 
-import ForwardDiff
-const AD = ForwardDiff
+import Zygote
+#import ForwardDiff
+const AD = Zygote.ForwardDiff
 
 import Logging: LogLevel, @logmsg
 import Logging
+
+using Lazy: @forward
 
 include("custom_logging.jl")
 
 include("shorthands.jl");	# has types meant to be available globally -> import first
 include("Interfaces.jl");
 
-# implementations (order should not matter)
+# implementations (order should not matter -- mostly)
 include("VecFunImplementation.jl");
+include("RefVecFun.jl") # has to come before MOP
+include("ExprVecFun.jl") # has to come before MOP
 include("MOP.jl")
 
+#=
 include("ResultImplementation.jl")
 include("DataBaseImplementation.jl")
 include("IterDataImplementation.jl")
 
 include("RbfModel.jl")
+=#
 include("ExactModel.jl")
+#=
 include("TaylorModel.jl")
 include("LagrangeModel.jl")
 
@@ -70,4 +78,5 @@ include("algorithm.jl")
 export AlgoConfig #, DefaultConfig
 export MOP, add_lower_bound!, add_upper_bound!, del_lower_bound!, del_upper_bound!, add_objective!
 export optimize
+=#
 end#module
