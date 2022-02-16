@@ -1,29 +1,39 @@
 # needs `AbstractVecFun` (which in turn needs the Surrogate Interface)
 Broadcast.broadcastable( mop :: AbstractMOP ) = Ref( mop );
 
-# MANDATORY methods
 const VarIndIterable = Union{AbstractVector{<:VarInd}, Tuple{Vararg{<:VarInd}}}
 
+# MANDATORY methods 
+
+"Return a vector of `VariableIndice`s used in the model."
 var_indices(:: AbstractMOP) :: AbstractVector{<:VarInd} = nothing
 
+"Return the lower bound for the variable with Index `VarInd`."
 get_lower_bound( :: AbstractMOP, :: VarInd) :: Real = nothing 
+"Return the upper bound for the variable with Index `VarInd`."
 get_upper_bound( :: AbstractMOP, :: VarInd) :: Real = nothing
 
+"Return a vector or tuple of all objective indices used in the model."
 get_objective_indices( :: AbstractMOP ) = ObjectiveIndex[]
 
 # nonlinear constraints
+"Return the vector or tuple of the indices of nonlinear equality constraints used in the model."
 get_nl_eq_constraint_indices( :: AbstractMOP ) = ConstraintIndex[]
+"Return the vector or tuple of the indices of nonlinear inequality constraints used in the model."
 get_nl_ineq_constraint_indices( :: AbstractMOP ) = ConstraintIndex[]
 
 # linear constraints (optional - either define these or 
 # `get_eq_matrix_and_vector` as well as `get_ineq_matrix_and_vector`)
+"Return the vector or tuple of the indices of *linear* equality constraints used in the model."
 get_eq_constraint_indices( :: AbstractMOP ) = ConstraintIndex[]
+"Return the vector or tuple of the indices of *linear* inequality constraints used in the model."
 get_ineq_constraint_indices( :: AbstractMOP ) = ConstraintIndex[]
 
 # for objectives and nl_constraints (and linear constraints if the "getter"s are defined)
 _get( :: AbstractMOP, :: FunctionIndex ) :: AbstractVecFun = nothing
 
-# optional and only for user editable problems, i.e. <:AbstractMOP{true}
+# Methods for editable models, i.e., <:AbstractMOP{true}
+# optional and only for user editable problems, i.e., <:AbstractMOP{true}
 add_variable!(::AbstractMOP{true}) :: VarInd = nothing
 
 add_lower_bound!(mop :: AbstractMOP{true}, vi :: VarInd, bound :: Real ) = nothing
@@ -31,14 +41,21 @@ add_upper_bound!(mop :: AbstractMOP{true}, vi :: VarInd, bound :: Real ) = nothi
 del_lower_bound!(mop :: AbstractMOP{true}, vi :: VarInd ) = nothing
 del_upper_bound!(mop :: AbstractMOP{true}, vi :: VarInd ) = nothing
 
-"Add an objective function to MOP"
+# The functions that are to be called by the user are derived below.
+# They do not use an underscore.
+"Add an objective function to the model."
 _add_objective!(::AbstractMOP{true}, ::AbstractVecFun) :: ObjectiveIndex = nothing
 
+"Add a nonlinear equality constraint function to the model."
 _add_nl_eq_constraint!(::AbstractMOP{true}, ::AbstractVecFun) :: ConstraintIndex = nothing
+"Add a nonlinear inequality constraint function to the model."
 _add_nl_ineq_constraint!(::AbstractMOP{true}, ::AbstractVecFun) :: ConstraintIndex = nothing
 
-add_eq_constraint!(::AbstractMOP{true}, :: MOI.VectorAffineFunction) :: ConstraintIndex = nothing
-add_ineq_constraint!(::AbstractMOP{true}, :: MOI.VectorAffineFunction) :: ConstraintIndex = nothing
+"Add a linear equality constraint function to the model."
+_add_eq_constraint!(::AbstractMOP{true}, :: MOI.VectorAffineFunction) :: ConstraintIndex = nothing
+"Add a linear inequality constraint function to the model."
+_add_ineq_constraint!(::AbstractMOP{true}, :: MOI.VectorAffineFunction) :: ConstraintIndex = nothing
+
 
 # not used anywhere yet
 # not implemented yet by `MOP<:AbstractMOP{true}`
@@ -47,9 +64,13 @@ _del!(::AbstractMOP{true}, ::FunctionIndex) :: Nothing = nothing
 _del!(::AbstractMOP{true}, ::VarInd) :: Nothing = nothing
 
 # DERIVED methods 
+function get_lower_bounds( mop :: AbstractMOP, indices :: VarIndIterable )
+    return get_lower_bound.(mop, indices)
+end
 
-get_lower_bounds( mop :: AbstractMOP, indices :: VarIndIterable ) = get_lower_bound.(mop, indices)
-get_upper_bounds( mop :: AbstractMOP, indices :: VarIndIterable ) = get_upper_bound.(mop, indices)
+function get_upper_bounds( mop :: AbstractMOP, indices :: VarIndIterable )
+    return get_upper_bound.(mop, indices)
+end
 
 "Return full vector of lower variable vectors for original problem."
 function full_lower_bounds( mop :: AbstractMOP )
@@ -103,11 +124,12 @@ function full_vector_bounds( mop :: AbstractMOP )
     lb, ub = full_bounds(mop)
     return (collect(lb), collect(ub))
 end
-
+#=
 function _width( mop :: AbstractMOP )
     lb, ub = full_bounds(mop)
     return ub .- lb
 end
+=#
 
 "Return a list of `AbstractVectorObjective`s."
 function list_of_objectives( mop :: AbstractMOP )
@@ -156,13 +178,14 @@ end
 num_nl_constraints( mop :: AbstractMOP ) = num_nl_eq_constraints(mop) + num_nl_ineq_constraints(mop)
 num_lin_constraints( mop :: AbstractMOP ) = num_eq_constraints(mop) + num_ineq_constraints(mop)
 
+# more convenient functions to add functions to an editable model
 for func_name in [:add_objective!, :add_nl_eq_constraint!, :add_nl_ineq_constraint!]
     @eval begin
         function $(func_name)( 
-                mop :: AbstractMOP{true}, T :: Type{<:AbstractVecFun},
+                mop :: AbstractMOP{true},
                 func :: Function; kwargs...) 
 
-            objf = _wrap_func( T, func; kwargs... )
+            objf = make_vec_fun( func; kwargs... )
             return $(Symbol("_$(func_name)"))(mop, objf)
         end
     end
@@ -170,6 +193,72 @@ end
 
 # `eval_objf` respects custom batching
 
+# ## Evaluation of an AbstractMOP,
+# should be improved in implementations
+# most important:
+#     evaluate_at_unscaled_site
+
+
+# helpers
+function _eval_at_index_at_unscaled_site(mop, ind, x)
+    return eval_objf( _get(mop, ind), x ) 
+end
+
+function _eval_at_indices_at_unscaled_site( mop, indices, x )
+    return Dictionary(
+        indices,
+        _eval_at_index_at_unscaled_site(mop, ind, x) for ind = indices 
+    )
+end
+
+function _flatten_mop_dict( eval_dict, _indices = nothing )
+    indices = isnothing(_indices) ? keys(eval_dict) : _indices
+    if isempty(indices) || isempty(eval_dict)
+        return MIN_PRECISION[]
+    end
+    return ensure_precision(collect( Iterators.flatten( eval_dict[ind] for ind = indices )))
+end
+
+_flatten_mop_dicts( args... ) = _flatten_mop_dict.(args)
+
+for fntype = [:nl_function, :objective, :nl_eq_constraints, :nl_ineq_constraints ]
+    get_XXX_indices = Symbol("get_", fntype, "_indices")
+    _eval_XXXs_at_unscaled_site = Symbol("_eval_$(fntype)s_at_unscaled_site")
+    eval_XXXs_to_vec_at_unscaled_site = Symbol("eval_$(fntype)s_to_vec_at_unscaled_site")
+    @eval begin
+        function $(_eval_XXXs_at_unscaled_site)( mop, x )
+            return _eval_at_indices_at_unscaled_site( mop, $(get_XXX_indices)(mop), x )
+        end
+        function $(eval_XXXs_to_vec_at_unscaled_site)(mop, x)
+            return _flatten_mop_dict( _eval_XXXs_to_vec_at_unscaled_site(mop,x) )
+        end
+    end
+end
+
+function _evaluate_at_unscaled_site( mop, x )
+    return (
+        _eval_nl_functions_at_unscaled_site( mop, x ),
+        _eval_objectives_at_unscaled_site( mop, x ),
+        _eval_nl_eq_constraints_at_unscaled_site( mop, x ),
+        _eval_nl_ineq_constraints_at_unscaled_site( mop, x ),
+    )
+end
+
+# MAIN METHOD for complete evaluation of a problem
+evaluate_at_unscaled_site(mop,x) = _evaluate_at_unscaled_site(mop,x)
+
+function evaluate_to_vecs_at_unscaled_site( mop, x )
+    return _flatten_mop_dict.( evaluate_at_unscaled_site( mop, x ) )
+end
+
+function evaluate_at_scaled_site( mop, scal, x_scaled )
+    return evaluate_at_unscaled_site( mop, untransform(scal, x_scaled ) )
+end
+
+function evaluate_to_vecs_at_scaled_site( mop, scal, x_scaled ) 
+    return evaluate_to_vecs_at_unscaled_site( mop, untransform( scal, x_scaled) )
+end
+#=
 """
     eval_dict_mop_at_func_indices_at_unscaled_sites(mop, sites, func_indices)
 
@@ -212,13 +301,19 @@ end
 function eval_vec_mop_at_func_indices_at_unscaled_sites( 
         mop :: AbstractMOP, func_indices, X_unscaled :: VecVec
     )
-    return flatten_mop_dicts(eval_dict_mop_at_func_indices_at_unscaled_sites(mop, func_indices, X_unscaled), func_indices)
+    return flatten_mop_dicts(
+        eval_dict_mop_at_func_indices_at_unscaled_sites(mop, func_indices, X_unscaled), 
+        func_indices
+    )
 end
 
 function eval_vec_mop_at_func_indices_at_unscaled_site( 
         mop :: AbstractMOP, func_indices, X_unscaled :: Vec
     )
-    return flatten_mop_dict(eval_dict_mop_at_func_indices_at_unscaled_site(mop, func_indices, X_unscaled), func_indices)
+    return flatten_mop_dict(
+        eval_dict_mop_at_func_indices_at_unscaled_site(mop, func_indices, X_unscaled), 
+        func_indices
+    )
 end
 
 function eval_dict_mop_at_unscaled_site( mop :: AbstractMOP, x :: Vec )
@@ -253,12 +348,13 @@ for func_name = [:eval_dict_mop_at_func_indices, :eval_vec_mop_at_func_indices]
         end
     end
 end
+=#
 
+#=
 # defined below:
 # eval_vec_mop_objectives_at_scaled_site(s)
 # eval_vec_mop_nl_eq_constraints_at_scaled_site(s)
 # eval_vec_mop_nl_ineq_constraints_at_scaled_site(s)
-
 for eval_type in [:objective, :nl_eq_constraint, :nl_ineq_constraint]
     for suffix1 in [:scaled_site, :unscaled_site]
         for suffix2 in ["", "s"]
@@ -273,6 +369,19 @@ for eval_type in [:objective, :nl_eq_constraint, :nl_ineq_constraint]
             end
         end
     end
+end
+=#
+
+function eval_linear_constraints_at_unscaled_site( x, mop )
+    #A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
+    A_eq, b_eq = get_eq_matrix_and_vector( mop )
+    A_ineq, b_ineq = get_ineq_matrix_and_vector( mop )
+    return (A_eq * x .+ b_eq, A_ineq * x + b_ineq)
+end
+
+function eval_linear_constraints_at_scaled_site( x_scaled, mop, scal )
+    A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
+    return (A_eq * x_scaled .+ b_eq, A_ineq * x_scaled + b_ineq)
 end
 
 # Helper functions …
@@ -431,6 +540,7 @@ end
     return (transformed_linear_eq_constraints(scal, mop)..., transformed_linear_ineq_constraints(scal,mop)...)
 end
 
+# Function handles for NLopt
 function _get_optim_handle( mat_row, offset )
     opt_fun = function( x, g )
         if !isempty(g)
@@ -450,4 +560,20 @@ function get_ineq_constraints_optim_handles( mop, scal )
     A, b = transformed_linear_ineq_constraints( scal, mop )
     return [_get_optim_handle(A[i,:], b[i]) for i = 1:length(b)]
 end
-    
+
+# pretty printing
+_is_editable(::Type{<:AbstractMOP{T}}) where T = T 
+
+function Base.show(io::IO, mop :: M) where M<:AbstractMOP
+    str = "$( _is_editable(M) ? "Editable" : "Non-editable") MOP of Type $(_typename(M)). "
+    if !get(io, :compact, false)
+        str *= """There are 
+        * $(num_vars(mop)) variables and $(num_objectives(mop)) objectives,
+        * $(num_nl_eq_constraints(mop)) nonlinear equality and $(num_nl_ineq_constraints(mop)) nonlinear inequality constraints,
+        * $(num_eq_constraints(mop)) linear equality and $(num_ineq_constraints(mop)) linear inequality constraints.
+        The lower bounds and upper variable bounds are 
+        $(_prettify(full_lower_bounds(mop), 5))
+        $(_prettify(full_upper_bounds(mop), 5))"""
+    end
+    print(io, str)
+end

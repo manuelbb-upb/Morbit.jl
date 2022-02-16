@@ -8,7 +8,7 @@ export RbfConfig, RbfMeta, RbfModel #src
 
 # ## Intro and Prerequisites
 
-# We want to offer radial basis function (RBF) surrogate models (implementing the `SurrogateModel` interface).
+# We want to offer radial basis function (RBF) surrogate models (implementing the `AbstractSurrogate` interface).
 # To this end, we leverage the package [`RadialBasisFunctionModels.jl`](https://github.com/manuelbb-upb/RadialBasisFunctionModels.jl).
 # A scalar RBF model consists of a ``n``-variate Polynomial and linear combination of shifted radial kernels.
 # For more information, see [the documentation of `RadialBasisFunctionModels.jl`](https://manuelbb-upb.github.io/RadialBasisFunctionModels.jl/stable).
@@ -28,7 +28,7 @@ include("AffinelyIndependentPoints.jl")
 # ## Surrogate Interface Implementations
 
 # The model used in our algorithm simply wraps an interpolation model from the `RBF` package.
-@with_kw struct RbfModel{R} <: SurrogateModel
+@with_kw struct RbfModel{R} <: AbstractSurrogate
 	model :: R
 
 	## indicator: is the model fully linear?
@@ -43,7 +43,7 @@ function set_fully_linear!(rbf :: RbfModel, val :: Bool )
 end
 
 # We offer a large range of configuration parameters in the `RBFConfig`, which implements 
-# a `SurrogateConfig`.
+# a `AbstractSurrogateConfig`.
 """
     RbfConfig(; kwarg1 = val1, … )
 
@@ -52,7 +52,7 @@ Configuration type for local RBF surrogate models.
 $(FIELDS)
 
 """
-@with_kw struct RbfConfig <: SurrogateConfig
+@with_kw struct RbfConfig <: AbstractSurrogateConfig
 	"RBF kernel (Symbol), either `:cubic`, `:inv_multiquadric`, `:multiquadric`, `:exp` or `:thin_plate_spline`."
 	kernel :: Symbol = :inv_multiquadric
 
@@ -134,7 +134,7 @@ end
 # The `RbfMeta` is used to store construction and update data for the models.
 # To be specific, we have several inidices lists that store database indices 
 # of (potentially unevaluated) results that are later used for fitting the model.
-@with_kw mutable struct RbfMeta{F<:AbstractFloat, T} <: SurrogateMeta
+@with_kw mutable struct RbfMeta{F<:AbstractFloat, T} <: AbstractSurrogateMeta
 	signature :: Tuple{ Float64, Float64, Float64, Bool} = (-1.0, -1.0, -1.0, true)
 	func_indices :: T
 
@@ -181,7 +181,7 @@ end
 # We delegate the work to `prepare_update_model`.
 function prepare_init_model( cfg :: RbfConfig, func_indices :: FunctionIndexIterable, 
 	mop :: AbstractMOP, scal :: AbstractVarScaler, 
-	id :: AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+	id :: AbstractIterate, sdb, ac :: AbstractConfig; 
 	ensure_fully_linear = true, kwargs...)
 	F = eltype( get_x_scaled(id) )
 	meta = RbfMeta{F, typeof(func_indices)}(; signature = _get_signature( cfg ), func_indices )
@@ -192,7 +192,7 @@ end
 # Because of the trick from above, we actually allow `nothing`, too.
 function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta, 
 		cfg :: RbfConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, 
-		iter_data :: AbstractIterate, sdb :: AbstractSuperDB, algo_config :: AbstractConfig;
+		iter_data :: AbstractIterate, sdb, algo_config :: AbstractConfig;
 		ensure_fully_linear = false, force_rebuild = false, meta_array = nothing 
 	)
 	
@@ -563,7 +563,7 @@ end
 
 # An improvement step consists of adding a new site to the database, along an improving direction:
 function prepare_improve_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta, cfg :: RbfConfig, 
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, sdb :: AbstractSuperDB, 
+	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, sdb, 
 	algo_config :: AbstractConfig; kwargs... )
 	
 	if !meta.fully_linear
@@ -602,13 +602,13 @@ end
 # As before, `_init_model` simply delegates work to `update_model`.
 
 function init_model( meta :: RbfMeta, cfg :: RbfConfig, func_indices :: FunctionIndexIterable,
-	mop :: AbstractMOP,	scal :: AbstractVarScaler, iter_data :: AbstractIterate, sdb :: AbstractSuperDB, ac :: AbstractConfig; kwargs... )
+	mop :: AbstractMOP,	scal :: AbstractVarScaler, iter_data :: AbstractIterate, sdb, ac :: AbstractConfig; kwargs... )
 	return update_model( nothing, meta, cfg, func_indices, mop, scal, iter_data, sdb, ac; kwargs... )
 end
 
 function update_model( mod::Union{Nothing,RbfModel}, meta :: RbfMeta, cfg :: RbfConfig,
 	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
-	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+	sdb, ac :: AbstractConfig; 
 	kwargs... )
 	
 	db = get_sub_db(sdb, func_indices)
@@ -632,7 +632,7 @@ end
 # The improvement function also simply cals the update function:
 function improve_model( mod::Union{Nothing,RbfModel},meta :: RbfMeta, cfg :: RbfConfig,
 	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
-	sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+	sdb, ac :: AbstractConfig; 
 	kwargs... )
 	
 	return update_model( mod, meta, cfg, func_indices, mop, scal, iter_data, sdb, ac; kwargs... )
@@ -648,12 +648,12 @@ function eval_models( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec)
 end
 
 "Evaluate output `ℓ` of `mod::RbfModel` at scaled site `x̂`."
-function eval_models( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ :: Int)
+function eval_models( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ)
 	return mod.model( x̂, ℓ)
 end
 
 @doc "Gradient vector of output `ℓ` of `mod` at scaled site `x̂`."
-function get_gradient( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ :: Int64)
+function get_gradient( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ64)
     return RBF.grad( mod.model, x̂, ℓ )
 end
 

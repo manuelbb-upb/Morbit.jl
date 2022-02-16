@@ -220,7 +220,7 @@ function get_var_scaler(x0, mop :: AbstractMOP, ac :: AbstractConfig)
 
 			x0_pert = _project_into_box( x0 .+ rand( -.1:1e-4:1, length(x0) ), lb, ub )
 
-			J = vcat( [ let _J = get_objf_jacobian( _get(mop, ind), x0_pert );
+			J = vcat( [ let _J = _get_jacobian( _get(mop, ind), x0_pert );
 				J_ind = if isnothing(_J)
 					FD.finite_difference_jacobian( 
 					ξ -> eval_vec_mop_at_func_indices_at_unscaled_site( mop, [ind,] , ξ ), x0_pert ) 
@@ -238,8 +238,10 @@ function get_var_scaler(x0, mop :: AbstractMOP, ac :: AbstractConfig)
 end
 
 function new_var_scaler( x_scaled, old_scal :: AbstractVarScaler, mop :: AbstractMOP, 
-	sc :: AbstractSurrogateContainer, ac :: AbstractConfig  )
+	sc :: AbstractSurrogateContainer, ac :: AbstractConfig, return_old = false  )
 
+	return_old && return old_scal
+	
 	# determine bounds for untransformed problem 
 	lb, ub = full_vector_bounds(mop)
 	if var_scaler_update( ac ) == :model

@@ -2,10 +2,9 @@
 # but I tried to design it with MOI in mind 
 # to have an easy time writing a wrapper eventually
 
-# using DataStructures: SortedDict
 # I am now using Dictionaries.jl which should also preserve the order :)
 
-# depends on `RefVecFun` and `ExprVecFun`
+# depends on `VecFun.jl` (implementing `VecFun`, `ExprVecFun` and `RefVecFun`)
 
 @with_kw struct MOP <: AbstractMOP{true}
 	variables :: Vector{VarInd} = []
@@ -21,6 +20,8 @@
 
 	eq_constraints :: Dictionary{ConstraintIndex, MOI.VectorAffineFunction} = Dictionary()
 	ineq_constraints :: Dictionary{ConstraintIndex, MOI.VectorAffineFunction} = Dictionary()
+
+	optimized_evaluation :: Bool = true
 end
 
 struct MOPTyped{
@@ -48,24 +49,17 @@ struct MOPTyped{
 	ineq_mat :: IneqMatType
 	eq_vec :: EqVecType
 	ineq_vec :: IneqVecType
+
+	optimized_evaluation :: Bool
 end
 
-function _create_dict(mop, indices, index_type = FunctionIndex )
-	if isempty( indices )
-		return Base.ImmutableDict{index_type, Nothing}()
-	else
-		num_indices = length(indices)
-		dict_vals = [ _get(mop, ind) for ind = indices ]
-		return ArrayDictionary{ index_type, eltype(dict_vals) }( SVector{num_indices}(collect(indices)), dict_vals )
-	end
-end
 
 function MOPTyped( mop :: AbstractMOP )
 	variables = Tuple( var_indices(mop) )
 	lower_bounds = Base.ImmutableDict( ( vi => ensure_precision( get_lower_bound( mop, vi ) ) for vi in variables )... )
 	upper_bounds = Base.ImmutableDict( ( vi => ensure_precision( get_upper_bound( mop, vi ) ) for vi in variables )... )
 
-	functions = _create_dict(mop, get_NLIndices(mop), NLIndex )
+	functions = _create_dict(mop, get_nl_function_indices(mop), NLIndex )
 
 	objective_functions = _create_dict(mop, get_objective_indices(mop), ObjectiveIndex ) 
 	nl_eq_constraints = _create_dict(mop, get_nl_eq_constraint_indices(mop), ConstraintIndex )
@@ -82,12 +76,20 @@ function MOPTyped( mop :: AbstractMOP )
 		objective_functions,
 		nl_eq_constraints,
 		nl_ineq_constraints,
-		eq_mat, ineq_mat, eq_vec, ineq_vec
+		eq_mat, ineq_mat, eq_vec, ineq_vec,
+		mop.optimized_evaluation
 	)
 end
 
-get_eq_matrix_and_vector( mop :: MOPTyped ) = (mop.eq_mat, mop.eq_vec)
-get_ineq_matrix_and_vector( mop :: MOPTyped ) = (mop.ineq_mat, mop.ineq_vec)
+function _create_dict(mop, indices, index_type = FunctionIndex )
+	if isempty( indices )
+		return Base.ImmutableDict{index_type, Nothing}()
+	else
+		num_indices = length(indices)
+		dict_vals = [ _get(mop, ind) for ind = indices ]
+		return ArrayDictionary{ index_type, eltype(dict_vals) }( SVector{num_indices}(collect(indices)), dict_vals )
+	end
+end
 
 const BothMOP = Union{MOP, MOPTyped}
 
@@ -112,10 +114,14 @@ get_upper_bound( mop :: BothMOP, vi :: VarInd) = get( mop.upper_bounds, vi, MIN_
 num_vars( mop :: BothMOP ) = length( mop.variables )
 
 get_objective_indices( mop :: BothMOP ) = keys( mop.objective_functions )
+get_nl_function_indices(mop :: BothMOP) = keys(mop.functions)
 get_nl_eq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_eq_constraints )
 get_eq_constraint_indices( mop :: MOP ) = keys( mop.eq_constraints )
 get_nl_ineq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_ineq_constraints )
 get_ineq_constraint_indices( mop :: MOP ) = keys( mop.ineq_constraints )
+
+get_eq_matrix_and_vector( mop :: MOPTyped ) = (mop.eq_mat, mop.eq_vec)
+get_ineq_matrix_and_vector( mop :: MOPTyped ) = (mop.ineq_mat, mop.ineq_vec)
 
 _get( mop :: BothMOP, ind :: NLIndex ) = mop.functions[ind]
 
@@ -126,13 +132,7 @@ function _get( mop :: BothMOP, ind :: ConstraintIndex )
 		return mop.nl_eq_constraints[ind]
 	elseif ind.type == :nl_ineq 
 		return mop.nl_ineq_constraints[ind]
-	else
-		return __get( mop, ind )
-	end
-end
-
-function __get( mop :: MOP, ind :: ConstraintIndex )
-	if ind.type == :eq
+	elseif ind.type == :eq
 		return mop.eq_constraints[ind]
 	elseif ind.type == :ineq 
 		return mop.ineq_constraints[ind]
@@ -181,10 +181,10 @@ function _add_objective!(mop :: MOP, nl_ind :: NLIndex, expr_str = "" , n_out = 
 	_fun = if isempty(expr_str)
 		# if there is no expr, simply use a `RefVecFun` that stores 
 		# a reference to `fun` and forwards all relevant methods
-		RefVecFun( _get(mop,nl_ind) )
+		RefVecFun( _get(mop,nl_ind), nl_ind )
 	else
 		# else, we have to generate a function from `expr_str`
-		ExprVecFun( _get(mop,nl_ind), expr_str, n_out )
+		ExprVecFun( _get(mop,nl_ind), expr_str, n_out, nl_ind )
 	end
 	# obtain next `ObjectiveIndex`
 	ind = ObjectiveIndex( 
@@ -196,33 +196,59 @@ function _add_objective!(mop :: MOP, nl_ind :: NLIndex, expr_str = "" , n_out = 
 	return ind
 end
 
+# this definiton allows for the required call `_add_objective!(mop, fun)`
 function _add_objective!(mop :: MOP, fun :: AbstractVecFun, expr_str = "", n_out = 0)
 	# add the function to the `functions` dict in `MOP`
 	nl_ind = _add_function!(mop, fun)
 	return _add_objective!(mop, nl_ind, expr_str, n_out)
 end
 
-function _add_nl_eq_constraint!( mop :: MOP, fun :: AbstractVecFun )
+# Similar for equality constraints …
+function _add_nl_eq_constraint!(mop :: MOP, nl_ind :: NLIndex, expr_str = "" , n_out = 0)
+	_fun = if isempty(expr_str)
+		RefVecFun( _get(mop,nl_ind), nl_ind )
+	else
+		ExprVecFun( _get(mop,nl_ind), expr_str, n_out, nl_ind )
+	end
 	ind = ConstraintIndex( 
 		_next_val( mop.nl_eq_constraints ),
-		num_outputs( fun ),
+		num_outputs( _fun ),
 		:nl_eq
 	)
-	insert!(mop.nl_eq_constraints, ind, fun)
+	insert!(mop.nl_eq_constraints, ind, _fun)
 	return ind
 end
 
-function _add_nl_ineq_constraint!( mop :: MOP, fun :: AbstractVecFun )
+function _add_nl_eq_constraint!(mop :: MOP, fun :: AbstractVecFun, expr_str = "", n_out = 0)
+	# add the function to the `functions` dict in `MOP`
+	nl_ind = _add_function!(mop, fun)
+	return _add_nl_eq_constraint!(mop, nl_ind, expr_str, n_out)
+end
+
+# … and inequality constraints:
+function _add_nl_ineq_constraint!(mop :: MOP, nl_ind :: NLIndex, expr_str = "" , n_out = 0)
+	_fun = if isempty(expr_str)
+		RefVecFun( _get(mop,nl_ind), nl_ind )
+	else
+		ExprVecFun( _get(mop,nl_ind), expr_str, n_out, nl_ind )
+	end
 	ind = ConstraintIndex( 
 		_next_val( mop.nl_ineq_constraints ),
-		num_outputs( fun ),
+		num_outputs( _fun ),
 		:nl_ineq
 	)
-	insert!( mop.nl_ineq_constraints, ind, fun )
+	insert!(mop.nl_ineq_constraints, ind, _fun)
 	return ind
 end
 
-function add_eq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction )
+function _add_nl_ineq_constraint!(mop :: MOP, fun :: AbstractVecFun, expr_str = "", n_out = 0)
+	# add the function to the `functions` dict in `MOP`
+	nl_ind = _add_function!(mop, fun)
+	return _add_nl_ineq_constraint!(mop, nl_ind, expr_str, n_out)
+end 
+
+# linear constraints:
+function _add_eq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction )
 	ind = ConstraintIndex(
 		_next_val( mop.eq_constraints ),
 		MOI.output_dimension( aff_func ),
@@ -232,7 +258,7 @@ function add_eq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction )
 	return ind 
 end
 
-function add_ineq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction )
+function _add_ineq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction )
 	ind = ConstraintIndex(
 		_next_val( mop.ineq_constraints ),
 		MOI.output_dimension( aff_func ),
@@ -240,4 +266,63 @@ function add_ineq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction 
 	)
 	insert!(mop.ineq_constraints,ind, aff_func )
 	return ind 
+end
+
+# improve evaluation
+function _optimized_eval_at_unscaled_site(mop, func_index, tmp_res, x)
+	fun = _get(mop, func_index)
+	
+	if fun isa RefVecFun
+		return get( tmp_res, fun.nl_index, eval_objf(fun, x) )
+	end
+
+	if fun isa ExprVecFun
+		if haskey(tmp_res, fun.nl_index)
+			tmp_val = tmp_res[fun.nl_index]
+			return fun.substitutor(x, tmp_val)
+		end
+	end
+	
+	return eval_objf( fun, x )
+end
+
+function _eval_at_indices_at_unscaled_site( mop :: BothMOP, indices, tmp_res, x )
+    return Dictionary(
+        indices,
+        _optimized_eval_at_unscaled_site(mop, ind, tmp_res, x) for ind = indices 
+    )
+end
+
+function _eval_nl_functions_at_unscaled_site( mop, tmp_res, x )
+    return _eval_at_indices_at_unscaled_site( mop, get_nl_function_indices(mop), tmp_res, x )
+end
+
+function _eval_objectives_at_unscaled_site( mop, tmp_res, x )
+    return _eval_at_indices_at_unscaled_site( mop, get_objective_indices(mop), tmp_res, x )
+end
+
+function _eval_nl_eq_constraints_at_unscaled_site( mop, tmp_res, x )
+    return _eval_at_indices_at_unscaled_site( mop, get_nl_eq_constraint_indices(mop), tmp_res, x )
+end
+
+function _eval_nl_ineq_constraints_at_unscaled_site( mop, tmp_res, x )
+    return _eval_at_indices_at_unscaled_site( mop, get_nl_ineq_constraint_indices(mop), tmp_res, x )
+end
+
+function _optimized_evaluate_at_unscaled_site( mop, x)
+	tmp_res = _eval_nl_functions_at_unscaled_site( mop, x )
+	return (
+        _eval_nl_functions_at_unscaled_site( mop, tmp_res, x ),
+        _eval_objectives_at_unscaled_site( mop, tmp_res, x ),
+        _eval_nl_eq_constraints_at_unscaled_site( mop, tmp_res, x ),
+        _eval_nl_ineq_constraints_at_unscaled_site( mop, tmp_res, x ),
+    )
+end
+
+function evaluate_at_unscaled_site( mop :: BothMOP, x )
+	if mop.optimized_evaluation
+		return _optimized_evaluate_at_unscaled_site( mop, x )
+	else
+		return _evaluate_at_unscaled_site( mop, x )
+	end
 end

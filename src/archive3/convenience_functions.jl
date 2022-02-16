@@ -7,24 +7,24 @@ export add_objective!, add_vector_objective!, add_nl_ineq_constraint!, add_nl_eq
 # adding objectives to a mixed problem
 @doc "Add a scalar objective to `mop::MOP` modelled according to `model_config`."
 function add_objective!(mop :: MOP, func :: Function;
-        model_cfg :: SurrogateConfig = RbfConfig(), kwargs... )
+        model_cfg :: AbstractSurrogateConfig = RbfConfig(), kwargs... )
     return add_objective!(mop, VecFun, func; model_cfg, n_out = 1, kwargs... )
 end
 
 function add_nl_eq_constraint!(mop :: MOP, func :: Function;
-        model_cfg :: SurrogateConfig = RbfConfig(), kwargs... )
+        model_cfg :: AbstractSurrogateConfig = RbfConfig(), kwargs... )
     return add_nl_eq_constraint!(mop, VecFun, func; model_cfg, n_out = 1, kwargs... )
 end
 
 function add_nl_ineq_constraint!(mop :: MOP, func :: Function;
-        model_cfg :: SurrogateConfig = RbfConfig(), kwargs... )
+        model_cfg :: AbstractSurrogateConfig = RbfConfig(), kwargs... )
     return add_nl_ineq_constraint!(mop, VecFun, func; model_cfg, n_out = 1, kwargs... )
 end
 
 # FUNCTIONS TO ADD VECTOR OBJECTIVES TO A MOP
 @doc "Add a vector objective to `mop::MOP` modelled according to `model_config`."
 function add_vector_objective!(mop :: MOP, func :: Function;
-        model_cfg :: SurrogateConfig = RbfConfig(), n_out :: Int64, kwargs... )
+        model_cfg :: AbstractSurrogateConfig = RbfConfig(), n_out :: Int64, kwargs... )
     return add_objective!( mop, VecFun, func; model_cfg, n_out,  kwargs... )
 end
 #=

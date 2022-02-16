@@ -1,3 +1,8 @@
+* num_outputs *mandatory* for surrogate model implementations
+* remove type restriction of `ℓ::Int` in all `eval_models` and `get_gradient`
+* index type in `prepare_init` etc must be `NLIndex` or `AnyIndex`
+
+## Outdated
 * Delete the `apply_internal_sorting` and `reverse_interal_sorting`.
 * Rethink database ( tuples of function indices as keys )
 * Rethink `prepare_XXXX` signatures
@@ -25,7 +30,7 @@
 * `get_saveable_type(::SurrogateMeta)` -> `get_saveable_type(::SurrogateConfig, x, y)`
 * check iter_data for additional type fields
 
-# MOP interface
+### MOP interface
 
 * `output_indices( mop, func_indices )`
   REMOVE old usages

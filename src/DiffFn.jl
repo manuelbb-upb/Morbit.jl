@@ -2,6 +2,9 @@ get_gradient( :: DiffFn, x :: Vec, l :: Int) = nothing
 get_jacobian( :: DiffFn, x :: Vec ) = nothing
 get_hessian( :: DiffFn, x :: Vec, l :: Int) = nothing
 
+# default fallback 
+get_jacobian( df :: DiffFn, x :: Vec, rows) = get_jacobian(df, x)[rows, :]
+
 #=
 @with_kw struct CallBackWrapper{
         G<:Union{AbstractVector{<:Function},Nothing}, 
@@ -74,8 +77,12 @@ for (WrapperName,gradient_method,jacobian_method,hessian_method) in (
         end
 
         # no jacobian handle set but gradients provided
-        function get_jacobian( adw :: $(WrapperName){<:Any,<:AbstractVector,<:Nothing,<:Any}, x :: Vec )
-            return mat_from_row_vecs( adw.gradients[l](x) for l = eachindex( adw.gradients ) )
+        function get_jacobian( adw :: $(WrapperName){<:Any,<:AbstractVector,<:Nothing,<:Any}, x :: Vec)
+            return mat_from_row_vecs( g(x) for g = adw.gradients )
+        end
+
+        function get_jacobian( adw :: $(WrapperName){<:Any,<:AbstractVector,<:Nothing,<:Any}, x :: Vec, rows)
+            return mat_from_row_vecs( g(x) for g = adw.gradients[rows] )
         end
 
         # jacobian handle set
@@ -84,11 +91,22 @@ for (WrapperName,gradient_method,jacobian_method,hessian_method) in (
         end
 
         # fallback to automatic differentiation
-        function get_jacobian( adw :: $(WrapperName){<:Any,<:Nothing,<:Nothing,<:Any}, x :: Vec ) 
+        function get_autodiff_jacobian( adw :: $(WrapperName){<:Any,<:Nothing,<:Nothing,<:Any}, x :: Vec, rows = nothing) 
             if isnothing(adw.objf)
                 error("Cannot automatically compute a derivative without an `objf`.")
             end
-            return $(jacobian_method)( adw.objf, x )
+            if isnothing(rows)
+                return $(jacobian_method)( adw.objf, x )
+            else
+                return $(jacobian_method)( ξ -> adw.objf(ξ)[rows], x )
+            end 
+        end
+        function get_jacobian( adw :: $(WrapperName){<:Any,<:Nothing,<:Nothing,<:Any}, x :: Vec) 
+            return get_autodiff_jacobian( adw, x, nothing )
+        end
+
+        function get_jacobian( adw :: $(WrapperName){<:Any,<:Nothing,<:Nothing,<:Any}, x :: Vec, rows) 
+            return get_autodiff_jacobian( adw, x, rows )
         end
 
         # no jacobian handle set but gradients provided

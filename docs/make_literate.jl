@@ -132,7 +132,7 @@ Literate.markdown(
 )
 
 Literate.markdown(
-    joinpath( src_dir, "AbstractResultInterface.jl"), 
+    joinpath( src_dir, "Result.jl"), 
     joinpath( @__DIR__, "src" );  
     codefence = "````julia" => "````",
 )

@@ -30,7 +30,7 @@ import Combinatorics
 @with_kw struct LagrangeModel{
         B <: AbstractArray{<:AbstractPolynomialLike},
         G <: AbstractArray{<:AbstractArray{<:AbstractPolynomialLike}},
-        V <: AbstractVector{<:AbstractVector{<:AbstractFloat} } } <: SurrogateModel
+        V <: AbstractVector{<:AbstractVector{<:AbstractFloat} } } <: AbstractSurrogate
     basis :: B  # basis polynomials
     grads :: G  # gradient polynomials for all the basis polynomials
     coeff :: V  # coefficients to interpolate data with `basis`
@@ -54,7 +54,7 @@ Configuration for Lagrange Polyoniaml models.
 
 $(FIELDS)
 """
-@with_kw mutable struct LagrangeConfig <: SurrogateConfig
+@with_kw mutable struct LagrangeConfig <: AbstractSurrogateConfig
     
     "Degree of the surrogate model polynomials."
     degree :: Int = 2
@@ -131,7 +131,7 @@ end
         CB <: Union{Nothing, Vector{<:AbstractPolynomialLike}},
         LB <: Union{Nothing, Vector{<:AbstractPolynomialLike}},
         P <: Union{Nothing, AbstractVector{<:AbstractVector{<:Real}}}
-    } <: SurrogateMeta
+    } <: AbstractSurrogateMeta
     interpolation_indices :: Vector{Int} = []
     canonical_basis :: CB = nothing
     lagrange_basis :: LB = nothing  # store the lagrange basis acting on [0,1]^n
@@ -418,7 +418,7 @@ end
 function prepare_init_model( 
         cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable, 
         mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-        sdb :: AbstractSuperDB, ac :: AbstractConfig; 
+        sdb, ac :: AbstractConfig; 
 	    ensure_fully_linear = true, kwargs...
     )
     
@@ -474,7 +474,7 @@ end
 function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, 
     meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
     mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb :: AbstractSuperDB, algo_config :: AbstractConfig; 
+    sdb, algo_config :: AbstractConfig; 
     ensure_fully_linear = true, kwargs... )
 
     x_scaled = get_x_scaled( x_it )
@@ -575,7 +575,7 @@ end#function
 function prepare_improve_model(mod :: Union{Nothing, LagrangeModel}, 
     meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
     mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb :: AbstractSuperDB, algo_config :: AbstractConfig; 
+    sdb, algo_config :: AbstractConfig; 
     kwargs... )
     return prepare_update_model( mod, meta, cfg, func_indices, mop, scal, x_it, sdb, algo_config; ensure_fully_linear = true, kwargs...)
 end
@@ -590,7 +590,7 @@ end
 function init_model( 
     meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
     mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb :: AbstractSuperDB, algo_config :: AbstractConfig; 
+    sdb, algo_config :: AbstractConfig; 
     kwargs...)
 
 	return update_model( nothing, meta, cfg, func_indices, mop, scal, x_it, sdb, algo_config )
@@ -599,7 +599,7 @@ end
 function update_model( mod :: Union{Nothing, LagrangeModel}, 
     meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
     mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb :: AbstractSuperDB, algo_config :: AbstractConfig; 
+    sdb, algo_config :: AbstractConfig; 
     kwargs... )
     
     db = get_sub_db( sdb, func_indices )
@@ -622,7 +622,7 @@ function improve_model(
     mod :: Union{Nothing, LagrangeModel}, 
     meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
     mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb :: AbstractSuperDB, algo_config :: AbstractConfig; 
+    sdb, algo_config :: AbstractConfig; 
     kwargs... )
     return update_model( mod, meta, cfg, func_indices, mop, scal, x_it, sdb, algo_config )
 end
@@ -638,7 +638,7 @@ function _eval_poly_vec( poly_vec, x )
     [ p(x) for p in poly_vec ]
 end
 
-function eval_models( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ :: Int)
+function eval_models( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ)
     return sum( c[ℓ] * p(x̂) for (c,p) in zip( lm.coeff, lm.basis ) )
 end
 
@@ -646,7 +646,7 @@ function eval_models( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec
     return sum( c * p(x̂) for (c,p) in zip( lm.coeff, lm.basis ) )
 end
 
-function get_gradient( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ :: Int )
+function get_gradient( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
     sum( c[ℓ] * _eval_poly_vec(p,x̂) for (c,p) in zip( lm.coeff, lm.grads ) )
 end
 

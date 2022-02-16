@@ -1,17 +1,46 @@
-# # Database Interface
+# # Databases
 # This file describes the methods that should or can be implemented 
 # for subtypes of `AbstractDB`.
 
-# First of all, we make it so that any `AbstractResult` is broadcasted wholly:
+# First of all, we make it so that any `AbstractDB` is broadcasted wholly:
 Broadcast.broadcastable( db :: AbstractDB ) = Ref( db );
+
+# There are two implementations of `AbstractDB`:
+# First `MockDB`, that is used whenever we do not want 
+# to save iteration data:
+struct MockDB{R,I} <: AbstractDB{R,I} end 
+# Note, that whenever a method is implemented for `AbstractDB`
+# it usually describes the behavior for `MockDB` too.\
+# Then there is `ArrayDB` that uses vectors to store data.
+@with_kw mutable struct ArrayDB{
+	R <: AbstractResult, I <: NothingOrMeta
+} <: AbstractDB{R,I}
+	
+	res :: Vector{R} = R[]
+	iter_info :: Vector{I} = I[]
+
+	# counter of entries 
+	num_entries :: Int = 0
+
+	# transformed results indicator
+	transformed :: Bool = false
+	
+	# list of ids for unevaluated results
+	unevaluated_ids :: Vector{Int} = []
+
+	@assert length(res) == num_entries "Number of entries does not match `num_entries`."
+end
 
 # ## Mandatory Methods
 
 # A database should be constructed using the `init_db` method:
-"Constructor for empty database of type `T`."
-function init_db( :: Type{<:AbstractDB}, ::Type{ <: AbstractResult }, 
-    :: Type{<:NothingOrMeta}) 
-    nothing 
+"Constructor for empty database of type `MockDB`."
+init_db( :: MockDB, R, I, args... ) = MockDB{R,I}()
+
+"Constructor for empty database of type `ArrayDB`."
+function init_db(:: Type{<:ArrayDB}, R :: Type{<:AbstractResult},
+		I :: Type{<:NothingOrMeta})
+	return ArrayDB{R, I}()
 end
 
 # Internally the variables might be scaled (or *transformed*).
@@ -20,18 +49,29 @@ end
 # `set_transformed!` is used to set the flag.
 "Bool indicating if the database data been transformed."
 is_transformed( :: AbstractDB ) :: Bool = false
+is_transformed( db :: ArrayDB ) = db.transformed 
+
 "Set the flag indicating whether the database data has been transformed or not."
 set_transformed!( :: AbstractDB, :: Bool ) :: Nothing = nothing
+function set_transformed!( db :: ArrayDB, val :: Bool )
+	db.transformed = val 
+	return nothing 
+end
 
 # The results are indexed with integers and `get_ids` should 
 # return a vector or iterator of all result ids:
 "List of all `id :: Int` belonging to the stored results."
 get_ids( db :: AbstractDB  ) = Int[]
+get_ids( db :: ArrayDB ) = Base.eachindex( db.res )
 
 # An `id` can then be used to retrieve a result from the database:
 "Get result with `id` from database `db`."
-function get_result( db :: AbstractDB{R,I}, id :: Int ) :: R where {R <: AbstractResult,I}
+function get_result( db :: AbstractDB{R,I}, id :: Int ) :: R where {R,I}
     return R()
+end
+
+function get_result( db :: ArrayDB, id :: Int)
+	return db.res[id]
 end
 
 # When a new result is added to the database, `next_id` is called to get 
@@ -41,10 +81,19 @@ function next_id( db :: AbstractDB ) :: Int
 	return -1
 end
 
+function next_id( db :: ArrayDB) :: Int
+	return db.num_entries + 1
+end
+
 "Add result `res` to database `db`."
 _add_result!(db :: AbstractDB{R,I}, res :: R) where{R,I}= nothing
 
-# There is only one simple method to put an `SurrogateMeta` into a database:
+function _add_result!( db :: ArrayDB{R,I}, res :: R ) where{R,I}
+	push!(db.res, res)
+	return nothing
+end
+
+# There is only one simple method to put an `AbstractSurrogateMeta` into a database:
 """
     stamp!(db, ids)
 
@@ -54,12 +103,13 @@ function stamp!( db :: AbstractDB, ids :: NothingOrMeta) :: Nothing
 	return nothing 
 end
 
-# ## Derived methods
+function stamp!( db :: ArrayDB{R,I}, ids :: I) where{R,I}
+	push!(db.iter_info, ids)
+	return nothing
+end
 
-empty_site( :: Type{<:AbstractResult{Vector{F}, YT}} ) where {F<:AbstractFloat,YT} = F[]
-empty_site( :: Type{<:AbstractResult{ XT, YT}} ) where {XT <: StaticVector, YT} = fill!(XT(undef),NaN)
-empty_value( :: Type{<:AbstractResult{XT, Vector{F}}} ) where {F<:AbstractFloat,XT} = F[]
-empty_value( :: Type{<:AbstractResult{XT, YT}} ) where {XT, YT<:StaticVector} = fill!(YT(undef),NaN)
+
+# ## Derived Methods
 
 # ### Getters
 # There are getters for the types …
@@ -110,6 +160,11 @@ function _missing_ids( db :: AbstractDB )
     return _missing_ids
 end
 
+## specialization for `ArrayDB`
+function _missing_ids(db :: ArrayDB)
+	return db.unevaluated_ids
+end
+
 # ### Setters 
 
 # `new_result!` is meant to construct a new result and return its data base index.
@@ -128,7 +183,7 @@ function new_result!( db :: AbstractDB{R,I}, x :: Vec, y = [], id :: Int = - 1 )
 end
 
 # These setters are used in (un)transforming the database.
-# They are based on the setters for `AbstractResult`:
+# They are based on the setters for `Result`s:
 "Set site of result with `id` in database `db` to `x`."
 function set_site!(db, id, x) :: Nothing
     set_site!( get_result(db,id), x )
@@ -143,6 +198,18 @@ end
 # overwrite `set_evaluated_flag!` too:
 "Set the evaluation status for result with `id` to `state`."
 set_evaluated_flag!( db :: AbstractDB, id :: Int, state = true) = nothing
+
+function set_evaluated_flag!( db :: ArrayDB, id :: Int, state = true)
+	if state == false 
+		push!( db.unevaluated_ids, id)
+	else
+		pos = findfirst( i -> i == id, db.unevaluated_ids )
+		if !isnothing(pos)
+			deleteat!( db.unevaluated_ids, pos )
+		end
+	end	
+	return nothing
+end
 
 # ### Miscellaneous
 
@@ -260,25 +327,53 @@ function results_in_box_indices(db, lb, ub, exclude_indices = Int[] )
 		id ∉ exclude_indices && all(lb .<= get_site(db,id) .<= ub ) ]
 end
 
-# ## New! SuperDB
-get_saveable_type( sdb :: AbstractSuperDB ) = Nothing  
+####################################################
+# Super DB 
+####################################################
+""" 
+    SuperDB{T,Vector{<IterSaveable}}
 
-all_sub_db_indices( :: AbstractSuperDB ) = nothing # :: Vector{<:FunctionIndexTuple}
-get_sub_db( :: AbstractSuperDB, :: FunctionIndexTuple ) :: AbstractDB = nothing 
-all_sub_dbs( sdb :: AbstractSuperDB) = [ get_sub_db(sdb, ki ) for ki in all_sub_db_indices(sdb) ]
+A `SuperDB` is nothing but a directory of sub-databases (`sub_dbs`)
+that store evaluation data for tuples of `AnyIndex` functions.
+There is also a field `iter_data` that stores iteration data in a vector 
+for later inspection.
+"""
+@with_kw struct SuperDB{ 
+		T <: AbstractIterSaveable, 
+		ST <: Union{AbstractDict, AbstractDictionary},#{FunctionIndexTuple,<:AbstractDB} 
+	}
 
-get_sub_db( sdb :: AbstractSuperDB, func_indices ) = get_sub_db( sdb, Tuple(func_indices) ) 
+    "A dictionary mapping `AnyIndex` tuples to sub databases."
+    sub_dbs :: ST
 
-is_transformed(sdb :: AbstractSuperDB) = all( is_transformed(db) for db = all_sub_dbs(sdb) )
+    "A vector storing iteration data for later inspection."
+    iter_data :: Vector{T} = T[]
+end
 
-function transform!( sdb :: AbstractSuperDB, scal :: AbstractVarScaler  )
+all_sub_db_indices( sdb :: SuperDB ) = keys(sdb.sub_dbs)
+get_sub_db( sdb :: SuperDB, key_indices :: Tuple) = sdb.sub_dbs[key_indices]
+
+function stamp!( sdb :: SuperDB, ids :: AbstractIterSaveable)
+	push!(sdb.iter_data, ids)
+	return nothing
+end
+
+get_saveable_type( sdb :: SuperDB{T,ST}) where{T,ST} = T
+
+# derived 
+all_sub_dbs( sdb :: SuperDB) = [ get_sub_db(sdb, ki ) for ki in all_sub_db_indices(sdb) ]
+get_sub_db( sdb :: SuperDB, func_indices ) = get_sub_db( sdb, Tuple(func_indices) ) 
+
+is_transformed(sdb :: SuperDB) = all( is_transformed(db) for db = all_sub_dbs(sdb) )
+
+function transform!( sdb :: SuperDB, scal :: AbstractVarScaler  )
     for sub_db in all_sub_dbs( sdb )
         transform!(sub_db, scal)
     end
     return nothing
 end
 
-function untransform!( sdb :: AbstractSuperDB, scal :: AbstractVarScaler  )
+function untransform!( sdb :: SuperDB, scal :: AbstractVarScaler  )
     for sub_db in all_sub_dbs( sdb )
         transform!(sub_db, scal)
     end
@@ -286,17 +381,17 @@ function untransform!( sdb :: AbstractSuperDB, scal :: AbstractVarScaler  )
 end
 
 "Evaluate all unevaluated results in `db` using objectives of `mop`."
-function eval_missing!( sdb :: AbstractSuperDB, mop :: AbstractMOP, scal :: AbstractVarScaler )
+function eval_missing!( sdb :: SuperDB, mop :: AbstractMOP, scal :: AbstractVarScaler )
     for func_indices in all_sub_db_indices(sdb)
         eval_missing!( get_sub_db(sdb, func_indices), mop, scal, func_indices )
     end
     return nothing
 end
 
-stamp!( sdb :: AbstractSuperDB, ids :: AbstractIterSaveable) = nothing
-
-function put_eval_result_into_db!( sdb :: AbstractSuperDB, eval_result :: Union{AbstractDict, AbstractDictionary}, x :: Vec )
-    x_indices = Dict{FunctionIndexTuple, Int}()
+function put_eval_result_into_db!( sdb :: SuperDB, 
+    eval_result :: Union{AbstractDict, AbstractDictionary}, x :: Vec 
+)
+    x_indices = Dict{NLIndexTuple, Int}()
     for func_indices in all_sub_db_indices(sdb)
         sub_db = get_sub_db( sdb, func_indices )
         vals = flatten_vecs( eval_result[f_ind] for f_ind=func_indices ) 

@@ -39,9 +39,9 @@ makedocs(;
         "Internals" => [
             "DocStrings" => "dev_man.md",
             "Interfaces" => "Interfaces.md",
-            "`AbstractResult` Interface" => "AbstractResultInterface.md",
             "`AbstractIteraData` Interface" => "AbstractIterDataInterface.md",
             "`AbstractDB` Interface" => "AbstractDBInterface.md",
+            "`Result` Type" => "Result.md",
         ]
     ],
 )

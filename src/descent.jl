@@ -9,7 +9,7 @@
 #
 # For the individual descent step methods a method with signature 
 # `get_criticality( :: typeof{desc_cfg}, :: AbstractMOP, ::AbstractIterate,
-#  ::AbstractSuperDB, sc :: SurrogateContainer )`
+#  ::SuperDB, sc :: SurrogateContainer )`
 # should be defined, because this is then called internally
 # 
 # Return: a criticality measure the new trial point (same eltype as x),
@@ -17,7 +17,7 @@
 
 # method to only compute criticality
 function get_criticality( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
-        data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig;
+        data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig;
         kwargs...
     )
 
@@ -26,7 +26,7 @@ end
 
 # methods to compute a local descent step
 function compute_descent_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
-       data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, args...; kwargs...
+       data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig, args...; kwargs...
     )
     return compute_descent_step( descent_method( algo_config ), mop, scal, x_it, x_it_n, data_base, sc, algo_config, args... ; kwargs...)
 end
@@ -35,14 +35,14 @@ end
 
 function compute_descent_step(cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
         x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
-        data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, ω_data; kwargs...
+        data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, ω_data; kwargs...
     )
     return ω, ω_data...
 end
 
 function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
         x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
-        data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig; kwargs...
+        data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig; kwargs...
     )
     ω, data = get_criticality(cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config; kwargs...)
     return ω, data...
@@ -212,7 +212,7 @@ end
 
 function compute_descent_step(desc_cfg :: SteepestDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
         x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
-        data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, d; kwargs...
+        data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, d; kwargs...
     )
 
     @logmsg loglevel4 "Calculating steepest stepsize."
@@ -641,7 +641,7 @@ end
 
 ###################
 function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate,
-    data_base :: AbstractSuperDB, sc :: SurrogateContainer, algo_config :: AbstractConfig;
+    data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig;
     variable_radius :: Bool = false )
     
     x = get_x_scaled( x_it )

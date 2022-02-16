@@ -36,42 +36,45 @@ import Logging
 
 using Lazy: @forward
 
+registered_funcs = Dict{Symbol,Function}() 
+
 include("custom_logging.jl")
 
 include("shorthands.jl");	# has types meant to be available globally -> import first
-include("Interfaces.jl");
+include("SuperTypes.jl");
 
-# implementations (order should not matter -- mostly)
-include("VecFunImplementation.jl");
-include("RefVecFun.jl") # has to come before MOP
-include("ExprVecFun.jl") # has to come before MOP
+# record keeping (order should not matter)
+include("Result.jl")
+include("IterDataIterSaveable.jl")
+include("Databases.jl")
+
+include("VecFun.jl"); # makes availabe `RefVecFun` & `ExprVecFun` for file `MOP.jl`
 include("MOP.jl")
 
-#=
-include("ResultImplementation.jl")
-include("DataBaseImplementation.jl")
-include("IterDataImplementation.jl")
+#include("RbfModel.jl")
+include("SurrogateContainer.jl")
+include(joinpath(@__DIR__, "models", "ExactModel.jl"))
 
-include("RbfModel.jl")
-=#
-include("ExactModel.jl")
+include("VarScaler.jl")
+include("ConfigImplementations.jl")
+
+include("utilities.jl")
+
+include("FilterImplementation.jl")
+
+include("descent.jl")
+
+include("algorithm.jl")
 #=
 include("TaylorModel.jl")
 include("LagrangeModel.jl")
 
-include("SurrogateContainerImplementation.jl")
-
 include("ConfigImplementations.jl")
 
-include("FilterImplementation.jl")
-
-include("VarScaler.jl")
 
 # utilities
 include("convenience_functions.jl")
 include("descent.jl")
-#include("saving.jl")
-include("utilities.jl")
 
 include("algorithm.jl")
 
@@ -79,4 +82,9 @@ export AlgoConfig #, DefaultConfig
 export MOP, add_lower_bound!, add_upper_bound!, del_lower_bound!, del_upper_bound!, add_objective!
 export optimize
 =#
+export AlgorithmConfig, AlgoConfig 
+export MOP, add_lower_bound!, add_upper_bound!, del_lower_bound!, del_upper_bound!, add_objective!
+export ExactConfig
+export initialize_data
+export AutoDiffWrapper, FiniteDiffWrapper
 end#module

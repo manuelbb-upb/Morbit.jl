@@ -10,57 +10,19 @@
 # * methods for prettier printing/logging
 ###################################################################
 
-function _contains_index( m :: ModelGrouping, ind :: FunctionIndex )
+function _contains_index( m :: ModelGrouping, ind )
     return ind in m.indices
-end
-
-function do_groupings( mop :: AbstractMOP, ac :: AbstractConfig )
-    if !_combine_models_by_type(ac)
-        return [ ModelGrouping( [ind,], get_cfg(_get(mop,ind)) ) for ind in get_function_indices(mop) ]
-    end
-    groupings = ModelGrouping[]
-    for objf_ind1 in get_function_indices( mop )
-        objf1 = _get( mop, objf_ind1 )
-
-        # check if there already is a group that `objf1`
-        # belongs to and set `group_index` to its position in `groupings`
-        group_index = -1
-        for (gi, group) in enumerate(groupings)
-            if _contains_index( group, objf_ind1 )
-                group_index = gi
-                break
-            end
-        end
-        # if there is no group with `objf1` in it, 
-        # then create a new one and set `group_index` to new, last position
-        if group_index < 0
-            push!( groupings, ModelGrouping(FunctionIndex[objf_ind1,], model_cfg(objf1)) )
-            group_index = length(groupings)
-        end
-        
-        group = groupings[group_index]
-        
-        # now, for every remaining function index, check if we can add 
-        # it to the group of `objf_ind1`
-        for objf_ind2 in get_function_indices( mop )
-            objf2 = _get( mop, objf_ind2 )
-            if objf_ind1 != objf_ind2 && combinable( objf1, objf2 ) && !_contains_index(group, objf_ind2)
-                push!( group.indices, objf_ind2 )
-            end
-        end
-    end
-    return groupings
 end
 
 function build_super_db( groupings :: Vector{<:ModelGrouping}, x_scaled :: XT, eval_res ) where XT <: VecF
     n_vars = length(x_scaled)
 
-    sub_dbs = Dict{FunctionIndexTuple, ArrayDB}()
-    x_index_mapping = Dict{FunctionIndexTuple, Int}()
+    sub_dbs = Dict{NLIndexTuple, ArrayDB}()
+    x_index_mapping = Dict{NLIndexTuple, Int}()
     for group in groupings 
         index_tuple = Tuple(group.indices)
 
-        _group_vals = flatten_mop_dict( eval_res, group.indices )
+        _group_vals = _flatten_mop_dict( eval_res, group.indices )
         group_vals = (Base.promote_eltype( _group_vals, MIN_PRECISION )).(_group_vals)
 
         res = Result(; x = SVector{n_vars}(x_scaled), y = MVector{length(group_vals)}(group_vals) )
@@ -83,8 +45,14 @@ function ensure_precision( x :: X ) where X<:Real
 end
 
 function ensure_precision( x :: AbstractVector{X} ) where X<:Real
+    isempty(x) && return MIN_PRECISION[]
     _X = promote_type( X, MIN_PRECISION )
     return _X.(x)
+end
+
+function ensure_precision( x :: AbstractVector )
+    isempty(x) && return MIN_PRECISION[]
+    error("Cannot promote to a floating point type.")
 end
 
 # Scaling
@@ -291,17 +259,6 @@ function _rand_box_point(lb, ub, type :: Type{<:Real} = MIN_PRECISION)
     return lb .+ (ub .- lb) .* rand(type, length(lb))
 end
 
-function eval_linear_constraints_at_unscaled_site( x, mop )
-    #A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
-    A_eq, b_eq = get_eq_matrix_and_vector( mop )
-    A_ineq, b_ineq = get_ineq_matrix_and_vector( mop )
-    return (A_eq * x .+ b_eq, A_ineq * x + b_ineq)
-end
-
-function eval_linear_constraints_at_scaled_site( x_scaled, mop, scal )
-    A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
-    return (A_eq * x_scaled .+ b_eq, A_ineq * x_scaled + b_ineq)
-end
 ######## Stopping
 
 function _budget_okay( mop :: AbstractMOP, ac :: AbstractConfig ) :: Bool
@@ -468,7 +425,7 @@ function _fin_info_str(iter_data :: AbstractIterate,
 end
 
 using Printf: @sprintf
-function _prettify( vec :: Vec, len :: Int = 5) :: AbstractString
+function _prettify( vec, len :: Int = 5) :: AbstractString
     return string(
         "[",
         join( 
@@ -502,4 +459,21 @@ end
 
 function constraint_violation_is_zero( θ )
     return abs( θ ) <= _zero_for_constraints( θ )
+end
+
+#########################################################################
+
+"""
+	register_func(func, func_name)
+
+Registers the function `func` for subsequent use in a function 
+expression.
+Note, that using function expressions is really only advisable if 
+the "base function" is truly expensive and surrogate modelling remedies 
+the performance penalties from parsing strings and `@eval`ing expressions.
+"""
+function register_func(func, func_name :: Symbol)
+	global registered_funcs
+	@eval registered_funcs[$(Meta.quot(func_name))] = $func
+	nothing
 end

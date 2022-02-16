@@ -1,36 +1,28 @@
 # # Interfaces
 
-# This file defines abstract super types and includes further method 
-# definitions for these types so we can write our algorithm without 
-# the actual implementations being available.
-# This also avoids some import order complications.
+# This file defines abstract super types,
+# mainly to avoid some import order complications.
 
 # ## Abstract Super Types
 
 # ### Surrogate Models
 # Each surrogate model type is configured via a data structure 
-# that implements `SurrogateConfig`.
+# that implements `AbstractSurrogateConfig`.
 # Such a configuration struct should be exported by the main module. 
 "Abstract super type for a configuration type defining some surrogate model."
-abstract type SurrogateConfig end
+abstract type AbstractSurrogateConfig end
 
 "Abstract super type for meta data that is used to build a model."
-abstract type SurrogateMeta end
+abstract type AbstractSurrogateMeta end
 
 "Abstract super type for the actual surrogate models."
-abstract type SurrogateModel end
-
-"Abstract super type wrapping around an objective, its model and the surrogate meta."
-abstract type AbstractSurrogateWrapper end
-
-"Wrapper around a list of `AbstractSurrogateWrapper`s."
-abstract type AbstractSurrogateContainer end
+abstract type AbstractSurrogate end
 
 # ### MOPs
 # Internally we use implementations of the `AbstractVecFun` for 
 # managing the MOP objectives and evaluation.
 "Abstract super type for any kind of (vector) objective."
-abstract type AbstractVecFun{C <: SurrogateConfig} <: Function end
+abstract type AbstractVecFun <: Function end
 
 # Our actual problem is repersented by an `AbstractMOP`.
 """
@@ -47,25 +39,22 @@ abstract type AbstractMOP{T} end
 
 # For internal data management we make some effort to keep everything 
 # structured.
-# To save the intermediate results:
-"Abstract super type for stuff stored in the database."
-abstract type AbstractResult{XT <: VecF, YT <: VecF} end
 
 # `AbstractIterate` stores the current site and value vectors as well as the 
 # trust region radius for meta models.
 "Abstract super type for a container that stores the site and value vectors."
-abstract type AbstractIterate end 
+abstract type AbstractIterate end
 
 "Abstract super type for some saveable iteration information."
 abstract type AbstractIterSaveable end 
 
-# A shorthand for everything that is either nothing or an `AbstractIterSaveable`:
-const NothingOrMeta = Union{Nothing, SurrogateMeta}
+# A shorthand for everything that is either nothing or an `AbstractSurrogateMeta`:
+const NothingOrMeta = Union{Nothing, AbstractSurrogateMeta}
 
-# Everything is kept in a database:
+# Everything is kept in databases:
+abstract type AbstractResult end
 "Abstract database super type. Implemented by `ArrayDB` and `MockDB`."
-abstract type AbstractDB{R<:AbstractResult, S<:NothingOrMeta} end
-abstract type AbstractSuperDB end
+abstract type AbstractDB{R <: AbstractResult, S<:NothingOrMeta} end
 
 # ### Algorithm configuration.
 
@@ -76,6 +65,9 @@ abstract type AbstractDescentConfig end
 # This might be returned by the general algorithm configuration implementing `AbstractConfig`:
 "Abstract super type for user configurable algorithm configuration."
 abstract type AbstractConfig end
+
+#src #TODO documentation
+abstract type AbstractSurrogateContainer end
 
 abstract type AbstractFilter end
 
@@ -97,7 +89,7 @@ abstract type DiffFn end
     FILTER_FAIL    # trial point is not acceptable for filter
     FILTER_ADD     # trial point acceptable to filter with large constraint violation
     EARLY_EXIT
-    CRIT_LOOP_EXIT
+#    CRIT_LOOP_EXIT
     INITIALIZATION
 end
 
@@ -118,14 +110,7 @@ end
 end
 
 # ### Interface Definitions
-# Most of the interfaces are defined in subfiles and we include
-# them here:
-include("SurrogateModelInterface.jl");
-include("AbstractSurrogateContainerInterface.jl")
-include("AbstractVecFunInterface.jl");
+include("AbstractSurrogateInterface.jl");
 include("AbstractMOPInterface.jl");
-include("AbstractIterDataInterface.jl")
-include("AbstractResultInterface.jl")
-include("AbstractDBInterface.jl")
 include("AbstractConfigInterface.jl")
 include("AbstractFilterInterface.jl")

@@ -1,7 +1,7 @@
 struct SurrogateWrapper{
-        C <: SurrogateConfig,
-        M <: SurrogateModel,
-        I <: SurrogateMeta, 
+        C <: AbstractSurrogateConfig,
+        M <: AbstractSurrogate,
+        I <: AbstractSurrogateMeta, 
         OIndType <: Tuple{Vararg{ObjectiveIndex}}, 
         EIndType <: Tuple{Vararg{ConstraintIndex}}, 
         IIndType <: Tuple{Vararg{ConstraintIndex}} 
@@ -25,7 +25,7 @@ struct SurrogateWrapper{
 end
 
 function init_wrapper( :: Type{<:SurrogateWrapper}, 
-    cfg :: SurrogateConfig, model :: SurrogateModel, meta :: SurrogateMeta,
+    cfg :: AbstractSurrogateConfig, model :: AbstractSurrogate, meta :: AbstractSurrogateMeta,
     objective_indices = ObjectiveIndex[],
     eq_constraint_indices = ConstraintIndex[], 
     ineq_constraint_indices = ConstraintIndex[];
@@ -90,7 +90,7 @@ function init_surrogates( ::Type{<:SurrogateContainer}, mop :: AbstractMOP,
     @logmsg loglevel2 "Initializing surrogate models."
     
     # init fields for SurrogateContainer
-    meta_array = SurrogateMeta[]
+    meta_array = AbstractSurrogateMeta[]
 
     for group in groupings
         meta = prepare_init_model( group.cfg, group.indices, mop, scal, id, sdb, ac; meta_array )
@@ -123,7 +123,7 @@ function update_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP,
     
     @logmsg loglevel2 "Updating surrogate models."
 
-    meta_array = SurrogateMeta[]
+    meta_array = AbstractSurrogateMeta[]
 
     for sw in list_of_wrappers( sc )
         func_indices = get_function_index_tuple(sw)
@@ -159,7 +159,7 @@ function improve_surrogates!( sc :: SurrogateContainer, mop :: AbstractMOP,
     ensure_fully_linear :: Bool = false, kwargs... ) :: Nothing 
     @logmsg loglevel2 "Improving surrogate models."
 
-    meta_array = SurrogateMeta[]
+    meta_array = AbstractSurrogateMeta[]
 
     for sw in list_of_wrappers( sc )
         func_indices = get_function_index_tuple(sw)

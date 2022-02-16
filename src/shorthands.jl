@@ -4,15 +4,11 @@ const NumOrVec = Union{Real, Vec}
 const VecOrNum = NumOrVec 
 const Mat = AbstractMatrix{<:Real}
 
-const Vec64 = Vector{Float64}
-const NumOrVec64 = Union{Float64, Vec64}
-
 const VecF = AbstractVector{<:AbstractFloat}
 const MatF = AbstractMatrix{<:AbstractFloat}
 
 const NumOrVecF = Union{AbstractFloat, VecF}
 const MIN_PRECISION = Float32
-
 
 #%%
 
@@ -58,22 +54,27 @@ struct NLIndex
     value :: Int
     num_out :: Int
 end 
-Base.broadcastable( ind :: NLIndex ) = Ref(ind)
 
 const FunctionIndex = Union{ObjectiveIndex, ConstraintIndex}
-Base.broadcastable( ind :: FunctionIndex ) = Ref(ind)
+const AnyIndex = Union{FunctionIndex, NLIndex}
+
+Base.broadcastable( ind :: AnyIndex ) = Ref(ind)
 
 #Base.isless(fi :: FunctionIndex, fi2 :: FunctionIndex) = isless(fi.value, fi2.value)
 
 const FunctionIndexTuple = Tuple{Vararg{<:FunctionIndex}}
 const FunctionIndexIterable = Union{FunctionIndexTuple, Vector{<:FunctionIndex}}
+const AnyIndexTuple = Tuple{Vararg{<:AnyIndex}}
+const AnyIndexIterable = Union{AnyIndexTuple, AbstractVector{<:AnyIndex}}
+const NLIndexTuple = Tuple{Vararg{<:NLIndex}}
 
-num_outputs( fi :: FunctionIndex ) = fi.num_out
-function num_outputs( indices :: FunctionIndexIterable)
+num_outputs( fi :: AnyIndex ) = fi.num_out
+function num_outputs( indices :: AnyIndexIterable)
     isempty(indices) && return 0
     return sum( num_outputs(fi) for fi in indices )
 end
 
+#=
 function _split( indices :: FunctionIndexIterable )
     arr1 = ObjectiveIndex[]
     arr2 = ConstraintIndex[]
@@ -91,7 +92,9 @@ function _split( indices :: FunctionIndexIterable )
     end
     return arr1, arr2, arr3
 end
+=#
 
+#=
 function func_index_and_relative_position_from_func_indices( func_indices :: FunctionIndexIterable, out_pos :: Int )
     counter = 1
     for ind in func_indices
@@ -103,29 +106,31 @@ function func_index_and_relative_position_from_func_indices( func_indices :: Fun
     end
     return nothing
 end
-
+=#
 ###################################################
 _ensure_vec( x :: Number ) = [x,]
 _ensure_vec( x :: AbstractVector{<:Number} ) = x
 
-struct VecFuncWrapper{T,F<:Function} <: Function
+struct CountedFunc{T,F<:Function} <: Function
     func :: F
     counter :: Base.RefValue{Int64}
     
-    function VecFuncWrapper( func :: F; can_batch = false ) where F<:Function
+    function CountedFunc( func :: F; can_batch = false ) where F<:Function
         return new{can_batch, F}( func, Ref(0))
     end
 end
 
+_can_batch( fn :: CountedFunc{T,F} ) where{T,F} = T 
+
 # evaluation of a BatchObjectiveFunction
-function (F::VecFuncWrapper)(x :: Vec)
+function (F::CountedFunc)(x :: Vec)
     F.counter[] += 1
     return _ensure_vec(F.func(x))
 end
 
 # overload broadcasting for BatchObjectiveFunction's
 # that are assumed to handle arrays themselves
-function Broadcast.broadcasted( F :: VecFuncWrapper{true,<:Function}, X :: VecVec)
+function Broadcast.broadcasted( F :: CountedFunc{true,<:Function}, X :: VecVec)
     F.counter[] += length(X)
     return _ensure_vec.(F.func( X ))
 end

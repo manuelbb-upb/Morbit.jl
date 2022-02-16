@@ -9,26 +9,25 @@
 ################################################################################
 
 struct ModelGrouping{T}
-    indices :: Vector{FunctionIndex}
+    indices :: Vector{NLIndex}
     cfg :: T
 end
-
 
 # AbstractSurrogateWrapper
 Base.broadcastable( sw :: AbstractSurrogateWrapper ) = Ref(sw)
 
 # constructor
 function init_wrapper( :: Type{<:AbstractSurrogateWrapper}, 
-    cfg :: SurrogateConfig, mod :: SurrogateModel, meta :: SurrogateMeta,
+    cfg :: AbstractSurrogateConfig, mod :: AbstractSurrogate, meta :: AbstractSurrogateMeta,
     objective_indices, eq_constraint_indices, 
     ineq_constraint_indices; kwargs... ) :: AbstractSurrogateWrapper
     return nothing
 end
 
 # mandatory methods
-get_config( sw :: AbstractSurrogateWrapper ) :: SurrogateConfig = nothing
-get_model( sw :: AbstractSurrogateWrapper ) :: SurrogateModel = nothing 
-get_meta( sw :: AbstractSurrogateWrapper ) :: SurrogateMeta = nothing
+get_config( sw :: AbstractSurrogateWrapper ) :: AbstractSurrogateConfig = nothing
+get_model( sw :: AbstractSurrogateWrapper ) :: AbstractSurrogate = nothing 
+get_meta( sw :: AbstractSurrogateWrapper ) :: AbstractSurrogateMeta = nothing
 
 function get_objective_indices( sw :: AbstractSurrogateWrapper ) :: Vector{ObjectiveIndex}
     return nothing
@@ -64,6 +63,7 @@ end
     return -1
 end
 
+#=
 @memoize ThreadSafeDict function _sortperm( sc :: AbstractSurrogateContainer )
     @show sc_indices = collect( get_function_indices( sc ) )
     @show sw_indices = collect( Iterators.flatten( 
@@ -71,6 +71,7 @@ end
     ) )
     return sortperm( sw_indices; order = Base.Order.Perm( Base.Order.Forward, sc_indices ) )
 end
+=#
 
 function get_function_index_tuple( sw :: AbstractSurrogateWrapper )
     return Tuple( get_function_indices(sw) )
@@ -106,8 +107,9 @@ function _get_optim_handle( sw :: AbstractSurrogateWrapper, scal :: AbstractVarS
     return _get_optim_handle( get_model(sw), scal, sw_output )
 end
 
-
+# ============================
 # AbstractSurrogateContainer
+# ============================
 Base.broadcastable( sc :: AbstractSurrogateContainer ) = Ref(sc)
 
 # constructor 
