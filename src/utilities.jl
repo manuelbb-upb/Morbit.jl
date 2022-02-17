@@ -445,7 +445,7 @@ end
 
 function compute_constraint_val( filter :: AbstractFilter, iter_data :: AbstractIterate )
     return compute_constraint_val( filter,
-        get_eq_const( iter_data ),
+    get_eq_const( iter_data ),
         get_ineq_const( iter_data ),
         get_nl_eq_const(iter_data),
         get_nl_ineq_const(iter_data)
