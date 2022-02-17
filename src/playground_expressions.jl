@@ -1,13 +1,13 @@
 using Morbit
 M = Morbit
 #%%
-mop = MOP(2)
+mop = MOP(zeros(2), ones(2))
 
 F = x -> sum(x)
 o1 = add_objective!(mop, F; model_cfg = ExactConfig(), n_out = 1, diff_method = AutoDiffWrapper)
 
 G = x -> sum(x.^2)
-VG = M.make_vec_fun( G; n_out = 1, model_cfg = ExactConfig() )
+VG = M.make_vec_fun( G; n_out = 1, model_cfg = TaylorConfig() )
 gind = M._add_function!( mop, VG )
 o2 = M._add_objective!(mop, gind)
 
@@ -26,7 +26,7 @@ objf1 = M._get( mop, o1 )
 
 objf2 = M._get( mop, o2 )
 @show M.eval_objf( objf2, ones(2) )
-@show M._get_gradient( objf2, ones(2), 1)
+#@show M._get_gradient( objf2, ones(2), 1)
 
 #=
 objf3 = M._get( mop, o3 )

@@ -79,7 +79,8 @@ get_delta( id :: IterData ) = id.Δ
 
 # We also need the iteration result index for our sub-database.
 "Index (or `id`) of current iterate in database."
-get_x_index( id:: IterData, indices :: FunctionIndexTuple ) = id.x_indices[indices]
+get_x_index( id:: IterData, ind ) = id.x_indices[ind]
+get_x_index( id:: IterData, ind :: AnyIndex ) = id.x_indices[(ind,)]
 get_x_index_dict( id :: IterData ) = id.x_indices
 
 function Base.show( io :: IO, id :: I) where I<:AbstractIterate

@@ -60,6 +60,9 @@ end
 get_saveable_type( :: AbstractSurrogateConfig, x, y ) = Nothing
 get_saveable( :: AbstractSurrogateMeta ) = nothing
 
+requires_update( cfg :: AbstractSurrogateConfig ) = true
+requires_improve( cfg :: AbstractSurrogateConfig ) = true
+
 prepare_update_model( mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; kwargs...) = meta
 prepare_improve_model( mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; kwargs...) = meta
 
@@ -138,6 +141,7 @@ struct ExprSurrogate{W <: Base.RefValue,F} <: AbstractSurrogate
 	model_ref :: W
 	generated_function :: F
 	output_indices :: Vector{Int}
+	is_updated :: Bool
 end
 
 """ 
@@ -149,12 +153,11 @@ replaced by a call to model and extracting the values at positions `output_indic
 
 [`str2func`](@ref)
 """
-function ExprSurrogate( m :: AbstractSurrogate, expr_str :: String, scal, output_indices )
+function ExprSurrogate( m :: AbstractSurrogate, expr_str :: String, scal, cfg, output_indices )
 	model_ref = Ref(m)
 	gen_func = str2func(expr_str,m, scal, output_indices; register_adjoint = true)
-	return ExprSurrogate( model_ref, gen_func, output_indices)
+	return ExprSurrogate( model_ref, gen_func, output_indices, requires_update(cfg))
 end
-
 
 fully_linear( r :: Union{ExprSurrogate, RefSurrogate} ) = fully_linear( r.model_ref[] )
 set_fully_linear!( r :: Union{ExprSurrogate, RefSurrogate}, val ) = set_fully_linear!( r.model_ref[], val )
@@ -163,14 +166,21 @@ function eval_models( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled :: 
 	eval_models( m.model_ref[], scal, x_scaled, m.output_indices )
 end
 function eval_models( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec )
-	return Base.invokelatest(m.generated_function, x_scaled)
+	if m.is_updated
+		return Base.invokelatest(m.generated_function, x_scaled)
+	else
+		return m.generated_function(x_scaled)
+	end
 end
 
 function get_gradient( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec, ℓ = 1 )
 	get_gradient( m.model_ref[], scal, x_scaled, m.output_indices[ℓ] )
 end
 function get_gradient( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ = 1 )
-	return Zygote.gradient( ξ -> m.generated_function(ξ)[m.output_indices[ℓ]],x_scaled)[1]
+	return Zygote.gradient( 
+		ξ -> eval_models(m, scal, ξ)[m.output_indices[ℓ]],
+		x_scaled
+	)[1]
 end
 
 function get_jacobian( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec )

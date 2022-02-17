@@ -72,7 +72,7 @@ function _steepest_descent_direction(
     
     n = length(x);
     try 
-        opt_problem = JuMP.Model( OSQP.Optimizer );
+        opt_problem = JuMP.Model( LP_OPTIMIZER );
         JuMP.set_silent(opt_problem)
 
         JuMP.set_optimizer_attribute( opt_problem, "eps_rel", 1e-5 )
@@ -577,7 +577,7 @@ function compute_descent_step(::Val{:ds}, algo_config :: AbstractConfig,
     if !CONSTRAINED
         dir = ∇m⁺*r;
     else
-        dir_prob = JuMP.Model(OSQP.Optimizer);
+        dir_prob = JuMP.Model(LP_OPTIMIZER);
         JuMP.set_silent(dir_prob)
         
         # TODO are parameters sensible?
@@ -659,7 +659,7 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     m_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x)
     m_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x)
 
-    opt_problem = JuMP.Model( OSQP.Optimizer )
+    opt_problem = JuMP.Model( LP_OPTIMIZER )
     JuMP.set_silent(opt_problem)
 
     JuMP.set_optimizer_attribute( opt_problem, "eps_rel", Xet(1e-5) );

@@ -1,8 +1,3 @@
-struct ModelGrouping{T}
-    indices :: Vector{NLIndex}
-    cfg :: T
-end
-
 "Group functions with indices of type `NLIndex` by model config type."
 function do_groupings( mop :: AbstractMOP, ac :: AbstractConfig )
 	nl_indices = get_nl_function_indices(mop)
@@ -59,7 +54,7 @@ struct GroupedSurrogates{
 	model :: M
 	meta :: I 
 
-	indices :: Vector{NLIndex}
+	indices :: Tuple{NLIndex}
 
 	num_outputs :: Int 
 
@@ -89,7 +84,7 @@ function init_grouped_surrogates(
 	else 
 		d = index_outputs_dict
 	end
-	return GroupedSurrogates(cfg, model, meta, indices, no_out, d)
+	return GroupedSurrogates(cfg, model, meta, Tuple(indices), no_out, d)
 end
 
 get_meta( gs :: GroupedSurrogates ) = gs.meta 
@@ -143,10 +138,11 @@ a `RefSurrogate` or `ExprSurrogate` from `gs`.
 function _surrogate_from_vec_function( vfun, scal, gs )
 	output_indices = get_output_indices(gs, vfun.nl_index)
 	model = get_model( gs )
+	cfg = get_cfg(gs)
 	if vfun isa RefVecFun
 		return RefSurrogate( model, output_indices )
 	elseif vfun isa ExprVecFun 
-		return ExprSurrogate( model, vfun.expr_str, scal, output_indices )
+		return ExprSurrogate( model, vfun.expr_str, scal, cfg, output_indices )
 	end
 end
 
@@ -269,7 +265,7 @@ function init_surrogates( mop :: AbstractMOP, scal :: AbstractVarScaler, id :: A
 	# round I of model building: collecting the meta data
     meta_array = AbstractSurrogateMeta[]
     for group in groupings
-        meta = prepare_init_model( group.cfg, group.indices, mop, scal, id, sdb, ac; meta_array )
+        meta = prepare_init_model( group.cfg, Tuple(group.indices), mop, scal, id, sdb, ac; meta_array )
         push!(meta_array, meta)
     end
     
@@ -280,7 +276,7 @@ function init_surrogates( mop :: AbstractMOP, scal :: AbstractVarScaler, id :: A
     gs_array = GroupedSurrogates[]
     for (i,group) in enumerate(groupings)
         _meta = meta_array[i]
-        model, meta = init_model( _meta, group.cfg, group.indices, mop, scal, id, sdb, ac )
+        model, meta = init_model( _meta, group.cfg, Tuple(group.indices), mop, scal, id, sdb, ac )
         gs = init_grouped_surrogates( group.cfg, model, meta, group.indices )
         push!(gs_array, gs)
     end
@@ -295,7 +291,7 @@ for method_name in [:update, :improve]
 	_method = Symbol("$(method_name)_surrogates!")
 	_mod_prepare_method = Symbol("prepare_$(method_name)_model")
 	_mod_method = Symbol("$(method_name)_model")
-	
+	_necessity_check = Symbol("requires_$(method_name)")
 	@eval function $(_method)( 
 		sc :: SurrogateContainer, 
 		mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
@@ -311,30 +307,36 @@ for method_name in [:update, :improve]
 			mod = get_model(gs)
 			meta = get_meta(gs)
 			cfg = get_cfg(gs)
-			new_meta = $(_mod_prepare_method)( 
-				mod, meta, cfg, indices, mop, scal, iter_data, sdb, ac; ensure_fully_linear
-			)
-			push!(meta_array, new_meta)
+			if $(_necessity_check)(cfg)
+				new_meta = $(_mod_prepare_method)( 
+					mod, meta, cfg, indices, mop, scal, iter_data, sdb, ac; ensure_fully_linear
+				)
+				push!(meta_array, new_meta)
+			end
 		end
 		
 		@logmsg loglevel2 "Evaluation of unevaluated results."
 		eval_missing!(sdb, mop, scal)
 		
 		# round II: from meta data and evaluations, update the surrogates
-		for (i, gs) in enumerate(sc.surrogates)
+		i = 1
+		for gs = sc.surrogates
 			mod = get_model(gs)
 			cfg = get_cfg(gs)
-			_meta = meta_array[i]
 			indices = get_indices(gs)
-			model, meta = $(_mod_method)( 
-				mod, _meta, cfg, indices, mop, scal, iter_data, sdb, ac 
-			)
-			new_gs = init_grouped_surrogates( 
-				cfg, model, meta, indices; 
-				index_outputs_dict = gs.index_outputs_dict 
-			)
-			# replace groupd surrogates
-			sc.surrogates[i] = new_gs
+			if $(_necessity_check)(cfg)
+			    _meta = meta_array[i]
+				model, meta = $(_mod_method)( 
+					mod, _meta, cfg, indices, mop, scal, iter_data, sdb, ac 
+				)
+				new_gs = init_grouped_surrogates( 
+					cfg, model, meta, indices; 
+					index_outputs_dict = gs.index_outputs_dict 
+				)
+				# replace groupd surrogates
+				sc.surrogates[i] = new_gs
+				i += 1
+			end
 		end
 
 		return nothing

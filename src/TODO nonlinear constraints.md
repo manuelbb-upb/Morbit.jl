@@ -1,8 +1,11 @@
 * num_outputs *mandatory* for surrogate model implementations
 * remove type restriction of `ℓ::Int` in all `eval_models` and `get_gradient`
-* index type in `prepare_init` etc must be `NLIndex` or `AnyIndex`
+* FuncIndexIterable in init methods must go
+* is `EmptyIterSaveable` ever used?
+* instead of `@eval` and `Base.invokelatest` for `ExprSurrogate`, can we make use of 
+  https://github.com/JuliaStaging/GeneralizedGenerated.jl ???
 
-## Outdated
+## mostly Outdated
 * Delete the `apply_internal_sorting` and `reverse_interal_sorting`.
 * Rethink database ( tuples of function indices as keys )
 * Rethink `prepare_XXXX` signatures

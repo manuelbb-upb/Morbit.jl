@@ -40,8 +40,8 @@ registered_funcs = Dict{Symbol,Function}()
 
 include("custom_logging.jl")
 
-include("shorthands.jl");	# has types meant to be available globally -> import first
-include("SuperTypes.jl");
+include("globals.jl");	# has types meant to be available globally -> import first
+include("SuperTypes.jl"); # abstract types and interfaces 
 
 # record keeping (order should not matter)
 include("Result.jl")
@@ -54,6 +54,7 @@ include("MOP.jl")
 #include("RbfModel.jl")
 include("SurrogateContainer.jl")
 include(joinpath(@__DIR__, "models", "ExactModel.jl"))
+include(joinpath(@__DIR__, "models", "TaylorModel.jl"))
 
 include("VarScaler.jl")
 include("ConfigImplementations.jl")
@@ -85,6 +86,7 @@ export optimize
 export AlgorithmConfig, AlgoConfig 
 export MOP, add_lower_bound!, add_upper_bound!, del_lower_bound!, del_upper_bound!, add_objective!
 export ExactConfig
+export TaylorConfig
 export initialize_data
 export AutoDiffWrapper, FiniteDiffWrapper
 end#module

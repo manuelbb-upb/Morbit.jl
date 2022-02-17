@@ -211,6 +211,22 @@ function _eval_at_indices_at_unscaled_site( mop, indices, x )
     )
 end
 
+function _eval_at_index_at_unscaled_sites(mop, ind, X)
+    return eval_objf.( _get(mop, ind), X ) 
+end
+
+function _eval_at_indices_at_unscaled_sites( mop, indices, x )
+    return Dictionary(
+        indices,
+        _eval_at_index_at_unscaled_sites(mop, ind, x) for ind = indices 
+    )
+end
+
+function _eval_to_vecs_at_indices_at_unscaled_sites( mop, indices, X )
+    dicts = _eval_at_indices_at_unscaled_sites(mop, indices, X)
+    return [ [dicts[k][ℓ][end] for k=indices] for ℓ = 1 : length(X) ]
+end
+
 function _flatten_mop_dict( eval_dict, _indices = nothing )
     indices = isnothing(_indices) ? keys(eval_dict) : _indices
     if isempty(indices) || isempty(eval_dict)
@@ -220,16 +236,21 @@ function _flatten_mop_dict( eval_dict, _indices = nothing )
 end
 
 _flatten_mop_dicts( args... ) = _flatten_mop_dict.(args)
+# defined below:
+function _eval_nl_functions_at_unscaled_site( mop, x ) end
+function _eval_objectives_at_unscaled_site( mop, x ) end
+function _eval_nl_eq_constraints_at_unscaled_site( mop, x ) end
+function _eval_nl_ineq_constraints_at_unscaled_site( mop, x ) end
 
 for fntype = [:nl_function, :objective, :nl_eq_constraints, :nl_ineq_constraints ]
     get_XXX_indices = Symbol("get_", fntype, "_indices")
     _eval_XXXs_at_unscaled_site = Symbol("_eval_$(fntype)s_at_unscaled_site")
     eval_XXXs_to_vec_at_unscaled_site = Symbol("eval_$(fntype)s_to_vec_at_unscaled_site")
     @eval begin
-        function $(_eval_XXXs_at_unscaled_site)( mop, x )
+        function $(_eval_XXXs_at_unscaled_site)( mop :: AbstractMOP, x )
             return _eval_at_indices_at_unscaled_site( mop, $(get_XXX_indices)(mop), x )
         end
-        function $(eval_XXXs_to_vec_at_unscaled_site)(mop, x)
+        function $(eval_XXXs_to_vec_at_unscaled_site)(mop :: AbstractMOP, x)
             return _flatten_mop_dict( _eval_XXXs_to_vec_at_unscaled_site(mop,x) )
         end
     end

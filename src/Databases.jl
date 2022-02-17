@@ -264,7 +264,7 @@ function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, scal :: AbstractVa
     if n_missing > 0
         ## evaluate everything in one go to exploit parallelism
         eval_sites = untransform.( [ get_site( db, id ) for id in missing_ids ], scal )
-        eval_values = eval_vec_mop_at_func_indices_at_unscaled_sites(mop, func_indices, eval_sites)
+        eval_values = _eval_to_vecs_at_indices_at_unscaled_sites(mop, func_indices, eval_sites)
     
         @assert length(eval_sites) == length(eval_values) == length(missing_ids) "Number of evaluation results does not match."
         for (i,id) in enumerate(missing_ids)

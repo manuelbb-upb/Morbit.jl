@@ -19,7 +19,7 @@
 # If they use the same stamp (default: `RFD.CFDStamp(1,3) :: CFDStamp{3,Float64}`), 
 # it should be the most efficient, because we get the gradients for free from computing the hessians.
 
-include("RecursiveFiniteDifferences.jl")
+include(joinpath(@__DIR__,"RecursiveFiniteDifferences.jl"))
 
 using .RecursiveFiniteDifferences
 const RFD = RecursiveFiniteDifferences
@@ -157,18 +157,17 @@ function _get_RFD_trees( x, fx, grad_stamp, hess_stamp = nothing, deg = 2)
 end
 
 
-function prepare_init_model(cfg :: TaylorConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, 
-	id :: AbstractIterate, sdb, ac :: AbstractConfig; 
-	kwargs...)
+function prepare_init_model(cfg :: TaylorConfig, func_indices,
+    mop, scal, id, sdb, ac; kwargs...)
     return prepare_update_model(nothing, TaylorIndexMeta(), cfg, func_indices, mop, scal, id, sdb, ac ; kwargs... )
 end
 
 # The actual database preparations are delegated to the `prepare_update_model` function.
 function prepare_update_model( 
-        mod :: Union{Nothing, TaylorModel}, meta :: TaylorIndexMeta, 
-		cfg :: TaylorConfig, func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, 
-		iter_data :: AbstractIterate, sdb, algo_config :: AbstractConfig; kwargs... )
+    mod :: Union{Nothing, TaylorModel}, meta :: TaylorIndexMeta, 
+    cfg :: TaylorConfig, func_indices, mop, scal, iter_data, sdb, algo_config; 
+    kwargs... 
+)
 
     db = get_sub_db( sdb, func_indices )
     x = get_x_scaled( iter_data )
@@ -223,8 +222,8 @@ end
 
 # If the meta data is set correctly, we only have to set the value vectors for the 
 # RFD trees and then ask for the right matrices:
-function init_model(meta :: TaylorIndexMeta, cfg :: TaylorConfig, func_indices :: FunctionIndexIterable,
-	mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, sdb, ac :: AbstractConfig; kwargs... )
+function init_model(meta :: TaylorIndexMeta, cfg :: TaylorConfig, func_indices,
+	mop, scal, iter_data, sdb, ac; kwargs... )
     
     return update_model( nothing, meta, cfg, func_indices, mop, scal, iter_data, sdb, ac; kwargs...)
 end
@@ -232,8 +231,8 @@ end
 # Note, that we only perform updates if the iterate has changed, `x != mod.x0`, because 
 # we don't change the differencing parameters.
 function update_model( mod::Union{Nothing,TaylorModel}, meta :: TaylorIndexMeta, cfg :: TaylorConfig,
-	func_indices :: FunctionIndexIterable, mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
-	sdb, ac :: AbstractConfig; 
+	func_indices, mop, scal, iter_data, 
+	sdb, ac; 
 	kwargs... )
     
     db = get_sub_db( sdb, func_indices )
@@ -304,21 +303,21 @@ struct TaylorCallbackMeta <: AbstractSurrogateMeta end
 
 # The initialization for the legacy config types is straightforward as they don't use 
 # the new 2-phase process:
-function prepare_init_model(cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterate, sdb, ac :: AbstractConfig; kwargs...)
+function prepare_init_model(cfg :: TaylorCallbackConfig, func_indices,
+    mop, scal, id, sdb, ac; kwargs...)
     return TaylorCallbackMeta()
 end
 
 # The model construction happens in the `update_model` method and makes use of the `get_gradient` and `get_hessian`
 # methods of the `AbstractVectorObjective`.
 
-function init_model(meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterate, sdb, ac :: AbstractConfig; kwargs...)
+function init_model(meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices,
+    mop, scal, id, sdb, ac; kwargs...)
     return update_model(nothing, meta, cfg, func_indices, mop, scal, id, sdb, ac; kwargs... )
 end
 
-function update_model( mod :: Union{Nothing,TaylorModel}, meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, id ::AbstractIterate, sdb, ac :: AbstractConfig; kwargs...)
+function update_model( mod :: Union{Nothing,TaylorModel}, meta :: TaylorCallbackMeta, cfg :: TaylorCallbackConfig, func_indices,
+    mop, scal, id, sdb, ac; kwargs...)
 
     x0 = get_x_scaled(id)
     x0_unscaled = get_x(id)
@@ -363,7 +362,7 @@ end
 # ```
 # is straightforward:
 "Evaluate (internal) output `ℓ` of TaylorModel `tm`, provided a difference vector `h = x - x0`."
-function _eval_models( tm :: TaylorModel, h :: Vec, ℓ )
+function _eval_models( tm :: TaylorModel, h :: Vec, ℓ :: Int )
     ret_val = tm.fx0[ℓ] + tm.g[ℓ]'h
     if !isnothing(tm.H)
         ret_val += .5 * h'tm.H[ℓ]*h 
@@ -374,7 +373,7 @@ end
 "Evaluate (internal) output `ℓ` of `tm` at scaled site `x̂`."
 function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
     h = x̂ .- tm.x0
-    return _eval_models( tm, h, ℓ)
+    return reduce( vcat, _eval_models( tm, h, l ) for l = ℓ )
  end
 
 # For the vector valued model, we iterate over all (internal) outputs:
@@ -394,9 +393,11 @@ function get_gradient( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec,
 end
 
 # And for the Jacobian, we again iterate:
-function get_jacobian( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec )
-    grad_list = [ get_gradient(tm, scal, x̂, ℓ) for ℓ=eachindex( tm.g ) ]
+function get_jacobian( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, rows = nothing )
+    indices = isnothing(rows) ? eachindex(tm.g) : rows
+    grad_list = [ get_gradient(tm, scal, x̂, ℓ) for ℓ = indices ]
     return transpose( hcat( grad_list... ) )
+    #scr # TODO pre-allocate matrix for speed
 end
 
 # ## [Summary & Quick Examples](@id taylor_summary)

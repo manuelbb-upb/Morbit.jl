@@ -76,6 +76,9 @@ function init_model(meta :: ExactMeta, cfg :: ExactConfig,
 end
 
 # We do not need the `improve_model` and `update_model` methods, so we keep the defaults.
+# We also make this information availabe by owerwriting:
+requires_update( cfg :: ExactConfig ) = false
+requires_improve( cfg :: ExactConfig ) = false
 
 # ## Evaluation
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."
