@@ -46,15 +46,15 @@ function grow_radius( ::Val{:steplength}, ac, Δ, steplength )
 	return min( get_delta_max(ac), ( _gamma_grow(ac) .+ steplength ./ Δ ) .* Δ )
 end 
 
-function do_radius_update(iter_data, _RADIUS_UPDATE, algo_config, steplength)
+function do_radius_update(iter_data, _radius_update, algo_config, steplength)
 	Δ = get_delta(iter_data)
-	if _RADIUS_UPDATE == LEAVE_UNCHANGED
+	if _radius_update == LEAVE_UNCHANGED
 		return Δ, Δ
-	elseif _RADIUS_UPDATE == GROW 
+	elseif _radius_update == GROW 
 		return grow_radius( algo_config, Δ, steplength ), Δ
-	elseif _RADIUS_UPDATE == SHRINK
+	elseif _radius_update == SHRINK
 		return shrink_radius( algo_config, Δ, steplength ), Δ
-	elseif _RADIUS_UPDATE == SHRINK_MUCH
+	elseif _radius_update == SHRINK_MUCH
 		return shrink_radius_much( algo_config, Δ, steplength ), Δ
 	end
 end
@@ -112,8 +112,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	# make problem static 
 	smop = MOPTyped(mop)
 
-	# scale bound vars to unit hypercube
-	# ensure at least single-precision
+	# scale bound vars and ensure at least single-precision
 	x = ensure_precision( x0 )
 	
 	# initalize first objective vector, constraint vectors etc.
@@ -220,52 +219,66 @@ function restoration(iter_data :: AbstractIterate, data_base,
 	return r_scaled, minθ, x_r, fx_r, c_e_r, c_i_r, l_e_r, l_i_r, x_indices_r
 end
 
-function find_normal_step()
-	LAST_ITER_WAS_RESTORATION = (last_it_stat == RESTORATION)
-	if LAST_ITER_WAS_RESTORATION
+function find_normal_step(iter_data :: I, data_base :: SuperDB, 
+	mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
+	filter :: AbstractFilter, scal :: AbstractVarScaler;
+	iter_counter, last_it_stat :: ITER_TYPE
+) :: Tuple{Symbol, I} where I<:AbstractIterate
+	
+	x = get_x(iter_data)
+	_SWITCH_last_iter_restoration = (last_it_stat == RESTORATION)
+	
+	if _SWITCH_last_iter_restoration
+		# if we performed a restoration step last, 
+		# we allow for the radius to be increased, if necessary
 		n, _Δ = compute_normal_step( mop, scal, iter_data, data_base, sc, algo_config; variable_radius = true )
 	else
 		n, _Δ = compute_normal_step( mop, scal, iter_data, data_base, sc, algo_config; variable_radius = false )
 	end
 	if _Δ > get_delta( iter_data )
-		# we increase the trust region radius in order to have 
-		# a compatible normal step
+		# if the radius has to be increased for a compatible normal step,
 		# the surrogates will no longer be considered fully linear
 		set_delta!( iter_data, _Δ )
 		set_fully_linear!( sc, false )
 	end
-	
-	_isnan_n = any( isnan.(n) )
 
-	EXIT_FOR_NEXT_ITERATION = false	# this is used to avoid nonlinear restoration for linearly constrained problems
-	PERFORM_RESTORATION = false 
-	EXIT_WITH_INFEASIBLE = false
+	# we now have to check if `n` is a *compatible* normal step
+	# if that is the case, we can proceed in `iterate!`
+	# if not, we have to perform an restoration iteration 
+	#   * for nonlinearly constrained problems, this means calling `restoration`
+	#     and we provide `n` as an intial guess for the restoration step `r`
+	#   * for completely linearly constrained problems, `n` itself can 
+	#     be used for restoration
 	
-	r_guess = zeros_like(x)	 # initial guess for restoration step
+	_SWITCH_perform_linear_restoration = false # this is used to avoid nonlinear restoration for linearly constrained problems
+	_SWITCH_perform_restoration = false 
+	_SWITCH_exit_with_infeasible = false 
+	
+	r_guess = zeros_like( x )	 # initial guess for restoration step
 
-	if _isnan_n 
-		if LAST_ITER_WAS_RESTORATION
-			EXIT_WITH_INFEASIBLE = true 
+	_not_isnan_n = any(isnan.(n))
+	if !is_compatible(n, get_delta(iter_data), algo_config )
+		if _SWITCH_last_iter_restoration
+			# last iteration already tried to restore feasibility 
+			# but we still cannot find a suitable normal step ⇒ exit 
+			_SWITCH_exit_with_infeasible = true 
 		else
-			PERFORM_RESTORATION = true
-		end
-	else
-		# `n` is at least a valid vector
-		if !is_compatible( n, get_delta( iter_data ), algo_config )
-			if LAST_ITER_WAS_RESTORATION
-				EXIT_WITH_INFEASIBLE = true
-			elseif num_nl_constraints( mop ) == 0
-				# if there are only linear constraints, we use 
-				# `n` as the restoration step `r` and keep the radius
-				EXIT_FOR_NEXT_ITERATION = true
-			else 
-				PERFORM_RESTORATION = true 
-				r_guess = n
+			if num_nl_constraints( mop ) == 0 
+				if _not_isnan_n
+					# we at least found a normal step, and can use it 
+					# for restoration
+					_SWITCH_perform_linear_restoration = true
+				else 
+					_SWITCH_exit_with_infeasible = true
+				end
+			else
+				_SWITCH_perform_restoration = true
+				if _not_isnan_n r_guess = n end 
 			end
 		end
 	end
-	
-	if PERFORM_RESTORATION
+
+	if _SWITCH_perform_restoration
 		@logmsg loglevel2 "Performing Restoration for feasibility."
 		add_entry!( filter, x, (θ_k, compute_objective_val(filter,fx)) )
 
@@ -276,64 +289,133 @@ function find_normal_step()
 		)
 		if is_acceptable( (θ_r, fx_r), filter )
 			@logmsg loglevel2 "Found an acceptable restoration step. Going to next iteration."
-			iter_data_r = init_iterate( IterData, untransform(x_r, scal), x_r,
+			iter_data_r = init_iterate( I, untransform(x_r, scal), x_r,
 					fx_r, l_e_r, l_i_r, c_e_r, c_i_r, get_delta( iter_data ), x_indices_r )
 
-			stamp_content = get_saveable( SAVEABLE_TYPE, iter_data_r; 
-				rho = -Inf, omega = -Inf, steplength = -Inf, iter_counter, it_stat = RESTORATION
-			)
-			stamp!( data_base, stamp_content )
-			# For debugging, uncomment the below to lines to see what 
-			# happens if no good restoration step is found.
-			# iter_data_r = iter_data 
-			# θ_r = θ_k
-
-			# If θ_r ≈ 0, the next iteration does not need a normal step
-			# n = 0 is automatically compatible, we can simply jump to the next 
-			# iteration.
-			# 
-			# For θ_r > 0, we normally should check, if a 
-			# compatible normal step can be found.
-			# We leave this to the next iteration but set the iteration 
-			# status so that we break if no normal step is found then:
-			return CONTINUE, RESTORATION, scal, iter_data_r 
+			return :restoration, iter_data_r 
 		end
 		
-		EXIT_WITH_INFEASIBLE = true
+		# no acceptable restoration step could be found ⇒ exit
+		_SWITCH_exit_with_infeasible = true
 	end
 
-	if EXIT_WITH_INFEASIBLE 
+	if _SWITCH_exit_with_infeasible 
 		@logmsg loglevel1 "Exiting because we could not find a suitable feasible iterate."
-		return INFEASIBLE, EARLY_EXIT, scal, iter_data 
+		return :exit, iter_data
 	end
 
-	# add normal step and untransform 
+	# if we are here, we have a normal step and can add it to `x`
 	x_n_scaled = get_x_scaled( iter_data ) .+ n
 	x_n_unscaled = untransform( x_n_scaled, scal )
 
 	@logmsg loglevel2 "x_n = $(_prettify(x_n_unscaled))"
 	
 	# update all values and constraint_violations
-	mop_res_normal = eval_dict_mop_at_unscaled_site(mop, x_n_unscaled )
-	fx_n, c_e_n, c_i_n = eval_result_to_all_vectors( mop_res_normal, mop )
+	tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( mop, x_n_unscaled )
+	fx_n, c_e_n, c_i_n = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
 	l_e_n, l_i_n = eval_linear_constraints_at_unscaled_site( x_n_unscaled, mop )
 	
-	x_indices_n = put_eval_result_into_db!( data_base, mop_res_normal, x_n_scaled )
+	x_indices_n = put_eval_result_into_db!( data_base, tmp_dict, x_n_scaled )
 
-	iter_data_n = init_iterate( IterData, x_n_unscaled, x_n_scaled,
+	iter_data_n = init_iterate( I, x_n_unscaled, x_n_scaled,
 			fx_n, l_e_n, l_i_n, c_e_n, c_i_n, get_delta( iter_data ), x_indices_n )
 
-	if EXIT_FOR_NEXT_ITERATION
-		# we treat `n` as an restoration step (only for linearly constrained problems)
-		stamp_content = get_saveable( SAVEABLE_TYPE, iter_data_n; 
-			rho = -Inf, omega = -Inf, steplength = -Inf, iter_counter, it_stat = RESTORATION
-		)
-		stamp!( data_base, stamp_content )
-		return CONTINUE, RESTORATION, scal, iter_data_n
+	if _SWITCH_perform_linear_restoration
+		return :restoration, iter_data_n
 	end
+	
+	return :continue_iteration, iter_data_n
+end
 
-	θ_n = compute_constraint_val( filter, l_e_n, l_i_n, c_e_n, c_i_n )
+function criticality_routine(
+	iter_data :: I, data_base :: SuperDB, 
+	mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
+	filter :: AbstractFilter, scal :: AbstractVarScaler;
+	iter_counter, last_it_stat :: ITER_TYPE, _fully_linear_sc, ω
+) where I<:AbstractIterate
 
+	μ = _mu( algo_config )
+	γ_c = _gamma_crit( algo_config )
+	β = max( _beta( algo_config ), μ )
+	
+	@logmsg loglevel1 "Entered Criticallity Test."
+	_SWITCH_do_loops = true
+	if !_fully_linear_sc
+		@logmsg loglevel1 "Ensuring that all models are fully linear."
+
+		update_surrogates!( sc, mop, scal, iter_data, data_base, algo_config; 
+			ensure_fully_linear = true )
+		
+		# are we still critical?
+		ω, ω_data = get_criticality(mop, scal, iter_data, iter_data, data_base, sc, algo_config)
+		
+		_SWITCH_do_loops = if !fully_linear(sc)
+			@logmsg loglevel2 "Could not make all models fully linear. Trying one last descent step."
+			false
+		else 
+			all( get_delta( iter_data ) .> μ * ω)
+		end
+	end
+	
+	if _SWITCH_do_loops
+		_SWITCH_exit_critical = false	
+		num_critical_loops = 0
+
+		Δ = get_delta( iter_data )
+		Δ_0 = Δ
+
+		while all(Δ .> μ * ω )
+			@logmsg loglevel2 "Criticality loop $(num_critical_loops + 1)." 
+			
+			# check criticality loop stopping criteria
+			if num_critical_loops >= max_critical_loops(algo_config)
+				@logmsg loglevel1 "Maximum number ($(max_critical_loops(algo_config))) of critical loops reached. Exiting..."
+				_SWITCH_exit_critical = true 
+				break
+			end
+			if !_budget_okay(mop, algo_config)
+				@logmsg loglevel1 "Computational budget exhausted. Exiting … "
+				_SWITCH_exit_critical = true # returning with CRITICAL here only because I'm lazy 
+				break
+			end
+			
+			# shrink radius
+			Δ = γ_c .* Δ				
+			
+			# make models fully linear on smaller trust region
+			update_surrogates!( sc, mop, scal, iter_data, data_base, algo_config; ensure_fully_linear = true )
+
+			# (re)calculate criticality
+			ω, ω_data = get_criticality( mop, scal, iter_data, iter_data, data_base, sc, algo_config )
+			num_critical_loops += 1
+
+			if Δ_abs_test( Δ, algo_config ) || 
+				ω_Δ_rel_test(ω, Δ, algo_config) || ω_abs_test( ω, algo_config )
+				_SWITCH_exit_critical = true
+				break
+			end
+			if !fully_linear(sc)
+				@logmsg loglevel2 "Could not make all models fully linear."
+				_SWITCH_exit_critical = true 
+				break
+			end
+		end#while
+
+		# we have fully linear surrogates here AND Δ <= μ * ω so we would not 
+		# enter the criticality test again if we were to restart the iteration
+		
+		@logmsg loglevel1 """
+			Exiting after $(num_critical_loops) loops with 
+			ω = $(ω) and Δ = $(Δ))."""
+
+		if _SWITCH_exit_critical
+			return :exit, iter_data, ω, ω_data
+		end
+
+		# if we are here, we deem the point not critical (enough)
+		set_delta!(iter_data, min( Δ_0, max( β * ω, Δ) ) )	
+		return :continue, iter_data, ω, ω_data
+	end
 end
 
 function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB, 
@@ -369,7 +451,6 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	μ = _mu( algo_config )
 	β = max( _beta( algo_config ), μ )
 	ε_c = _eps_crit( algo_config )
-	γ_c = _gamma_crit( algo_config )
 
 	SAVEABLE_TYPE = get_saveable_type( data_base )
 
@@ -413,22 +494,30 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
     end
 
 	# compute constraint violation
-	l_e = get_eq_const( iter_data )
-	l_i = get_ineq_const( iter_data )
-	c_e = get_nl_eq_const( iter_data )
-	c_i = get_nl_ineq_const( iter_data )
-
-	θ_k = compute_constraint_val( filter, l_e, l_i, c_e, c_i )
+	θ_k = compute_constraint_val( filter, iter_data )
 	@logmsg loglevel1 "Constraint Violation is $(θ_k)"
 	
 	if !( constraint_violation_is_zero(θ_k) )
-		find_normal_step()
+		status, iter_data_n = find_normal_step(
+			iter_data, data_base, mop, sc, algo_config, filter, scal; 
+			iter_counter, last_it_stat 
+		)
+		if status == :exit
+			return INFEASIBLE, EARLY_EXIT, scal, iter_data
+		elseif status == :restoration
+			stamp_content = get_saveable( SAVEABLE_TYPE, iter_data_n; 
+				rho = -Inf, omega = -Inf, steplength = -Inf, 
+				iter_counter, it_stat = RESTORATION
+			)
+			stamp!( data_base, stamp_content )
+			return CONTINUE, RESTORATION, scal, iter_data_n
+		end
+
+		θ_n = compute_constraint_val( filter,iter_data_n )
 	else
 		# in case, we did not need a normal step (n == 0)
 		# keep the values as they are 
 		θ_n = θ_k
-		
-		# these values are needed for tangent step calculation:
 		iter_data_n = iter_data
 	end
 		
@@ -451,86 +540,19 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	==============================#
 	_fully_linear_sc = fully_linear(sc)
 	if _θ_k_zero && ω <= ε_c && (!_fully_linear_sc|| all(get_delta( iter_data ) .> μ * ω))
-		@logmsg loglevel1 "Entered Criticallity Test."
-		# if we are here, then θ_k = θ_n = 0, n = 0, and x = x_n
-		
-		DO_CRIT_LOOPS = true
-        if !_fully_linear_sc
-            @logmsg loglevel1 "Ensuring that all models are fully linear."
+		# here it holds that iter_data == iter_data_n
+		status, iter_data, ω, ω_data = criticality_routine(
+			iter_data, data_base, mop, sc, algo_config, filter, scal;
+			iter_counter, last_it_stat, _fully_linear_sc, ω)
 
-            update_surrogates!( sc, mop, scal, iter_data, data_base, algo_config; 
-				ensure_fully_linear = true )
-            
-			# are we still critical?
-            ω, ω_data = get_criticality(mop, scal, iter_data, iter_data_n, data_base, sc, algo_config)
-            
-			DO_CRIT_LOOPS = if !fully_linear(sc)
-				@logmsg loglevel2 "Could not make all models fully linear. Trying one last descent step."
-				false
-			else 
-				all( get_delta( iter_data ) .> μ * ω)
-			end
-		end
-		
-		if DO_CRIT_LOOPS			
-			RETURN_CRITICAL = false
-			num_critical_loops = 0
+		status == :exit && return CRITICAL, EARLY_EXIT, scal, iter_data
+		iter_data_n = iter_data # just to make sure, that Δ is the same etc. (should not matter but for bugs)
+	end
 
-			Δ = get_delta( iter_data )
-			Δ_0 = Δ
-
-			while all(Δ .> μ * ω )
-				@logmsg loglevel2 "Criticality loop $(num_critical_loops + 1)." 
-				
-				# check criticality loop stopping criteria
-				if num_critical_loops >= max_critical_loops(algo_config)
-					@logmsg loglevel1 "Maximum number ($(max_critical_loops(algo_config))) of critical loops reached. Exiting..."
-					return CRITICAL, EARLY_EXIT, scal, iter_data
-				end
-				if !_budget_okay(mop, algo_config)
-					@logmsg loglevel1 "Computational budget exhausted. Exiting…"
-					return BUDGET_EXHAUSTED, EARLY_EXIT, scal, iter_data
-				end
-				
-				# shrink radius
-				Δ = γ_c .* Δ				
-				
-				# make models fully linear on smaller trust region
-				update_surrogates!( sc, mop, scal, iter_data, data_base, algo_config; ensure_fully_linear = true )
-
-				# (re)calculate criticality
-				ω, ω_data = get_criticality( mop, scal, iter_data, iter_data_n, data_base, sc, algo_config )
-				num_critical_loops += 1
-
-				if Δ_abs_test( Δ, algo_config ) || 
-					ω_Δ_rel_test(ω, Δ, algo_config) || ω_abs_test( ω, algo_config )
-					RETURN_CRITICAL = true
-					break
-				end
-				if !fully_linear(sc)
-					@logmsg loglevel2 "Could not make all models fully linear."
-					RETURN_CRITICAL = true 
-					break
-				end
-			end#while
-
-			# we have fully linear surrogates here AND Δ <= μ * ω so we would not 
-			# enter the criticality test again if we were to restart the iteration
-			
-			@logmsg loglevel1 """
-				Exiting after $(num_critical_loops) loops with 
-				ω = $(ω) and Δ = $(Δ))."""
-
-			if RETURN_CRITICAL
-				return CRITICAL, EARLY_EXIT, scal, iter_data
-			end
-
-			# if we are here, we deem the point not critical (enough)
-			set_delta!(iter_data, min( Δ_0, max( β * ω, Δ) ) )	
-		end#if DO_CRIT_LOOPS
-	end#if (enter criticality test)
-
-	# Calculation of trial point and evaluation of Objective and Surrogates:
+	#==============================
+	Trial Point 
+	==============================#
+	# Calculation of trial point …
 	ω, x_trial_scaled, mx_trial, _ = compute_descent_step(
 		mop, scal, iter_data, iter_data_n, data_base, sc, algo_config, ω, ω_data 
 	)
@@ -538,17 +560,19 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	x_scaled = get_x_scaled( iter_data )
 	x_trial_unscaled = untransform( x_trial_scaled, scal )
 
+	# … and evaluation of Objective and Surrogates:
 	tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( mop, x_trial_unscaled )
+	fx_trial, c_e_trial, c_i_trial = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
+	l_e_trial, l_i_trial = eval_linear_constraints_at_scaled_site( x_trial_scaled, mop, scal )
+	# (put new values in data base)
+	new_x_indices = put_eval_result_into_db!( data_base, tmp_dict, x_trial_scaled )
+	
 	mx = eval_container_objectives_at_scaled_site(sc, scal, x_scaled )
 	mx_trial = eval_container_objectives_at_scaled_site(sc, scal, x_trial_scaled)
-
-	fx_trial, c_e_trial, c_i_trial = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
-
-	l_e_trial, l_i_trial = eval_linear_constraints_at_scaled_site( x_trial_scaled, mop, scal )
-
-	# put new values in data base 
-	new_x_indices = put_eval_result_into_db!( data_base, tmp_dict, x_trial_scaled )
-
+	
+	θ_trial = compute_constraint_val( filter, l_e_trial, l_i_trial, c_e_trial, c_i_trial )
+	fx_trial_filter_val = compute_objective_val(filter,fx_trial)
+	
 	#steplength = norm(untransform( x_scaled .- x_trial_scaled, scal ), Inf ) 
 	steplength = norm( x_scaled .- x_trial_scaled, Inf ) 	# TODO transformed steplength????
 	@logmsg loglevel2 """\n
@@ -562,11 +586,9 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	$(strict_acceptance_test(algo_config) ? "All" : "One") of the components must decrease."""
 
 	#========================
-	Trust region updates
+	Acceptance Tests
 	========================#	
-	θ_trial = compute_constraint_val( filter, l_e_trial, l_i_trial, c_e_trial, c_i_trial )
-	fx_trial_filter_val = compute_objective_val(filter,fx_trial)
-	IS_ACCEPTABLE_FOR_FILTER = is_acceptable(
+	_SWITCH_is_acceptable_for_filter = is_acceptable(
 		(θ_trial, fx_trial_filter_val), 
 		filter, 
 		(θ_k, compute_objective_val(filter,fx))
@@ -574,7 +596,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 
 	# we only need to compute ρ and ω(x) - ω(x₊) ≥ κ_ψ θ^ψ IF 
 	# the trial point is acceptable for F ∪ {x}
-	if IS_ACCEPTABLE_FOR_FILTER
+	if _SWITCH_is_acceptable_for_filter
 		if strict_acceptance_test( algo_config )
 			model_denom = (mx .- mx_trial)
 			_ρ = minimum( (fx .- fx_trial) ./ model_denom )
@@ -582,76 +604,72 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 			model_denom = (maximum(mx) - maximum(mx_trial))
 			_ρ = (maximum(fx) - maximum( fx_trial ))/ model_denom
 		end
-		MODEL_DENOM_TEST = all( 
+		_SWITCH_good_decrease = all( 
 			model_denom .>= filter_kappa_psi(algo_config) * θ_k^filter_psi(algo_config) 
 		)
 	else
 		_ρ = NaN16
-		MODEL_DENOM_TEST = false
+		_SWITCH_good_decrease = false
 	end
 	ρ = isnan(_ρ) ? -Inf : _ρ
 	
-	# we set the following variables here 
-	# `IT_STAT` <--> iteration classification
-	# `_RADIUS_UPDATE` <--> how to modify the trust region radius
-	# `ACCEPT_TRIAL_POINT`
-	# (theoretically it would suffice to set `IT_STAT`, the rest is redundant)
-	# (but written out it is more easy to follow what happens)
-	_RADIUS_UPDATE = LEAVE_UNCHANGED
-	ACCEPT_TRIAL_POINT = true
-	IT_STAT = ACCEPTABLE
+	_iteration_classification = ACCEPTABLE
+	_radius_update = LEAVE_UNCHANGED
+	_SWITCH_accept_trial_point = true
 		
-	if IS_ACCEPTABLE_FOR_FILTER
-		if MODEL_DENOM_TEST
+	if _SWITCH_is_acceptable_for_filter
+		if _SWITCH_good_decrease
+			# the trial point is both acceptable for the filter
+			# and the model decrease is large compared with the constraint violation
 			# From here we can follow the logic for the UNCONSTRAINED TRM algorithm
 			if ρ >= ν_success
-				ACCEPT_TRIAL_POINT = true 
-				IT_STAT = SUCCESSFULL
+				_SWITCH_accept_trial_point = true 
+				_iteration_classification = SUCCESSFULL
 				if get_delta(iter_data) < β * ω	
-					_RADIUS_UPDATE = GROW
+					_radius_update = GROW
 				end
 			else # ρ < ν_success
 				if fully_linear( sc )
 					if ρ >= ν_accept
-						ACCEPT_TRIAL_POINT = true
-						IT_STAT = ACCEPTABLE
-						_RADIUS_UPDATE = SHRINK
+						_SWITCH_accept_trial_point = true
+						_iteration_classification = ACCEPTABLE
+						_radius_update = SHRINK
 					else
-						ACCEPT_TRIAL_POINT = false 
-						IT_STAT = INACCEPTABLE
-						_RADIUS_UPDATE = SHRINK_MUCH
+						_SWITCH_accept_trial_point = false 
+						_iteration_classification = INACCEPTABLE
+						_radius_update = SHRINK_MUCH
 					end
 				else
 					# ρ < ν_success AND models not fully linear
-					ACCEPT_TRIAL_POINT = false
-					IT_STAT = MODELIMPROVING
-					_RADIUS_UPDATE = LEAVE_UNCHANGED
+					_SWITCH_accept_trial_point = false
+					_iteration_classification = MODELIMPROVING
+					_radius_update = LEAVE_UNCHANGED
 				end
 			end
 		else
 			# if the model decrease is small compared to constraint violation 
-			ACCEPT_TRIAL_POINT = true
-			IT_STAT = FILTER_ADD
-			_RADIUS_UPDATE = ρ >= ν_success ? GROW : LEAVE_UNCHANGED
+			_SWITCH_accept_trial_point = true
+			_iteration_classification = FILTER_ADD
+			_radius_update = ρ >= ν_success ? GROW : LEAVE_UNCHANGED
 		end
 	else
 		# trial point not acceptable for filter
-		ACCEPT_TRIAL_POINT = false
-		IT_STAT = FILTER_FAIL
-		_RADIUS_UPDATE = SHRINK_MUCH
+		_SWITCH_accept_trial_point = false
+		_iteration_classification = FILTER_FAIL
+		_radius_update = SHRINK_MUCH
 	end
 
-	#=
-	Perform Updates 
-	=#
+	#========================
+	Updates
+	========================#	
 
-	if IT_STAT == FILTER_ADD
-		add_entry!( filter, x_trial_unscaled, (θ_trial, fx_trial_filter_val))
+	if _iteration_classification == FILTER_ADD
+		add_entry!( filter, x_trial_unscaled, (θ_trial, fx_trial_filter_val) )
 	end
 
-	Δ, Δ_old = do_radius_update(iter_data, _RADIUS_UPDATE, algo_config, steplength)
+	Δ, Δ_old = do_radius_update(iter_data, _radius_update, algo_config, steplength)
 
-	next_iterate = if ACCEPT_TRIAL_POINT
+	next_iterate = if _SWITCH_accept_trial_point
 		init_iterate( IterData, 
 			x_trial_unscaled, x_trial_scaled, fx_trial, l_e_trial, l_i_trial,
 			c_e_trial, c_i_trial, Δ, new_x_indices )
@@ -663,15 +681,15 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	@logmsg loglevel1 """\n
 		ρ = $(ρ)
 		θ_+ = $(θ_trial)
-		The trial point was $(ACCEPT_TRIAL_POINT ? "" : "not ")accepted.
-		The iteration is $(IT_STAT).
+		The trial point was $(_SWITCH_accept_trial_point ? "" : "not ")accepted.
+		The iteration is $(_iteration_classification).
 		Moreover, the radius was updated as below:
 		old radius : $(Δ_old)
 		new radius : $(Δ)) ($(round(Δ/Δ_old * 100; digits=1)) %)"""
 
 	stamp_content = get_saveable( SAVEABLE_TYPE, next_iterate; 
 		rho = Float64(ρ), omega = Float64(ω), 
-		steplength = Float64(steplength), iter_counter, it_stat = IT_STAT 
+		steplength = Float64(steplength), iter_counter, it_stat = _iteration_classification 
 	)
 	stamp!( data_base, stamp_content )
 
@@ -680,16 +698,14 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 			f_tol_rel_test( fx, fx_trial, algo_config  ) ||
 			f_tol_abs_test( fx, fx_trial, algo_config ) 
 		)
-		return TOLERANCE, IT_STAT, scal, next_iterate
+		return TOLERANCE, _iteration_classification, scal, next_iterate
 	end
 
-	return CONTINUE, IT_STAT, scal, next_iterate
+	return CONTINUE, _iteration_classification, scal, next_iterate
 
 	end# with_logger
 end
-#=
 
-############################################
 function optimize( mop :: AbstractMOP, x0 :: Vec;
     algo_config :: Union{AbstractConfig, Nothing} = nothing, 
     populated_db :: Union{SuperDB, Nothing} = nothing,
@@ -731,5 +747,4 @@ function optimize( mop :: AbstractMOP, x0 :: Vec;
 		return ret_x, ret_fx, ret_code, super_data_base, iter_data, filter
 	end
 end# function optimize
-=#
 

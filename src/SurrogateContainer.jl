@@ -100,6 +100,7 @@ get_model( gs :: GroupedSurrogates ) = gs.model
 function get_output_indices( gs :: GroupedSurrogates, ind :: NLIndex ) 
 	return gs.index_outputs_dict[ind]
 end
+fully_linear(gs :: GroupedSurrogates ) = fully_linear(get_model(gs))
 
 struct SurrogateContainer{
 	T,D,
@@ -182,14 +183,14 @@ get_indices( sc :: SurrogateContainer ) = Iterators.flatten( get_indices(gs) for
 get_objective_indices( sc :: SurrogateContainer ) = keys( sc.objective_functions )
 get_nl_eq_constraint_indices( sc :: SurrogateContainer ) = keys( sc.nl_eq_constraints )
 get_nl_ineq_constraint_indices( sc :: SurrogateContainer ) = keys( sc.nl_ineq_constraints )
-_get_all_indices(sc) = [
-	get_indices(sc); 
-	get_objective_indices(sc);
-	get_nl_eq_constraint_indices(sc)
+_get_all_indices(sc) = collect( Iterators.flatten([
+	get_indices(sc),
+	get_objective_indices(sc),
+	get_nl_eq_constraint_indices(sc),
 	get_nl_ineq_constraint_indices(sc)
-]
+]))
 
-get_surrogates( sc :: SurrogateContainer, ind :: NLIndex) = sc.surrogates[ind]
+get_surrogates( sc :: SurrogateContainer, ind :: NLIndex) = sc.surrogates[ sc.surrogates_grouping_dict[ind] ]
 get_surrogates( sc :: SurrogateContainer, ind :: ObjectiveIndex) = sc.objective_functions[ind]
 function get_surrogates( sc :: SurrogateContainer, ind :: ConstraintIndex) 
 	if ind.type == :nl_eq 
@@ -223,13 +224,13 @@ function eval_container_jacobian_at_func_index_at_scaled_site(
 	return get_jacobian( m, scal, x_scaled )
 end
 
-for mod_type in ["objective", "nl_eq_constraint", "nl_ineq_constraints"]
+for mod_type in ["objective", "nl_eq_constraint", "nl_ineq_constraint"]
 	# names of functions to be generated
 	get_XXX_indices = Symbol("get_", mod_type, "_indices")
 	fully_linear_XXX = Symbol( "fully_linear_", mod_type, "s" )
 	get_XXX_optim_handles = Symbol( "get_", mod_type, "s_optim_handles" )
 	eval_container_XXX_at_scaled_site = Symbol( "eval_container_", mod_type, "s_at_scaled_site" )
-	eval_container_jacobian_XXX_at_scaled_site = Symbol( "eval_container_jacobian_", mod_type, "s_at_scaled_site" )
+	eval_container_XXX_jacobian_at_scaled_site = Symbol( "eval_container_", mod_type, "s_jacobian_at_scaled_site" )
 
 	@eval begin 
 		function $(fully_linear_XXX)( sc :: SurrogateContainer )
@@ -246,13 +247,15 @@ for mod_type in ["objective", "nl_eq_constraint", "nl_ineq_constraints"]
 			)		
 		end
 
-		function $(eval_container_jacobian_XXX_at_scaled_site)( sc :: SurrogateContainer, scal :: AbstractVarScaler, x_scaled)
+		function $(eval_container_XXX_jacobian_at_scaled_site)( sc :: SurrogateContainer, scal :: AbstractVarScaler, x_scaled)
 			indices = $(get_XXX_indices)( sc )
+			isempty(indices) && return Matrix{MIN_PRECISION}(undef, 0, length(x_scaled))
 			return reduce( vcat, [ eval_container_jacobian_at_func_index_at_scaled_site( sc, scal, x_scaled, ind) for ind = indices ] )
 		end
 
 		function $(eval_container_XXX_at_scaled_site)( sc :: SurrogateContainer, scal :: AbstractVarScaler, x_scaled)
 			indices = $(get_XXX_indices)( sc )
+			isempty(indices) && return MIN_PRECISION[]
 			return reduce( vcat, [ eval_vec_container_at_func_index_at_scaled_site( sc, scal, x_scaled, ind) for ind = indices ] )
 		end
 	end#eval
@@ -285,46 +288,55 @@ function init_surrogates( mop :: AbstractMOP, scal :: AbstractVarScaler, id :: A
     return init_surrogate_container(gs_array, groupings_dict, mop, scal)
 end
 
-function update_surrogates!( 
-	sc :: SurrogateContainer, 
-	mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
-	sdb, ac :: AbstractConfig;
-	ensure_fully_linear = true 
-)
-    @logmsg loglevel2 "Updating surrogate models."
-    
-	# round I of model building: collecting the meta data
-    meta_array = empty( [ get_meta(gs) for gs = sc.surrogates ] )
-    for gs = sc.surrogates
-		indices = get_indices(gs)
-		mod = get_model(gs)
-		meta = get_meta(gs)
-		cfg = model_cfg(mod)
-		new_meta = prepare_update_model( 
-			mod, meta, cfg, indices, mop, scal, iter_data, sdb, ac; ensure_fully_linear
-		)
-        push!(meta_array, new_meta)
-    end
-    
-    @logmsg loglevel2 "Evaluation of unevaluated results."
-    eval_missing!(sdb, mop, scal)
-    
-	# round II: from meta data and evaluations, update the surrogates
-    for (i, gs) in enumerate(sc.surrogates)
-		mod = get_model(gs)
-		cfg = get_cfg(gs)
-        _meta = meta_array[i]
-		indices = get_indices(gs)
-        model, meta = update_model( 
-			mod, _meta, cfg, indices, mop, scal, iter_data, sdb, ac 
-		)
-        new_gs = init_grouped_surrogates( 
-			cfg, model, meta, indices; 
-			index_outputs_dict = gs.index_outputs_dict 
-		)
-		# replace groupd surrogates
-        sc.surrogates[i] = new_gs
-    end
+#defined below:
+function update_surrogates!(sc, mop, scal, id, sdb, ac; kwargs...) end
+function improve_surrogates!(sc, mop, scal, id, sdb, ac; kwargs...) end 
+for method_name in [:update, :improve]
+	_method = Symbol("$(method_name)_surrogates!")
+	_mod_prepare_method = Symbol("prepare_$(method_name)_model")
+	_mod_method = Symbol("$(method_name)_model")
+	
+	@eval function $(_method)( 
+		sc :: SurrogateContainer, 
+		mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
+		sdb, ac :: AbstractConfig;
+		ensure_fully_linear = true 
+	)
+		@logmsg loglevel2 "Updating surrogate models."
+		
+		# round I of model building: collecting the meta data
+		meta_array = empty( [ get_meta(gs) for gs = sc.surrogates ] )
+		for gs = sc.surrogates
+			indices = get_indices(gs)
+			mod = get_model(gs)
+			meta = get_meta(gs)
+			cfg = get_cfg(gs)
+			new_meta = $(_mod_prepare_method)( 
+				mod, meta, cfg, indices, mop, scal, iter_data, sdb, ac; ensure_fully_linear
+			)
+			push!(meta_array, new_meta)
+		end
+		
+		@logmsg loglevel2 "Evaluation of unevaluated results."
+		eval_missing!(sdb, mop, scal)
+		
+		# round II: from meta data and evaluations, update the surrogates
+		for (i, gs) in enumerate(sc.surrogates)
+			mod = get_model(gs)
+			cfg = get_cfg(gs)
+			_meta = meta_array[i]
+			indices = get_indices(gs)
+			model, meta = $(_mod_method)( 
+				mod, _meta, cfg, indices, mop, scal, iter_data, sdb, ac 
+			)
+			new_gs = init_grouped_surrogates( 
+				cfg, model, meta, indices; 
+				index_outputs_dict = gs.index_outputs_dict 
+			)
+			# replace groupd surrogates
+			sc.surrogates[i] = new_gs
+		end
 
-    return nothing
+		return nothing
+	end
 end

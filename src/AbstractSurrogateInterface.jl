@@ -163,7 +163,7 @@ function eval_models( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled :: 
 	eval_models( m.model_ref[], scal, x_scaled, m.output_indices )
 end
 function eval_models( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec )
-	return m.generated_function(x_scaled)
+	return Base.invokelatest(m.generated_function, x_scaled)
 end
 
 function get_gradient( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec, ℓ = 1 )
@@ -172,7 +172,6 @@ end
 function get_gradient( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ = 1 )
 	return Zygote.gradient( ξ -> m.generated_function(ξ)[m.output_indices[ℓ]],x_scaled)[1]
 end
-
 
 function get_jacobian( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec )
 	get_jacobian( m.model_ref[], scal, x_scaled, m.output_indices)
