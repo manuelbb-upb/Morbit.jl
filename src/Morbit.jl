@@ -55,6 +55,7 @@ include("MOP.jl")
 include("SurrogateContainer.jl")
 include(joinpath(@__DIR__, "models", "ExactModel.jl"))
 include(joinpath(@__DIR__, "models", "TaylorModel.jl"))
+include(joinpath(@__DIR__, "models", "RbfModel.jl"))
 
 include("VarScaler.jl")
 include("ConfigImplementations.jl")
@@ -66,27 +67,12 @@ include("FilterImplementation.jl")
 include("descent.jl")
 
 include("algorithm.jl")
-#=
-include("TaylorModel.jl")
-include("LagrangeModel.jl")
 
-include("ConfigImplementations.jl")
-
-
-# utilities
-include("convenience_functions.jl")
-include("descent.jl")
-
-include("algorithm.jl")
-
-export AlgoConfig #, DefaultConfig
-export MOP, add_lower_bound!, add_upper_bound!, del_lower_bound!, del_upper_bound!, add_objective!
-export optimize
-=#
 export AlgorithmConfig, AlgoConfig 
 export MOP, add_lower_bound!, add_upper_bound!, del_lower_bound!, del_upper_bound!, add_objective!
 export ExactConfig
-export TaylorConfig
-export initialize_data
+export TaylorConfig, TaylorCallbackConfig
+export RbfConfig
+export optimize
 export AutoDiffWrapper, FiniteDiffWrapper
 end#module

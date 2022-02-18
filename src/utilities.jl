@@ -284,29 +284,6 @@ function _rand_box_point(lb, ub, type :: Type{<:Real} = MIN_PRECISION)
     return lb .+ (ub .- lb) .* rand(type, length(lb))
 end 
 
-function get_return_values(iter_data)
-    ret_x = get_x(iter_data)
-	ret_fx = get_fx( iter_data )
-    return ret_x, ret_fx 
-end
-
-function _fin_info_str(iter_data :: AbstractIterate, 
-        mop = nothing, stopcode = nothing, num_iterations = -1 )
-    ret_x, ret_fx = get_return_values( iter_data )
-    return """\n
-        |--------------------------------------------
-        | FINISHED ($stopcode)
-        |--------------------------------------------
-        | No. iterations:  $(num_iterations)
-    """ * (isnothing(mop) ? "" :
-        "    | No. evaluations: $(num_evals(mop))" ) *
-    """ 
-        | final unscaled vectors:
-        | iterate: $(_prettify(ret_x, 10))
-        | value:   $(_prettify(ret_fx, 10))
-    """
-end
-
 using Printf: @sprintf
 function _prettify( vec, len :: Int = 5) :: AbstractString
     return string(

@@ -49,12 +49,13 @@ struct GroupedSurrogates{
 	C <: AbstractSurrogateConfig,
 	M <: AbstractSurrogate,
 	I <: AbstractSurrogateMeta,
+	T <: Tuple
 }
 	cfg :: C 
 	model :: M
 	meta :: I 
 
-	indices :: Tuple{NLIndex}
+	indices :: T # Tuple{NLIndex}
 
 	num_outputs :: Int 
 
@@ -140,9 +141,9 @@ function _surrogate_from_vec_function( vfun, scal, gs )
 	model = get_model( gs )
 	cfg = get_cfg(gs)
 	if vfun isa RefVecFun
-		return RefSurrogate( model, output_indices )
+		return RefSurrogate( model, output_indices, vfun.nl_index )
 	elseif vfun isa ExprVecFun 
-		return ExprSurrogate( model, vfun.expr_str, scal, cfg, output_indices )
+		return ExprSurrogate( model, vfun.expr_str, scal, output_indices, vfun.nl_index )
 	end
 end
 
@@ -284,6 +285,34 @@ function init_surrogates( mop :: AbstractMOP, scal :: AbstractVarScaler, id :: A
     return init_surrogate_container(gs_array, groupings_dict, mop, scal)
 end
 
+for (_fieldname, fnname) = [
+	(:objective_functions, :update_objectives!),
+	(:nl_eq_constraints, :update_nl_eq_constraints!),
+	(:nl_ineq_constraints, :update_nl_ineq_constraints!),
+]
+	fieldname = Meta.quot(_fieldname)
+	@eval function $(fnname)(sc :: SurrogateContainer, updated_indices, scal )
+		fn_dict = getfield(sc, $fieldname)
+		for (ind, mod) = pairs(fn_dict)
+			surrogate_index = sc.surrogates_grouping_dict[ mod.nl_index ] 
+			if surrogate_index in updated_indices 
+				if mod isa RefSurrogate
+					fn_dict[ind] = RefSurrogate(
+						get_model(sc.surrogates[ surrogate_index ]), # updated model
+						mod.output_indices, mod.nl_index
+					)
+				elseif mod isa ExprSurrogate
+					fn_dict[ind] = ExprSurrogate( 
+						get_model(sc.surrogates[ surrogate_index ]),
+						mod.expr_str, scal, mod.output_indices, mod.nl_index
+					)
+				end
+			end
+		end#for
+		return nothing
+	end#function
+end
+
 #defined below:
 function update_surrogates!(sc, mop, scal, id, sdb, ac; kwargs...) end
 function improve_surrogates!(sc, mop, scal, id, sdb, ac; kwargs...) end 
@@ -299,19 +328,21 @@ for method_name in [:update, :improve]
 		ensure_fully_linear = true 
 	)
 		@logmsg loglevel2 "Updating surrogate models."
-		
+
 		# round I of model building: collecting the meta data
 		meta_array = empty( [ get_meta(gs) for gs = sc.surrogates ] )
-		for gs = sc.surrogates
+		updated_indices = Int[]
+		for (gi,gs) = enumerate(sc.surrogates)
 			indices = get_indices(gs)
 			mod = get_model(gs)
 			meta = get_meta(gs)
 			cfg = get_cfg(gs)
 			if $(_necessity_check)(cfg)
 				new_meta = $(_mod_prepare_method)( 
-					mod, meta, cfg, indices, mop, scal, iter_data, sdb, ac; ensure_fully_linear
+					mod, meta, cfg, indices, mop, scal, iter_data, sdb, ac; ensure_fully_linear, meta_array
 				)
 				push!(meta_array, new_meta)
+				push!(updated_indices, gi)
 			end
 		end
 		
@@ -319,26 +350,28 @@ for method_name in [:update, :improve]
 		eval_missing!(sdb, mop, scal)
 		
 		# round II: from meta data and evaluations, update the surrogates
-		i = 1
-		for gs = sc.surrogates
+		for (i,gs) = enumerate(sc.surrogates[updated_indices])
 			mod = get_model(gs)
 			cfg = get_cfg(gs)
 			indices = get_indices(gs)
-			if $(_necessity_check)(cfg)
-			    _meta = meta_array[i]
-				model, meta = $(_mod_method)( 
-					mod, _meta, cfg, indices, mop, scal, iter_data, sdb, ac 
-				)
-				new_gs = init_grouped_surrogates( 
-					cfg, model, meta, indices; 
-					index_outputs_dict = gs.index_outputs_dict 
-				)
-				# replace groupd surrogates
-				sc.surrogates[i] = new_gs
-				i += 1
-			end
+			_meta = meta_array[i]
+			model, meta = $(_mod_method)( 
+				mod, _meta, cfg, indices, mop, scal, iter_data, sdb, ac 
+			)
+			new_gs = init_grouped_surrogates( 
+				cfg, model, meta, indices; 
+				index_outputs_dict = gs.index_outputs_dict 
+			)
+			
+			# replace groupd surrogates
+			sc.surrogates[updated_indices[i]] = new_gs
 		end
 
+		# finally, update dependent functions 
+		update_objectives!(sc, updated_indices, scal)
+		update_nl_eq_constraints!(sc, updated_indices, scal)
+		update_nl_ineq_constraints!(sc, updated_indices, scal)
 		return nothing
 	end
 end
+

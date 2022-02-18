@@ -99,6 +99,29 @@ function _stop_info_str( ac :: AbstractConfig, mop :: Union{AbstractMOP,Nothing}
     ret_str *= @sprintf(" ω ≤ %g.", omega_tol_abs(ac))
 end
 
+function get_return_values(iter_data)
+    ret_x = get_x(iter_data)
+	ret_fx = get_fx( iter_data )
+    return ret_x, ret_fx 
+end
+
+function _fin_info_str(iter_data :: AbstractIterate, 
+        mop = nothing, stopcode = nothing, num_iterations = -1 )
+    ret_x, ret_fx = get_return_values( iter_data )
+    return """\n
+        |--------------------------------------------
+        | FINISHED ($stopcode)
+        |--------------------------------------------
+        | Stopped in iteration:  $(num_iterations)
+    """ * (isnothing(mop) ? "" :
+        "    | No. evaluations: $(num_evals(mop))" ) *
+    """ 
+        | final unscaled vectors:
+        | iterate: $(_prettify(ret_x, 10))
+        | value:   $(_prettify(ret_fx, 10))
+    """
+end
+
 function is_compatible( n, Δ, ac :: AbstractConfig )   
     κ_Δ = filter_kappa_delta(ac)
     μ = filter_mu(ac)
@@ -538,7 +561,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 
 	# check (some) stopping conditions 
 	# (rest is done at end of this function, when trial point is known)
-	if iter_counter >= max_iter(algo_config)
+	if iter_counter > max_iter(algo_config)
         @logmsg loglevel1 "Stopping. Maximum number of iterations reached."
         return MAX_ITER, EARLY_EXIT, _scal, iter_data
     end
@@ -682,7 +705,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	
 	#steplength = norm(untransform( x_scaled .- x_trial_scaled, scal ), Inf ) 
 	steplength = norm( x_scaled .- x_trial_scaled, Inf ) 	# TODO transformed steplength????
-	@logmsg loglevel2 """\n
+	@logmsg loglevel2 """
 	Testing step of length $steplength with trial point 
 	x₊ = $(_prettify( x_trial_unscaled, 10)) ⇒
 	| f(x)  | $(_prettify(fx))
@@ -785,7 +808,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 		iter_data	
 	end
 
-	@logmsg loglevel1 """\n
+	@logmsg loglevel1 """
 		ρ = $(ρ)
 		θ_+ = $(θ_trial)
 		The trial point was $(_SWITCH_accept_trial_point ? "" : "not ")accepted.

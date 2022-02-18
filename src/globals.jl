@@ -70,11 +70,11 @@ function _contains_index( m :: ModelGrouping, ind )
     return ind in m.indices
 end
 
-struct CountedFunc{T,F<:Function} <: Function
+struct CountedFunc{T,F} <: Function
     func :: F
     counter :: Base.RefValue{Int64}
     
-    function CountedFunc( func :: F; can_batch = false ) where F<:Function
+    function CountedFunc( func :: F; can_batch = false ) where F
         return new{can_batch, F}( func, Ref(0))
     end
 end

@@ -41,6 +41,7 @@ const RFD = RecursiveFiniteDifferences
 end
 
 fully_linear( :: TaylorModel ) = true
+num_outputs( :: TaylorModel ) = length(fx0)
 
 # Note, that the derivative approximations are actually constructed for the function(s)
 # ```math
