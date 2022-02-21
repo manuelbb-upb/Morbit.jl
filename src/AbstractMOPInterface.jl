@@ -222,6 +222,7 @@ function _eval_at_indices_at_unscaled_sites( mop, indices, x )
     )
 end
 
+# helper used to put evaluations into database
 function _eval_to_vecs_at_indices_at_unscaled_sites( mop, indices, X )
     dicts = _eval_at_indices_at_unscaled_sites(mop, indices, X)
     return [ [dicts[k][ℓ][end] for k=indices] for ℓ = 1 : length(X) ]
@@ -251,7 +252,7 @@ for fntype = [:nl_function, :objective, :nl_eq_constraints, :nl_ineq_constraints
             return _eval_at_indices_at_unscaled_site( mop, $(get_XXX_indices)(mop), x )
         end
         function $(eval_XXXs_to_vec_at_unscaled_site)(mop :: AbstractMOP, x)
-            return _flatten_mop_dict( _eval_XXXs_to_vec_at_unscaled_site(mop,x) )
+            return _flatten_mop_dict( $(_eval_XXXs_at_unscaled_site)(mop,x) )
         end
     end
 end

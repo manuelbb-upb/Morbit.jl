@@ -406,19 +406,25 @@ end
 # 1. The recommended way to use Finite Difference Taylor models is to define them 
 #    with TaylorConfig, i.e.,  
 #    ```julia
-#    add_objective!(mop, f, TaylorConfig())
+#    add_objective!(mop, f; model_cfg = TaylorConfig(), n_out = 1)
 #    ```
 # 2. To use `FiniteDiff.jl` instead, do 
 #    ```julia
-#    add_objective!(mop, f, TaylorApproximateConfig(; mode = :fdm))
+#    add_objective!(mop, f; 
+#       model_cfg = TaylorCallbackConfig(), 
+#       diff_method = Morbit.FiniteDiffWrapper)
 #    ```
 # 3. Have callbacks for the gradients and the Hessians? Great! 
 #    ```julia
-#    add_objective!(mop, f, TaylorCallbackConfig(; degree = 1, gradients = [g1,g2]))
+#    add_objective!(mop, f;
+#       TaylorCallbackConfig(; degree = 1), 
+#       gradients = [g1,g2]))
 #    ```
 # 4. No callbacks, but you want the correct matrices anyways? `ForwardDiff` to the rescue:
 #    ```julia 
-#    add_objective!(mop, f, TaylorApproximateConfig(; degree = 2, mode = :autodiff)
+#    add_objective!(mop, f; 
+#       model_cfg = TaylorCallbackConfig(), 
+#       diff_method = Morbit.AutoDiffWrapper)
 #    ```
 
 # ### Complete usage example 
@@ -427,8 +433,8 @@ end
 # Morbit.print_all_logs()
 # mop = MixedMOP(3)
 #
-# add_objective!( mop, x -> sum( ( x .- 1 ).^2 ), Morbit.TaylorApproximateConfig(;degree=2,mode=:fdm) )
-# add_objective!( mop, x -> sum( ( x .+ 1 ).^2 ), Morbit.TaylorApproximateConfig(;degree=2,mode=:autodiff) )
+# add_objective!( mop, x -> sum( ( x .- 1 ).^2 ); model_cfg = TaylorConfig(), n_out = 1)
+# add_objective!( mop, x -> sum( ( x .+ 1 ).^2 ), model_cfg = TaylorConfig(), n_out = 1)
 #
 # x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])
 # ```

@@ -186,7 +186,11 @@ _get_all_indices(sc) = collect( Iterators.flatten([
 	get_nl_eq_constraint_indices(sc),
 	get_nl_ineq_constraint_indices(sc)
 ]))
-
+get_function_indices(sc) = collect( Iterators.flatten([
+	get_objective_indices(sc),
+	get_nl_eq_constraint_indices(sc),
+	get_nl_ineq_constraint_indices(sc)
+]))
 get_surrogates( sc :: SurrogateContainer, ind :: NLIndex) = sc.surrogates[ sc.surrogates_grouping_dict[ind] ]
 get_surrogates( sc :: SurrogateContainer, ind :: ObjectiveIndex) = sc.objective_functions[ind]
 function get_surrogates( sc :: SurrogateContainer, ind :: ConstraintIndex) 
@@ -211,7 +215,7 @@ function eval_vec_container_at_func_index_at_scaled_site(
 	sc :: SurrogateContainer, scal :: AbstractVarScaler, x_scaled :: Vec, func_ind :: AnyIndex 
 )
 	m = get_surrogates( sc, func_ind )
-	return eval_models( m, scal, x_scaled )
+	return _eval_models_vec( m, scal, x_scaled )
 end
 
 function eval_container_jacobian_at_func_index_at_scaled_site( 

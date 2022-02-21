@@ -31,7 +31,7 @@ abstract type AbstractVecFun <: Function end
 Abstract super type for multi-objective optimization problems.
 `T` is `true` if the problem is modifyable and `false elsewise.
 
-The user should define a `MixedMOP<:AbstractMOP{true}`, see [`MixedMOP`](@ref).
+The user should define a `MOP<:AbstractMOP{true}`, see [`MOP`](@ref).
 """
 abstract type AbstractMOP{T} end
 

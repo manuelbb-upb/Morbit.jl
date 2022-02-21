@@ -671,15 +671,17 @@ end
 
 # 1. To use the default configuration for a scalar objective `f` do
 #    ```julia
-#    add_objective!(mop, f, RbfConfig())
+#    add_objective!(mop, f; model_cfg =  RbfConfig(), n_out = 1)
 #    ```
 # 2. For a vector valued objective do 
 #    ```julia
-#    add_vector_objective!(mop, f, RbfConfig(); n_out = 2)
+#    add_objective!(mop, f; model_cfg =  RbfConfig(), n_out = 2)
 #    ```
 # 3. If you don't want to use a polynomial:  
 #    ```julia
-#    add_objective!(mop, f, RbfConfig(;kernel = :cubic, polynomial_degree = -1 ))
+#    add_objective!(mop, f;
+#		model_cfg = RbfConfig(;kernel = :cubic, polynomial_degree = -1 ),
+#		n_out = 1)
 #    ```
 #    This only works for certain kernels. `polynomial_degree = 0` will add a constant term.
 # 4. To require sampling of the maximum number of allowed model points:  
@@ -700,7 +702,7 @@ end
 #
 # F = x -> [ sum( ( x .- 1 ).^2 ); sum( ( x .+ 1 ).^2 ) ]
 #
-# add_vector_objective!( mop, F, RbfConfig() )
+# add_objective!(mop, f; model_cfg =  RbfConfig(), n_out = 2)
 #
 # x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])
 # ```

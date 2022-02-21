@@ -65,6 +65,10 @@ function morbit_formatter(level::LogLevel, _module, group, id, file, line)
         return Logging.default_metafmt( level, _module, group, id, file, line )
     end
 end
+
+function get_morbit_logger( level = Morbit.loglevel4 )
+    Logging.ConsoleLogger( stderr, level; meta_formatter = morbit_formatter )
+end
 ````
 
 ## Shorthand Function
@@ -72,7 +76,7 @@ The following (unexported) function sets the global logger to print everything:
 
 ````julia
 function print_all_logs()
-    Logging.global_logger( Logging.ConsoleLogger( stderr, Morbit.loglevel4; meta_formatter = morbit_formatter ) )
+    Logging.global_logger( get_morbit_logger() )
 end
 ````
 

@@ -35,10 +35,11 @@ import Combinatorics
     grads :: G  # gradient polynomials for all the basis polynomials
     coeff :: V  # coefficients to interpolate data with `basis`
     fully_linear :: Bool = false
+    num_outputs :: Int = -1
 end
 
 fully_linear( lm :: LagrangeModel ) = lm.fully_linear
-
+num_outputs( lm :: LagrangeModel ) = lm.num_outputs
 
 function set_fully_linear!(lm :: LagrangeModel, val :: Bool )
 	lm.fully_linear = val
@@ -416,9 +417,9 @@ end
 # to build an initial surrogate model.
 # We delegate the work to `prepare_update_model`.
 function prepare_init_model( 
-        cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable, 
-        mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-        sdb, ac :: AbstractConfig; 
+        cfg :: LagrangeConfig, func_indices, 
+        mop, scal, x_it, 
+        sdb, ac; 
 	    ensure_fully_linear = true, kwargs...
     )
     
@@ -472,9 +473,9 @@ function _scale_poly_basis( poised_basis, lb, ub )
 end
 
 function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, 
-    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb, algo_config :: AbstractConfig; 
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it, 
+    sdb, algo_config; 
     ensure_fully_linear = true, kwargs... )
 
     x_scaled = get_x_scaled( x_it )
@@ -573,9 +574,9 @@ end#function
 
 # The improvement preparation enforces a Λ-poised set:
 function prepare_improve_model(mod :: Union{Nothing, LagrangeModel}, 
-    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb, algo_config :: AbstractConfig; 
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it, 
+    sdb, algo_config; 
     kwargs... )
     return prepare_update_model( mod, meta, cfg, func_indices, mop, scal, x_it, sdb, algo_config; ensure_fully_linear = true, kwargs...)
 end
@@ -588,18 +589,18 @@ end
 # We also store the gradient (vector of polynomials) for each basis polynomial.
 
 function init_model( 
-    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb, algo_config :: AbstractConfig; 
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it, 
+    sdb, algo_config; 
     kwargs...)
 
 	return update_model( nothing, meta, cfg, func_indices, mop, scal, x_it, sdb, algo_config )
 end
 
 function update_model( mod :: Union{Nothing, LagrangeModel}, 
-    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb, algo_config :: AbstractConfig; 
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it, 
+    sdb, algo_config; 
     kwargs... )
     
     db = get_sub_db( sdb, func_indices )
@@ -615,14 +616,15 @@ function update_model( mod :: Union{Nothing, LagrangeModel},
         coeff, fully_linear = meta.fully_linear,
         basis = scaled_basis,
         grads = [ differentiate( p, variables(p) ) for p in scaled_basis ]
-    ), meta
+    ), meta,
+    num_outputs( func_indices )
 end
 
 function improve_model(
     mod :: Union{Nothing, LagrangeModel}, 
-    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices :: FunctionIndexIterable,
-    mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, 
-    sdb, algo_config :: AbstractConfig; 
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it, 
+    sdb, algo_config; 
     kwargs... )
     return update_model( mod, meta, cfg, func_indices, mop, scal, x_it, sdb, algo_config )
 end
@@ -635,10 +637,10 @@ end
 # where ``p = \dim Π_n^d``.
 
 function _eval_poly_vec( poly_vec, x )
-    [ p(x) for p in poly_vec ]
+    return [ p(x) for p in poly_vec ]
 end
 
-function eval_models( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ)
+function eval_models( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
     return sum( c[ℓ] * p(x̂) for (c,p) in zip( lm.coeff, lm.basis ) )
 end
 
@@ -650,10 +652,17 @@ function get_gradient( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Ve
     sum( c[ℓ] * _eval_poly_vec(p,x̂) for (c,p) in zip( lm.coeff, lm.grads ) )
 end
 
-function get_jacobian( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec )
-    grad_evals = [ _eval_poly_vec(p,x̂) for p in lm.grads ]
-    no_out = length(lm.coeff[1])
-    return transpose( hcat( (sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) ) for ℓ = 1 : no_out)... ) )
+function get_jacobian( lm :: LagrangeModel, scal :: AbstractVarScaler, x_scaled :: Vec, rows = nothing )
+    no_out = num_outputs(lm)
+    indices = if isnothing(rows) 1:no_out else rows end
+    grad_evals = [ _eval_poly_vec(p,x_scaled) for p in lm.grads ]
+    T = promote_type( eltype(lm.coeff[1]), eltype(x_scaled) )
+    J = Matrix{T}(undef, length(indices), length(x_scaled))
+    for ℓ=indices
+        J[ℓ,:] = sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) )
+    end
+    return J
+    #return transpose( hcat( (sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) ) for ℓ = 1 : no_out)... ) )
 end
 
 
@@ -686,6 +695,7 @@ end
 # F = x -> [ sum( ( x .- 1 ).^2 ); sum( ( x .+ 1 ).^2 ) ]
 #
 # add_vector_objective!( mop, F, LagrangeConfig() )
+# add_objective!( mop, F; model_cfg = LagrangeConfig() )
 #
 # x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])
 # ```

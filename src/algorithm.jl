@@ -259,14 +259,14 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	else
 		sdb = populated_db 
 		transform!( sdb, scal )
-		x_index_mapping = Dict{FunctionIndexTuple, Int}()
+		x_index_mapping = Dict{NLIndexTuple, Int}()
 		for func_indices in all_sub_db_indices( sdb )
 			db = get_sub_db( sdb, func_indices )
 			vals = _flatten_mop_dict( tmp_dict, func_indices )
 			x_index = ensure_contains_values!( db, x_scaled, vals )
 			x_index_mapping[func_indices] = x_index
 		end
-		sub_dbs = all_sub_dbs(sdb)
+		sub_dbs = sdb.sub_dbs
 	end
 	
 	l_e, l_i = eval_linear_constraints_at_scaled_site( x_scaled, smop, scal )
@@ -283,7 +283,6 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 		DummyFilter
 	end
 	filter = init_empty_filter( filterT, fx, l_e, l_i, c_e, c_i; shift = filter_shift(ac) )
-
 
 	init_stamp_content = get_saveable( IterSaveable, id; 
 		rho = -Inf, omega = -Inf, steplength = -Inf, iter_counter = 0, it_stat = INITIALIZATION
@@ -543,9 +542,9 @@ function criticality_routine(
 			return :exit, iter_data, ω, ω_data
 		end
 
-		# if we are here, we deem the point not critical (enough)
-		return :continue, iter_data, ω, ω_data
-	end
+	end#if _SWITCH_do_loops
+	# if we are here, we deem the point not critical (enough)
+	return :continue, iter_data, ω, ω_data
 end
 
 function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB, 

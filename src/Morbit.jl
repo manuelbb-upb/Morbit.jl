@@ -56,6 +56,7 @@ include("SurrogateContainer.jl")
 include(joinpath(@__DIR__, "models", "ExactModel.jl"))
 include(joinpath(@__DIR__, "models", "TaylorModel.jl"))
 include(joinpath(@__DIR__, "models", "RbfModel.jl"))
+include(joinpath(@__DIR__, "models", "LagrangeModel.jl"))
 
 include("VarScaler.jl")
 include("ConfigImplementations.jl")
@@ -68,6 +69,43 @@ include("descent.jl")
 
 include("algorithm.jl")
 
+for (s1,s2) = [
+	(:exact, :ExactConfig),
+	(:rbf, :RbfConfig),
+	(:lagrange, :LagrangeConfig),
+	(:taylor, :TaylorConfig)
+]
+	add_objective_fn = Symbol("add_$(s1)_objective!")
+	add_nl_eq_constraint_fn = Symbol("add_$(s1)_nl_eq_constraint!")
+	add_nl_ineq_constraint_fn = Symbol("add_$(s1)_nl_ineq_constraint!")
+	
+	add_objectives_fn = Symbol("add_$(s1)_objectives!")
+	add_nl_eq_constraints_fn = Symbol("add_$(s1)_nl_eq_constraints!")
+	add_nl_ineq_constraints_fn = Symbol("add_$(s1)_nl_ineq_constraints!")
+	@eval begin 
+		function $(add_objective_fn)(mop :: AbstractMOP, f :: Function; kwargs ... )
+			return add_objective!(mop, f; model_cfg = $(s2)(), n_out = 1, kwargs...)
+		end
+		function $(add_nl_eq_constraint_fn)(mop :: AbstractMOP, f :: Function; kwargs ... )
+			return add_nl_eq_constraint!(mop, f; model_cfg = $(s2)(), n_out = 1, kwargs... )
+		end
+		function $(add_nl_ineq_constraint_fn)(mop :: AbstractMOP, f :: Function; kwargs ... )
+			return add_nl_ineq_constraint!(mop, f; model_cfg = $(s2)(), n_out = 1, kwargs... )
+		end
+
+		function $(add_objectives_fn)(mop :: AbstractMOP, f :: Function; kwargs ... )
+			return add_objective!(mop, f; model_cfg = $(s2)(), kwargs...)
+		end
+		function $(add_nl_eq_constraints_fn)(mop :: AbstractMOP, f :: Function; kwargs ... )
+			return add_nl_eq_constraint!(mop, f; model_cfg = $(s2)(), kwargs...)
+		end
+		function $(add_nl_ineq_constraints_fn)(mop :: AbstractMOP, f :: Function; kwargs ... )
+			return add_nl_ineq_constraint!(mop, f; model_cfg = $(s2)(), kwargs...)
+		end
+		export $(add_objective_fn), $(add_nl_eq_constraint_fn), $(add_nl_ineq_constraint_fn)
+		export $(add_objectives_fn), $(add_nl_eq_constraints_fn), $(add_nl_ineq_constraints_fn)
+	end
+end
 export AlgorithmConfig, AlgoConfig 
 export MOP, add_lower_bound!, add_upper_bound!, del_lower_bound!, del_upper_bound!, add_objective!
 export ExactConfig

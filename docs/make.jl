@@ -7,6 +7,26 @@ Pkg.activate(@__DIR__)
 using Morbit
 using Documenter
 
+using PlutoStaticHTML
+
+const NOTEBOOK_DIR = joinpath(@__DIR__, "src", "notebooks")
+"""
+    build_notebooks()
+Run all Pluto notebooks (".jl" files) in `NOTEBOOK_DIR`.
+"""
+function build_notebooks()
+    println("Building notebooks")
+    hopts = HTMLOptions(; append_build_context=false)
+    output_format = documenter_output
+    bopts = BuildOptions(NOTEBOOK_DIR; output_format)
+    parallel_build(bopts, ["notebook_finite_differences.jl", "notebook_polynomial_interpolation.jl"], hopts)
+    return nothing
+end
+
+if !("DISABLE_NOTEBOOK_BUILD" in keys(ENV))
+    build_notebooks()
+end
+
 DocMeta.setdocmeta!(Morbit, :DocTestSetup, :(using Morbit); recursive=true)
 
 makedocs(;
@@ -17,13 +37,14 @@ makedocs(;
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://manuelbb-upb.github.io/Morbit.jl",
+        mathengine = MathJax3()
         #assets=["/custom_assets/iframeResizer.min.js",],
     ),
     pages=[
         "Home" => "index.md",
         "Examples" => [
             "Two Parabolas" => "example_two_parabolas.md",
-            "ZDT3" => "example_zdt.md"
+            #"ZDT3" => "example_zdt.md"
         ],
         "Models" => [
             "ExactModels" => "ExactModel.md",
@@ -32,23 +53,19 @@ makedocs(;
             "LagrangeModels" => "LagrangeModel.md"
         ],
         "Random Notebooks" => [
-            "Finite Differences" => "notebook_finite_differences.md",
-            "Lagrange Interpolation" => "notebook_polynomial_interpolation.md"
+            "Finite Differences" => "notebooks/notebook_finite_differences.md",
+            "Lagrange Interpolation" => "notebooks/notebook_polynomial_interpolation.md"
         ],
         "Pretty Printing" => "custom_logging.md",
-        "Internals" => [
+        "Developer" => [
             "DocStrings" => "dev_man.md",
-            "Interfaces" => "Interfaces.md",
-            "`AbstractIteraData` Interface" => "AbstractIterDataInterface.md",
-            "`AbstractDB` Interface" => "AbstractDBInterface.md",
-            "`Result` Type" => "Result.md",
         ]
     ],
 )
 
 deploydocs(;
     repo="github.com/manuelbb-upb/Morbit.jl",
-    #devbranch="stronger_typing" # TODO Make this "master" after merging
+    devbranch="nonlinear_structure" # TODO Make this "master" after merging
 )
-
+	
 Pkg.activate(current_env)

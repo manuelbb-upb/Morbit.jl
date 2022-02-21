@@ -22,7 +22,7 @@ using LinearAlgebra: Diagonal
 
 @testset "Unconstrained Problem => No scaling" begin
 mop = MOP(2)
-add_objective!(mop, x -> sum(x))
+add_objective!(mop, x -> sum(x); model_cfg = ExactConfig(), n_out = 1 )
 x0 = rand(2)
 smop, iter_data, data_base, sc, ac, filter, scal = Morbit.initialize_data(mop, x0);
 
@@ -41,7 +41,9 @@ ub = fill(6, 2)
 unit_scaling_fn = x -> (x .- lb) ./ (ub .- lb )
 
 mop = MOP(lb, ub )
-o_ind = add_objective!(mop, x -> sum(x))
+fn = Morbit.make_vec_fun( x -> sum(x); model_cfg = ExactConfig(), n_out = 1)
+nl_ind = Morbit._add_function!(mop,fn) 
+o_ind = Morbit._add_objective!(mop, nl_ind)
 x0 = lb .+ (ub .- lb ) .* rand(2)
 x0_scaled = unit_scaling_fn(x0)
 smop, iter_data, data_base, sc, ac, filter, scal = Morbit.initialize_data(mop, x0);
@@ -53,7 +55,7 @@ smop, iter_data, data_base, sc, ac, filter, scal = Morbit.initialize_data(mop, x
 @test all( abs.( Morbit.full_lower_bounds_internal( scal ) ) .<= 1e-10 )
 @test all( abs.( Morbit.full_upper_bounds_internal( scal ) .- 1 ) .<= 1e-10) 
 
-sdb = Morbit.get_sub_db( data_base, (o_ind,) )
+sdb = Morbit.get_sub_db( data_base, (nl_ind,) )
 
 @test all( all(0 .<= x .<= 1) for x = Morbit.get_sites(sdb) )
 
@@ -74,7 +76,9 @@ scaler = Morbit.LinearScaling(lb, ub, Diagonal( factors ), (- lb .* factors) )
 ac = Morbit.AlgorithmConfig(; var_scaler = scaler )
 
 mop = MOP(lb, ub )
-o_ind = add_objective!(mop, x -> sum(x))
+fn = Morbit.make_vec_fun( x -> sum(x); model_cfg = ExactConfig(), n_out = 1)
+nl_ind = Morbit._add_function!(mop,fn) 
+o_ind = Morbit._add_objective!(mop, nl_ind)
 x0 = lb .+ (ub .- lb ) .* rand(2)
 x0_scaled = Morbit.transform( x0, scaler )
 
@@ -88,7 +92,7 @@ smop, iter_data, data_base, sc, ac, filter, scal = Morbit.initialize_data(mop, x
 @test all( abs.( Morbit.full_lower_bounds_internal( scal ) ) .<= 1e-10 )
 @test all( abs.( Morbit.full_upper_bounds_internal( scal ) .- .5 ) .<= 1e-10) 
 
-sdb = Morbit.get_sub_db( data_base, (o_ind,) )
+sdb = Morbit.get_sub_db( data_base, (nl_ind,) )
 
 @test all( all(0 .<= x .<= .5) for x = Morbit.get_sites(sdb) )
 
@@ -103,7 +107,10 @@ scaler = Morbit.LinearScaling( fill(-Inf, 2), fill(Inf, 2), Diagonal([1, 2]), ze
 ac = Morbit.AlgorithmConfig(; var_scaler = scaler )
 
 mop = MOP(2)
-o_ind = add_objective!(mop, x -> sum(x))
+fn = Morbit.make_vec_fun( x -> sum(x); model_cfg = ExactConfig(), n_out = 1)
+nl_ind = Morbit._add_function!(mop,fn) 
+o_ind = Morbit._add_objective!(mop, nl_ind)
+
 x0 = ones(2)
 x0_scaled = Morbit.transform( x0, scaler )
 
@@ -131,7 +138,7 @@ scaler = Morbit.LinearScaling( fill(-Inf, 2), fill(Inf, 2), Diagonal([1, 2]), ze
 ac = Morbit.AlgorithmConfig(; var_scaler = scaler, var_scaler_update = :model )
 
 mop = MOP(2)
-o_ind = add_objective!(mop, x -> sum(x))
+o_ind = add_objective!(mop, x -> sum(x); model_cfg = ExactConfig(), n_out = 1)
 x0 = ones(2)
 x0_scaled = Morbit.transform( x0, scaler )
 

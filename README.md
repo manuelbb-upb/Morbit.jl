@@ -1,26 +1,5 @@
 # Morbit
 
-## Version 3
-Version 3 signifies a big re-write of nearly everything.
-Most importantly, most types are no longer "weakly typed".
-Instead they now have type parameters which will hopefully benefit running performance.
-
-There are many breaking changes (compared to version 2) and this version is not fully feature complete yet:
-
-* The signature of the main `optimize` function now is
-  ```julia
-  ret_x, ret_fx, RETURN_CODE, data_base = optimize( mop, x0, fx0; 
-     algo_config = nothing, populated_db = nothing )
-  ```
-* `AlgoConfig` still is the user configurable settings object, but some settings have moved to other locations, e.g.:  
-  * `descent_method` now takes an object of type `SteepestDescentConfig` or `PascolettSerafiniConfig`.
-  These provide further descent configuration options.
-  You can also use symbols such as `:steepest_descent` or `pascoletti_serafini`.
-  * Most fields no longer use Unicode greek letters but their names, e.g. `delta_max` instead of `Δ_max` and `omega_tol_abs` instead of `ω_tol_abs`.
-  * `AlgoConfig` now has a type parameter `D` that is the descent type (or `Symbol`).
-
-## README
-
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/dev)
 [![Build Status](https://github.com/manuelbb-upb/Morbit.jl/workflows/CI/badge.svg)](https://github.com/manuelbb-upb/Morbit.jl/actions)
 [![Coverage](https://codecov.io/gh/manuelbb-upb/Morbit.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/manuelbb-upb/Morbit.jl)
@@ -28,12 +7,10 @@ There are many breaking changes (compared to version 2) and this version is not 
 Stable docs [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/stable) are currently outdated for this repository.
 
 The package `Morbit.jl` provides a local derivative-free solver for multiobjective optimization problems with possibly expensive objectives.
-It is meant to find a **single** Pareto-critical point, not a good covering of the global Pareto Set.
+It is meant to find a **single** Pareto-critical point.
 
 “Morbit” stands for **M**ultiobjective **O**ptimization by **R**adial **B**asis **F**unction **I**nterpolation **i**n **T**rust-regions. 
-The name was chosen so as to pay honors to the single objective algorithm ORBIT by Wild et. al.  
-~~There is a [preprint in the arXiv](https://arxiv.org/abs/2102.13444) that explains what is going on inside.
-It has been submitted to the MCA journal.~~  
+The name was chosen so as to pay honors to the single objective algorithm ORBIT by Wild et. al. 
 We have a [paper](https://www.mdpi.com/2297-8747/26/2/31) explaining the algorithm!
 
 This was my first project using Julia and there have been many messy rewrites.
@@ -42,6 +19,16 @@ Nonetheless, the solver should now work sufficiently well to tackle most problem
 This project was founded by the European Region Development Fund.
 <img alt="EFRE Logo EU" src="https://www.efre.nrw.de/fileadmin/Logos/EU-Fo__rderhinweis__EFRE_/EFRE_Foerderhinweis_englisch_farbig.jpg" width=40% />
 <img alt="EFRE Logo NRW" src="https://www.efre.nrw.de/fileadmin/Logos/Programm_EFRE.NRW/Ziel2NRW_RGB_1809_jpg.jpg" width=40% />
+
+## Version 3.1
+Version 3.1+ signifies a big re-write of nearly everything.
+Most importantly, most types are no longer "weakly typed".
+Instead they now have type parameters which will hopefully benefit running performance.
+
+Moreover, constraint handling has been improved:
+* Box constraints are supported natively and respected during model construction.
+* Relaxable linear constraints are supported natively, i.e., propagated to the internal solver.
+* Relaxable nonlinear constraints are supported via a filter mechanism.
 
 ## Installation 
 This package is not registered (yet), so please install via 
@@ -71,62 +58,71 @@ using Morbit
 f1 = x -> sum( (x .- 1 ).^2 )
 f2 = x -> sum( (x .+ 1 ).^2 )
 
-mop = MixedMOP()
-add_objective!(mop, f1, :cheap )
-add_objective!(mop, f2, :cheap )
+mop = MOP(2) # problem in 2 variables
+add_exact_objective!(mop, f1)
+add_exact_objective!(mop, f2)
 
 x0 = [ π; -ℯ ]
 x, fx, ret_code, database = optimize(mop, x0)
 ```
-In the above case, both functions are treated as cheap and their gradients are determined using `ForwardDiff`.
+The optimize method accepts either an `AlgorithmConfig` object via the 
+`algo_config` keyword argument or concrete settings as keyword arguments.
+E.g., 
+```
+x, fx, ret_code, database = optimize(mop, x0; max_iter=20, fx_tol_rel=1e-3)
+```
+sets two stopping criteria.
+
+In the above case, both functions are treated as cheap and their gradients are determined using `FiniteDiff`.
+To use automatic differentiation (via `ForwardDiff.jl`), use 
+```julia
+add_objective!(mop, f1; 
+  n_out=1, model_cfg=ExactConfig(), 
+  diff_method=Morbit.AutoDiffWrapper)
+```
+Gradients can be provided with the `gradients` keyword argument.
+
 If you wanted to model a objective, say the function `f₂`, using radial basis functions, you could pass a `SurrogateConfig`:
 ```julia
 rbf_cfg = RbfConfig(;kernel = :multiquadric)
-add_objective!(mop, f1, rbf_cfg)
-``` 
-
-Box constraints can easily be defined at initialization of the `MixedMOP`:
+add_objective!(mop, f1; n_out = 1, model_cfg = rbf_cfg)
 ```
-lb = fill(-4, 2)
-ub = -lb
-mop_con = MixedMOP(lb, ub)
+Alternatively, there is 
+```julia
+add_rbf_objective!(mop, f1)
 ```
+for scalar objective functions using the default configuration `RbfConfig()`.
 
 Of course, vector-valued objectives are also supported:
 ```julia
 F = x -> [f1(x); f2(x)]
-add_vector_objective!(mop, F, rbf_cfg; n_out = 2)
+add_rbf_objectives!(mop, F; n_out = 2)
+# or 
+# add_objective!(mop, F; n_out = 2, model_cfg = RbfConfig())
+```
+
+Instead of RBF models, Lagrange models (`LagrangeConfig()`) and Taylor polynomials (`TaylorConfig()`) are also supported.
+
+Box constraints can easily be defined at initialization of the `MOP`:
+```
+lb = fill(-4, 2)
+ub = -lb
+mop_con = MOP(lb, ub)
+```
+
+Linear constraints of the form `A * x <= b` or `A * x == b` can be added via 
+```julia
+add_eq_constraint!(mop, A, b)
+add_ineq_constraint!(mop, A, b)
+```
+
+Nonlinear constraints `g(x) <= 0` or `h(x) == 0` are added like the objectives:
+```julia
+add_nl_ineq_constraint!(mop, g; n_out = 1 model_cfg = RbfConfig())
+add_nl_eq_constraint!(mop, h; n_out = 1 model_cfg = TaylorConfig())
 ```
 
 There are many options to configure both the algorithm behavior and the 
 surrogate modelling techniques.
 Please see the [docs](https://manuelbb-upb.github.io/Morbit.jl/dev).
 
-## Features
-* Applicable to unconstrained and finitely box-constrained problems with one or more objectives.
-* Treat the objectives as exact (and benefit from automatic differencing) or use surrogate models.  
-  Available surrogates are
-  * First and second degree Taylor polynomials, either using exact derivatives or finite-difference approximations.
-  * Fully-linear Lagrange polynomials of degree 1 or 2.
-  * Fully-linear Radial basis function models with a polynomial tail of degree 1 or less.
-* The surrogate construction algorithms try to avoid evaluating the true objectives unnecessarily.  
-  Evaluation data is stored in a database and can be retrieved afterwards.
-* At the moment, the trust region sub-problems are solved using either a multiobjective **steepest descent 
-  direction** (default) or the Pascoletti-Serafini scalarization 
-  (see [here](https://www.tu-ilmenau.de/fileadmin/media/mmor/thomann/SIAM_MHT_TE.pdf)).  
-  *From prior experiments we know the “directed search” method and the nonlinear conjugate gradient steps to work well, too. 
-  They need re-implementation. Directed search cannot be guaranteed to converge to critical points and for CG we need the strong Wolfe conditions.*
-* Objectives can be defined with parallelism in mind, i.e., they then receive sampling sites in batches when possible.
-
-## ToDo's
-
-* Provide more examples.
-* Finish the MathOptInterface. `AbstractMOP` already is `MOI.ModelLike`, but for the solver we wait on [this issue](https://github.com/jump-dev/JuMP.jl/issues/2099).
-* Re-enable the sampling from [PointSampler.jl](https://github.com/manuelbb-upb/PointSampler.jl) for surrogate construction.
-* Saving of results and evaluation data needs re-implementation.
-* Maybe provide some plotting recipes?
-  
-
-There are many options to configure both the algorithm behavior and the 
-surrogate modelling techniques.
-Please see the [docs](https://manuelbb-upb.github.io/Morbit.jl/dev).

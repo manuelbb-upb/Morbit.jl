@@ -34,32 +34,33 @@ Pkg.activate(@__DIR__) #src
 using Test #src
 
 using Morbit
-Morbit.print_all_logs() #src
 
 f₁ = x -> sum( (x .- 1).^2 )
 f₂ = x -> sum( (x .+ 1).^2 )
 ∇f₁ = x -> 2 .* ( x .- 1 )
 ∇f₂ = x -> 2 .* ( x .+ 1 )
 
-mop = MixedMOP(2);  # problem with 2 variables
-add_objective!(mop, f₁, ∇f₁ )
-add_objective!(mop, f₂, ∇f₂ )
+mop = MOP(2);  # problem with 2 variables
+add_exact_objective!(mop, f₁; gradients = ∇f₁ )
+add_exact_objective!(mop, f₂, gradients = ∇f₂ )
 
 #~ starting point
 x₀ = [ -π ;  2.71828 ]
 
-#~ set maximum number of iterations 
-ac = AlgoConfig( max_iter = 20)
 #~ `optimize` will return parameter and result vectors as well 
 #~ as an return code and the evaluation database:
-x, fx, ret_code, db = optimize( mop, x₀; algo_config = ac );
+x, fx, ret_code, db, _ = optimize( mop, x₀; 
+    max_iter = 20,
+);
 x
 
 # Hopefully, `x` is critical, i.e., `x[1] ≈ x[2]`.
 @test x[1] ≈ x[2] atol = .1 #src
 
 # !!! note
-#     To print more information on what the solver is doing, you can use the `Logging` module: 
+#     To print more information on what the solver is doing, 
+#     you can use the `verbosity` keyword argument.
+#     Or you can use the `Logging` module: 
 #     ```julia 
 #     import Logging: global_logger, ConsoleLogger
 #     global_logger( ConsoleLogger( stderr, Morbit.loglevel4; 
@@ -72,20 +73,21 @@ x
 # ### Plotting Iteration Sites 
 # Let's retrieve the iteration sites.
 # We convert to Tuples for easier plotting.
-iteration_indices = [ iter_.x_index for iter_ in db.iter_info]
-it_sites = Tuple.(Morbit.get_site.(db, iteration_indices))
+iter_sites = [ Tuple(iter.x) for iter=db.iter_data ]
 
 # For Plotting we use CairoMakie
 using Makie, CairoMakie
 
 #~ Pareto Set ≙ line from (-1,-1) to (1,1)
-fig, ax, _ = lines( [(-1,-1),(1,1)]; color = :blue, linewidth = 2,
-    figure = (resolution = (600, 600),) )
+fig, ax, _ = lines( [(-1,-1),(1,1)]; 
+    color = :blue, linewidth = 2,
+    figure = (resolution = (600, 600),) 
+)
 
 #~ Plot the iteration sites:
-lines!(it_sites)
-scatter!(it_sites; 
-    color = LinRange(0, 1, length(it_sites)), 
+lines!(iter_sites)
+scatter!(iter_sites; 
+    color = LinRange(0, 1, length(iter_sites)), 
     colormap = :winter
 )
 
@@ -113,24 +115,24 @@ fig
 # In this situation, we could try to model them using surrogate models.
 # To use radial basis function models, pass an `RbfConfig` when specifying the objective:
 # 
-mop_rbf = MixedMOP()
+mop_rbf = MOP(2)
 
 #~ Define the RBF surrogates
 rbf_cfg = RbfConfig( 
     kernel = :inv_multiquadric 
 )
 #~ Add objective functions to `mop_rbf`
-add_objective!(mop_rbf, f₁, rbf_cfg )
-add_objective!(mop_rbf, f₂, rbf_cfg )
+add_objective!(mop_rbf, f₁; model_cfg = rbf_cfg, n_out = 1 )
+#~ Or use the default configuration via shorthand:
+add_rbf_objective!(mop_rbf, f₂)
 
 #~ only perform 10 iterations
 ac = AlgoConfig( max_iter = 10 )
-x, fx, _, db = optimize( mop_rbf, x₀; algo_config = ac ) 
+x, fx, ret_code, db, _ = optimize( mop_rbf, x₀; algo_config = ac ) 
 x
 
 #src Setup and save plot for docs.
-iteration_indices_rbf = [ iter_.x_index for iter_ in db.iter_info]
-it_sites_rbf = Tuple.(Morbit.get_site.(db, iteration_indices_rbf))
+it_sites_rbf = [ Tuple(iter.x) for iter in db.iter_data ]
 lines!(it_sites_rbf) #hide
 scatter!(it_sites_rbf; color = :orange) #hide
 nothing #hide 
@@ -146,17 +148,11 @@ fig #hide
 # We can pass the evaluation data from previous runs to facilitate the construction of surrogate models:
  
 #src Setup the problem anew, to ensure fresh start
-ac = AlgoConfig( #hide
-    max_iter = 10 #hide
-    ); #hide
-mop_rbf = MixedMOP(); #hide
-#~ define the RBF surogates #hide
-rbf_cfg = RbfConfig(  #hide
-    kernel = :inv_multiquadric, #hide
-); #hide
+
+mop_rbf = MOP(2); #hide
 #~ add objective functions to `mop_rbf` #hide
-add_objective!(mop_rbf, f₁, rbf_cfg ); #hide
-add_objective!(mop_rbf, f₂, rbf_cfg ); #hide
+add_rbf_objective!(mop_rbf, f₁); #hide
+add_rbf_objective!(mop_rbf, f₂); # hide
 
 #~ an array of well spread points in [-4,4]² #hide
 X =[ #hide
@@ -172,40 +168,43 @@ X =[ #hide
  [-1.0455585089057458, 2.735699160002545] #hide
 ]; #hide
 
-# Suppose, `X` is a list of different points in ℝ².
+# Suppose, `X` is a list of different points (a `Vector{<:Vector{<:Real}}`) in ℝ².
 
 #src This is the code block visible in the docs:
 
 #~ A dict to associate starting and end points:
-start_fin_points = Dict();
-
-#~ perform several runs:
+start_fin_points = Dict{Tuple{Float64,Float64},Tuple{Float64,Float64}}();
+#~ To re-cycle the database, we have to untransform it 
+# at the end of each optimization loop:
+ac = AlgoConfig( max_iter = 10, untransform_final_database = true )
+#~ Now perform several runs:
 db₀ = nothing # initial database can be `nothing`
 for x₀ ∈ X
     global db₀, start_fin_points
-    x_fin, fx_fin, _, db₀ = optimize( mop_rbf, x₀; algo_config = ac, populated_db = db₀ )
+    x_fin, fx_fin, re_code, db₀, _ = optimize( 
+        mop_rbf, x₀; 
+        algo_config = ac, populated_db = db₀ 
+    )
     #~ add points to dict
-    start_fin_points[x₀] = x_fin
+    start_fin_points[Tuple(x₀)] = Tuple(x_fin)
 end
-
+#%%
 # Plotting: 
 
-fig, ax, _ = lines( [(-1,-1),(1,1)]; color = :blue, linewidth = 2,
+fig, ax, _ = lines( [(-1,-1),(1,1)]; 
+    color = :blue, linewidth = 2,
     figure = (resolution = (600, 600), ),
     axis = (title="Different Starting Points",), 
 )
 
 for (k,v) in start_fin_points
-    lines!( [ Tuple(k), Tuple(v) ]; color = :lightgray )
+    lines!( [k, v]; color = :lightgray )
 end
 
-scatter!( Tuple.(keys(start_fin_points)); 
-    color = :green
-)
-scatter!( Tuple.(values(start_fin_points)); 
-    color = :lightblue
-)
+scatter!( collect(keys(start_fin_points)); color = :green )
+scatter!( collect(values(start_fin_points)); color = :lightblue )
 
 fig #hide
 
-# In the plot, the green points show the starting points and the lightblue circles show the final iterates:
+# In the plot, the green points show the starting points and the 
+# lightblue circles show the final iterates:

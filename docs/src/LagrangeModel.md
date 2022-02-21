@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/src/LagrangeModel.jl"
+EditURL = "<unknown>/src/models/LagrangeModel.jl"
 ```
 
 # Lagrange Polynomial Models
@@ -35,30 +35,44 @@ and the coefficients.
 @with_kw struct LagrangeModel{
         B <: AbstractArray{<:AbstractPolynomialLike},
         G <: AbstractArray{<:AbstractArray{<:AbstractPolynomialLike}},
-        V <: AbstractVector{<:AbstractVector{<:AbstractFloat} } } <: SurrogateModel
-    basis :: B
-    grads :: G
-    coeff :: V
+        V <: AbstractVector{<:AbstractVector{<:AbstractFloat} } } <: AbstractSurrogate
+    basis :: B  # basis polynomials
+    grads :: G  # gradient polynomials for all the basis polynomials
+    coeff :: V  # coefficients to interpolate data with `basis`
     fully_linear :: Bool = false
+    num_outputs :: Int = -1
 end
 
 fully_linear( lm :: LagrangeModel ) = lm.fully_linear
+num_outputs( lm :: LagrangeModel ) = lm.num_outputs
+
+function set_fully_linear!(lm :: LagrangeModel, val :: Bool )
+	lm.fully_linear = val
+	return nothing
+end
 ````
 
 There is a multitude of configuration parameters, most of which will
 be explained later:
 
 ````julia
-@with_kw mutable struct LagrangeConfig <: SurrogateConfig
+"""
+    LagrangeConfig(; kwargs... )
+
+Configuration for Lagrange Polyoniaml models.
+
+$(FIELDS)
+"""
+@with_kw mutable struct LagrangeConfig <: AbstractSurrogateConfig
 
     "Degree of the surrogate model polynomials."
     degree :: Int = 2
 
     "Enlargement parameter to consider more points for inclusion."
-    θ_enlarge :: Real = 2
+    θ_enlarge :: Float64 = 2.0
 
     "Quality parameter in Λ-Poisedness Algorithm."
-    LAMBDA :: Real = 1.5
+    LAMBDA :: Float64 = 1.5
 
     "Whether or not the interpolation sets must be Λ-poised (and the models fully linear)."
     allow_not_linear :: Bool = false
@@ -67,15 +81,24 @@ be explained later:
     optimized_sampling :: Bool = true
 
     # if optimized_sampling = false, shall we try to use saved sites?
+    "Path to look at for a pre-saved poised set of interpolation points in [0,1]^n."
     save_path :: String = ""
+
+    "Lock to use parallel setups if multiple models can access `save_path`."
     io_lock :: Union{Nothing, Threads.ReentrantLock} = nothing
 
+    "Maximum number of polynomial evaluations to find a poised set."
     algo1_max_evals :: Int = -1
+
+    "Maximum number of polynomial evaluations to make a set Λ-poised."
     algo2_max_evals :: Int = -1
 
+    "NLopt Solver to use for the poisedness problem."
     algo1_solver :: Symbol = :LN_BOBYQA
+    "NLopt Solver to use for the Λ-poisedness problem."
     algo2_solver :: Symbol = :LN_BOBYQA
 
+    "Maximum number of evaluations allowed to the true objective(s)."
     max_evals :: Int64 = typemax(Int64);
 
     @assert 1 <= degree <= 2 "Only linear and quadratic models are supported."
@@ -117,7 +140,7 @@ function Base.isequal( cfg1 :: LagrangeConfig, cfg2 :: LagrangeConfig )
 end
 ````
 
-The `LagrangeMeta` simply holds the database indices of the results
+The `LagrangeMeta` simply holds the (sub-)database indices of the results
 we want to interpolate at.
 We also store the output indices of the model for convenience and carry
 polynomials that act on ``[0,1]^n``.
@@ -127,20 +150,22 @@ polynomials that act on ``[0,1]^n``.
         CB <: Union{Nothing, Vector{<:AbstractPolynomialLike}},
         LB <: Union{Nothing, Vector{<:AbstractPolynomialLike}},
         P <: Union{Nothing, AbstractVector{<:AbstractVector{<:Real}}}
-    } <: SurrogateMeta
+    } <: AbstractSurrogateMeta
     interpolation_indices :: Vector{Int} = []
-    out_indices :: Vector{Int} = []
     canonical_basis :: CB = nothing
-    lagrange_basis :: LB = nothing
-    stamp_points :: P = nothing     ## used only if `unoptimized_sampling == false`
+    lagrange_basis :: LB = nothing  # store the lagrange basis acting on [0,1]^n
+    stamp_points :: P = nothing     # used only if `optimized_sampling == false`
     fully_linear :: Bool = false
 end
 
-get_saveable_type( T :: LagrangeMeta ) = LagrangeMeta{Nothing,Nothing}
-get_saveable( meta :: LagrangeMeta ) = LagrangeMeta(;
-    interpolation_indices = meta.interpolation_indices, out_indices = meta.output_indices )
-
-export LagrangeConfig, LagrangeMeta, LagrangeModel
+function get_saveable_type( T :: LagrangeConfig, x, y )
+    return LagrangeMeta{Nothing,Nothing, Nothing}
+end
+function get_saveable( meta :: LagrangeMeta )
+    return LagrangeMeta(;
+        interpolation_indices = meta.interpolation_indices,
+    )
+end
 ````
 
 ## Construction
@@ -422,17 +447,20 @@ to build an initial surrogate model.
 We delegate the work to `prepare_update_model`.
 
 ````julia
-function prepare_init_model( cfg :: LagrangeConfig, objf :: AbstractObjective, mop :: AbstractMOP,
-	id :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig;
-	ensure_fully_linear = true, kwargs...)
+function prepare_init_model(
+        cfg :: LagrangeConfig, func_indices,
+        mop, scal, x_it,
+        sdb, ac;
+	    ensure_fully_linear = true, kwargs...
+    )
 
     n_vars = num_vars( mop )
 
 	meta = LagrangeMeta(;
-        canonical_basis = get_poly_basis( cfg.degree, n_vars ),
-        out_indices = output_indices(objf, mop)
+        canonical_basis = get_poly_basis( cfg.degree, n_vars )
     )
-	return prepare_update_model(nothing, objf, meta, mop, id, db, ac; ensure_fully_linear, kwargs... )
+
+	return prepare_update_model(nothing, meta, cfg, func_indices, mop, scal, x_it, sdb, ac; ensure_fully_linear, kwargs...)
 end
 ````
 
@@ -447,12 +475,16 @@ Helper to return array of database indices for `poised_points` and
 `poised_indices`. Add result to database if index is -1.
 `candidate_indices` are the database indices of the points from the trust region.
 """
-function _consume_points( db, poised_points, poised_indices, candidate_indices, lb, ub, F )
+function _consume_points( db, poised_points, poised_indices, candidate_indices, lb, ub )
     interpolation_indices = Int[]
+    w = ub .- lb
     for (i,ind) in enumerate(poised_indices)
         if ind < 0
             # we need an additional new site
-            new_db_id = new_result!(db, _unscale(poised_points[i], lb, ub), F[] )
+            # every p ∈ `poised_points` was sampled with respect to [0,1]^n
+            # supposing `lb,ub` are with respect to right trust region, `unscale`
+            # puts `p` into that trust region (w.r.t. to global internal scaling)
+            new_db_id = new_result!(db, _unscale_lb_w(poised_points[i], lb, w))
             push!(interpolation_indices, new_db_id)
         else
             # we could recycle a candidate point
@@ -473,20 +505,22 @@ function _scale_poly_basis( poised_basis, lb, ub )
     return [ subs(p, poly_vars => scaling_poly) + zero_pol for p in poised_basis ]
 end
 
-function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractObjective,
-    meta :: LagrangeMeta,  mop :: AbstractMOP, iter_data :: AbstractIterData,
-    db :: AbstractDB, algo_config :: AbstractConfig;
+function prepare_update_model( mod :: Union{Nothing, LagrangeModel},
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it,
+    sdb, algo_config;
     ensure_fully_linear = true, kwargs... )
 
-    x = get_x( iter_data )
-    fx = get_fx( iter_data )
-    F = eltype(fx)
-    x_index = get_x_index( iter_data )
-    n_vars = length(x)
-    Δ = get_delta( iter_data )
+    x_scaled = get_x_scaled( x_it )
+    n_vars = length(x_scaled)
 
-    cfg = model_cfg(objf)
-    lb, ub = local_bounds(mop, x, Δ * cfg.θ_enlarge )
+    x_index = get_x_index( x_it, func_indices )
+
+    db = get_sub_db( sdb, func_indices )
+
+    Δ = get_delta( x_it )
+
+    lb, ub = local_bounds(scal, x_scaled, Δ * cfg.θ_enlarge )
 
     if cfg.optimized_sampling
         # Find points in current trust region …
@@ -494,7 +528,7 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: Abs
         # … and scale them to [0,1]^n
         candidate_points = [_scale(ξ, lb, ub) for ξ in get_site.(db, candidate_indices)]
 
-        # Get a poised set and lagrange basis
+        # Get a poised set and lagrange basis from the candidates
         poised_points, poised_basis, poised_indices = get_poised_set(
             meta.canonical_basis, candidate_points;
             solver = cfg.algo1_solver, max_solver_evals = cfg.algo1_max_evals
@@ -513,18 +547,22 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: Abs
                 LAMBDA = cfg.LAMBDA, solver = cfg.algo2_solver,
                 max_solver_evals = cfg.algo2_max_evals, skip_indices
             )
-            poised_indices = [ i < 0 ? i : poised_indices[j] for (j,i) in enumerate( indices_2 ) ]
+
+            # if some i ∈ `indices_2` is equal -1 then it is a new point and we keep the negative index
+            # else it is an index of a p ∈ `poised_points` which should be kept. then:
+            # `p == poised_points[ i ]` and the index of `p` in candidates is `poised_indices[i]`
+            poised_indices = [ i < 0 ? i : poised_indices[i] for i = indices_2 ]
             fully_linear = true
         end
 
-        interpolation_indices = _consume_points( db, poised_points, poised_indices, candidate_indices, lb, ub, F)
-        scaled_basis = _scale_poly_basis( poised_basis, lb, ub )
+        # if needed (∀ i ∈ poised_indices with i == -1) put results into sub database `db`
+        # and get database indices needed for interpolation
+        interpolation_indices = _consume_points( db, poised_points, poised_indices, candidate_indices, lb, ub )
 
         return LagrangeMeta(;
             interpolation_indices,
-            out_indices = meta.out_indices,
             canonical_basis = meta.canonical_basis,
-            lagrange_basis = scaled_basis,
+            lagrange_basis = poised_basis,
             fully_linear
         )
 
@@ -534,13 +572,13 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: Abs
         # in the meta data which is then passed through in subsequent iterations
         lpoints, lbasis = if isnothing(meta.lagrange_basis)
             candidate_points = [ fill(.5, n_vars) ]
-            lpoints, lbasis, _ = get_lambda_poised_set(
+            lagrange_points, lagrange_basis, _ = get_lambda_poised_set(
                 meta.canonical_basis, candidate_points;
                 solver1 = cfg.algo1_solver, solver2 = cfg.algo2_solver,
                 max_solver_evals1 = cfg.algo1_max_evals, max_solver_evals2 = cfg.algo2_max_evals,
                 LAMBDA = cfg.LAMBDA )
 
-            lpoints, _scale_poly_basis( lbasis, lb, ub )
+            lagrange_points, lagrange_basis
         else
             meta.stamp_points, meta.lagrange_basis
         end
@@ -550,17 +588,16 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel}, objf :: Abs
 
         # check if x (scaled to [0,1] wrt trust region bounds) is center of `lpoints`
         #src TODO does using `≈` make problems for small trust region radii? `==` always fails
-        x_s = _scale(x, lb, ub)
+        x_s = _scale(x_scaled, lb, ub)
         x_in_points_index = findfirst(χ -> χ ≈ x_s, lpoints )
         if !isnothing(x_in_points_index)
-             candidate_indices[ x_in_points_index ] = 1
+             lindices[ x_in_points_index ] = 1
         end
 
-        interpolation_indices = _consume_points( db, lpoints, lindices, candidate_indices, lb, ub, F)
+        interpolation_indices = _consume_points( db, lpoints, lindices, candidate_indices, lb, ub )
 
         return LagrangeMeta(;
             interpolation_indices,
-            out_indices = meta.out_indices,
             lagrange_basis = lbasis,
             stamp_points = lpoints,
             fully_linear = true
@@ -572,10 +609,12 @@ end#function
 The improvement preparation enforces a Λ-poised set:
 
 ````julia
-function prepare_improve_model( mod :: Union{Nothing, LagrangeModel}, objf :: AbstractObjective, meta :: LagrangeMeta,
-    mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, algo_config :: AbstractConfig;
+function prepare_improve_model(mod :: Union{Nothing, LagrangeModel},
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it,
+    sdb, algo_config;
     kwargs... )
-    return prepare_update_model( mod, objf, meta, mop, iter_data, db, algo_config; ensure_fully_linear = true, kwargs...)
+    return prepare_update_model( mod, meta, cfg, func_indices, mop, scal, x_it, sdb, algo_config; ensure_fully_linear = true, kwargs...)
 end
 ````
 
@@ -587,31 +626,45 @@ coefficients.
 We also store the gradient (vector of polynomials) for each basis polynomial.
 
 ````julia
-function _init_model( cfg :: LagrangeConfig, objf :: AbstractObjective, mop :: AbstractMOP,
-	iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig, meta :: LagrangeMeta; kwargs... )
-	return update_model( nothing, objf, meta, mop, iter_data, db, ac; kwargs... )
+function init_model(
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it,
+    sdb, algo_config;
+    kwargs...)
+
+	return update_model( nothing, meta, cfg, func_indices, mop, scal, x_it, sdb, algo_config )
 end
 
-function update_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractObjective,
-    meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig;
-	kwargs... )
+function update_model( mod :: Union{Nothing, LagrangeModel},
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it,
+    sdb, algo_config;
+    kwargs... )
 
-    coeff = [ c[ meta.out_indices ] for c in get_value.(db, meta.interpolation_indices) ]
+    db = get_sub_db( sdb, func_indices )
+    coeff = get_value.(db, meta.interpolation_indices)
 
+    Δ = get_delta( x_it )
+    x_scaled = get_x_scaled( x_it )
+    lb, ub = local_bounds(scal, x_scaled, Δ * cfg.θ_enlarge )
+
+    # make polynomial basis act on current trust region instead of [0,1]^n
+    scaled_basis = _scale_poly_basis( meta.lagrange_basis, lb, ub )
     return LagrangeModel(;
         coeff, fully_linear = meta.fully_linear,
-        basis = copy(meta.lagrange_basis),
-        # NOTE I don't know why I need to copy here
-        # but if i don't copy then testing fails:
-        # the meta data does hold a valid Lagrange basis but the model does not !?
-        grads = [ differentiate( p, variables(p) ) for p in meta.lagrange_basis ]
-    ), meta
+        basis = scaled_basis,
+        grads = [ differentiate( p, variables(p) ) for p in scaled_basis ]
+    ), meta,
+    num_outputs( func_indices )
 end
 
-function improve_model( mod::Union{Nothing,LagrangeModel}, objf:: AbstractObjective,
-    meta :: LagrangeMeta, mop :: AbstractMOP, iter_data :: AbstractIterData, db :: AbstractDB, ac :: AbstractConfig;
-	kwargs... )
-    return update_model( mod, objf, meta, mop, iter_data, db, algo_config; kwargs...)
+function improve_model(
+    mod :: Union{Nothing, LagrangeModel},
+    meta :: LagrangeMeta, cfg :: LagrangeConfig, func_indices,
+    mop, scal, x_it,
+    sdb, algo_config;
+    kwargs... )
+    return update_model( mod, meta, cfg, func_indices, mop, scal, x_it, sdb, algo_config )
 end
 ````
 
@@ -624,25 +677,32 @@ where ``p = \dim Π_n^d``.
 
 ````julia
 function _eval_poly_vec( poly_vec, x )
-    [ p(x) for p in poly_vec ]
+    return [ p(x) for p in poly_vec ]
 end
 
-function eval_models( lm :: LagrangeModel, x̂ :: Vec, ℓ :: Int)
+function eval_models( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
     return sum( c[ℓ] * p(x̂) for (c,p) in zip( lm.coeff, lm.basis ) )
 end
 
-function eval_models( lm :: LagrangeModel, x̂ :: Vec )
+function eval_models( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec )
     return sum( c * p(x̂) for (c,p) in zip( lm.coeff, lm.basis ) )
 end
 
-function get_gradient( lm :: LagrangeModel, x̂ :: Vec, ℓ :: Int )
+function get_gradient( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
     sum( c[ℓ] * _eval_poly_vec(p,x̂) for (c,p) in zip( lm.coeff, lm.grads ) )
 end
 
-function get_jacobian( lm :: LagrangeModel, x̂ :: Vec )
-    grad_evals = [ _eval_poly_vec(p,x̂) for p in lm.grads ]
-    no_out = length(lm.coeff[1])
-    return transpose( hcat( (sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) ) for ℓ = 1 : no_out)... ) )
+function get_jacobian( lm :: LagrangeModel, scal :: AbstractVarScaler, x_scaled :: Vec, rows = nothing )
+    no_out = num_outputs(lm)
+    indices = if isnothing(rows) 1:no_out else rows end
+    grad_evals = [ _eval_poly_vec(p,x_scaled) for p in lm.grads ]
+    T = promote_type( eltype(lm.coeff[1]), eltype(x_scaled) )
+    J = Matrix{T}(undef, length(indices), length(x_scaled))
+    for ℓ=indices
+        J[ℓ,:] = sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) )
+    end
+    return J
+    #return transpose( hcat( (sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) ) for ℓ = 1 : no_out)... ) )
 end
 ````
 
@@ -675,6 +735,7 @@ mop = MixedMOP(3)
 F = x -> [ sum( ( x .- 1 ).^2 ); sum( ( x .+ 1 ).^2 ) ]
 
 add_vector_objective!( mop, F, LagrangeConfig() )
+add_objective!( mop, F; model_cfg = LagrangeConfig() )
 
 x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])
 ```

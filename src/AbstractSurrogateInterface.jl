@@ -88,6 +88,7 @@ function Base.:(==)( cfg1 :: T, cfg2 :: F ) where {T <: AbstractSurrogateConfig,
 end
 
 ## derived 
+_eval_models_vec( mod :: AbstractSurrogate, args...) = _ensure_vec( eval_models(mod,args...) )
 
 @doc """
 Return a function handle to be used with `NLopt` for output `ℓ` of `model`.
@@ -194,16 +195,11 @@ end
 
 import Dates: now
 function get_jacobian( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec )
-	#return Base.invokelatest( Zygote.jacobian, ξ -> m.generated_function(ξ)[m.output_indices], x_scaled)[1]
-	#return Zygote.jacobian( ξ -> eval_models(m, scal, ξ, m.output_indices),x_scaled)[1]
 	println("call $(now())")
 	return Zygote.jacobian( m.generated_function, x_scaled)[1]
-	#return Base.invokelatest( Zygote.jacobian, m.generated_function, x_scaled)[1]
 end
 function get_jacobian( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec, rows )
-	#return Base.invokelatest( Zygote.jacobian, ξ -> eval_models(m, scal, ξ)[m.output_indices[rows]], x_scaled )
 	return Base.invokelatest( Zygote.jacobian, ξ -> m.generated_function[m.output_indices[rows]], x_scaled )
-	#return Zygote.jacobian( ξ -> m.generated_function(ξ)[m.output_indices[rows]],x_scaled)[1]
 end
 
 using GeneralizedGenerated
@@ -228,7 +224,7 @@ function str2func(expr_str, vfunc :: AbstractSurrogate, scal, output_indices;
 )
 	global registered_funcs
 	
-	evaluator = x -> eval_models( vfunc, scal, x, output_indices ) 
+	evaluator = x -> _eval_models_vec( vfunc, scal, x, output_indices ) 
 	#registered_funcs[:evaluator] = evaluator
 	jacobian_handle = x -> get_jacobian(vfunc, scal, x, output_indices)
 

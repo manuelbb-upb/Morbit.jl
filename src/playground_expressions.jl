@@ -7,7 +7,7 @@ F = x -> sum(x)
 o1 = add_objective!(mop, F; model_cfg = ExactConfig(), n_out = 1, diff_method = AutoDiffWrapper)
 
 G = x -> sum(x.^2)
-VG = M.make_vec_fun( G; n_out = 1, model_cfg = RbfConfig(kernel = :multiquadric) )
+VG = M.make_vec_fun( G; n_out = 1, model_cfg = LagrangeConfig() )
 #VG = M.make_vec_fun( G; n_out = 1, model_cfg = ExactConfig() )
 gind = M._add_function!( mop, VG )
 #o2 = M._add_objective!(mop, gind)

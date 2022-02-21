@@ -131,8 +131,8 @@ end
 # g1 = x -> 2 .* ( x .- 1 )
 # g2 = x -> 2 .* ( x .+ 1 )
 #
-# add_objective!( mop, f1, ExactConfig(; gradients = [g1,]) )
-# add_objective!( mop, f2, ExactConfig(; gradients = [g2,]) )
+# add_objective!( mop, f1; n_out = 1, model_cfg = ExactConfig(), gradients = [g1,]) )
+# add_objective!( mop, f2; n_out = 1, model_cfg = ExactConfig(), gradients = [g2,]) )
 #
 # x_fin, f_fin, _ = optimize( mop, [-π, ℯ, 0])
 # ```

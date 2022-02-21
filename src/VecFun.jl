@@ -193,7 +193,7 @@ function eval_objf( vfun :: VecFun, x :: Vec )
     return wrapped_function( vfun )(x)
 end
 
-function Broadcast.broadcasted( ::typeof(eval_objf), objf :: VecFun, X :: VecVec )
+function Broadcast.broadcasted( ::typeof(eval_objf), objf :: AbstractVecFun, X :: VecVec )
     return wrapped_function(objf).(X)
 end
 
