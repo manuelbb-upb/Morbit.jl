@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.15.1
+# v0.17.1
 
 using Markdown
 using InteractiveUtils
@@ -381,14 +381,7 @@ function _set_node_values!( node, f :: Function )
 	append!(node.vals, f( node.x ))
 end
 
-# ╔═╡ 9cb6592b-ba7d-4b46-9171-1816fd7dff69
-function set_leave_values!(dw :: DiffWrapper, leave_vals :: AbstractVector )
-	for (i,node) in enumerate(Trees.Leaves(dw.tree))
-		empty!(node.vals)
-		append!(node.vals, leave_vals[i] )
-	end
-end
-
+# ╔═╡ 4ab4319d-ccb9-4dd4-8dbb-ce10bd004ce5
 md"""
 !!! note
     The `set_leave_values!` methods should also reset the cache. Not implemented in this notebook.
@@ -437,7 +430,7 @@ function ingredients(path::String)
 end
 
 # ╔═╡ 6c6e63ae-28ce-4c1c-bb60-7e7826ffefbb
-Trees = ingredients( joinpath(@__DIR__, ".." ,"src", "Trees.jl") ).Trees
+Trees = ingredients( joinpath(@__DIR__, "Trees.jl") ).Trees
 
 # ╔═╡ c3fa417a-898f-4273-a75c-974a42e80a79
 @with_kw struct FDiffNode{T,X,C} <: Trees.Node
@@ -478,7 +471,6 @@ end
 
 # ╔═╡ 17347e0e-08ee-4a29-83b3-f337e397f49b
 function build_tree( x_sym, stamp, vars, order = 1; x_type = Vector{Float64}, val_type = Vector{Float64}, cache_type = Nothing )
-	@show cache_type
 	if order <= 0
 		# return a leave node
 		return FDiffNode(; x_sym, x = x_type(), vals = val_type(), cache = nothing )
@@ -614,6 +606,14 @@ end
 function set_leave_values!(dw :: DiffWrapper, f :: Function )
 	for node in Trees.Leaves(dw.tree)
 		_set_node_values!(node, f)
+	end
+end
+
+# ╔═╡ 9ac0a539-8856-4bf5-99e1-5915090354e7
+function set_leave_values!(dw :: DiffWrapper, leave_vals :: AbstractVector )
+	for (i,node) in enumerate(Trees.Leaves(dw.tree))
+		empty!(node.vals)
+		append!(node.vals, leave_vals[i] )
 	end
 end
 
@@ -1303,7 +1303,8 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╠═df8bd829-5c28-46c1-b171-1b5dc0358c76
 # ╠═ac3d101b-c9d1-4fdb-80a4-645464298ba3
 # ╠═7b725d45-f6fa-4bd8-99d7-fcad166320e5
-# ╠═9cb6592b-ba7d-4b46-9171-1816fd7dff69
+# ╠═9ac0a539-8856-4bf5-99e1-5915090354e7
+# ╟─4ab4319d-ccb9-4dd4-8dbb-ce10bd004ce5
 # ╠═bf982874-9ec2-4aa2-87ed-27f3d26d5d51
 # ╟─5d586923-a32e-4d16-a0a6-56bbc73680f2
 # ╠═3feed8b1-1338-47c7-960f-892481f96a5c
@@ -1311,6 +1312,6 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╟─d41308c0-b7f1-4ed9-b27e-7c6fe87080e6
 # ╠═6c6e63ae-28ce-4c1c-bb60-7e7826ffefbb
 # ╟─f294835d-ee9a-42b1-b2b7-5816d65e0f18
-# ╟─e9af48fd-ac05-4358-8a33-c14008ca1cb9
+# ╠═e9af48fd-ac05-4358-8a33-c14008ca1cb9
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

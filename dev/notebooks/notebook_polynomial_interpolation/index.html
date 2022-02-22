@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Lagrange Interpolation · Morbit.jl</title><script data-outdated-warner src="../../assets/warner.js"></script><link rel="canonical" href="https://manuelbb-upb.github.io/Morbit.jl/notebooks/notebook_polynomial_interpolation/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.039/juliamono-regular.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><script src="../../../copy.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">Morbit.jl</a></span></div><form class="docs-search" action="../../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../../example_two_parabolas/">Two Parabolas</a></li></ul></li><li><span class="tocitem">Models</span><ul><li><a class="tocitem" href="../../ExactModel/">ExactModels</a></li><li><a class="tocitem" href="../../RbfModel/">RbfModels</a></li><li><a class="tocitem" href="../../TaylorModel/">TaylorModels</a></li><li><a class="tocitem" href="../../LagrangeModel/">LagrangeModels</a></li></ul></li><li><span class="tocitem">Random Notebooks</span><ul><li><a class="tocitem" href="../notebook_finite_differences/">Finite Differences</a></li><li class="is-active"><a class="tocitem" href>Lagrange Interpolation</a></li></ul></li><li><a class="tocitem" href="../../custom_logging/">Pretty Printing</a></li><li><span class="tocitem">Developer</span><ul><li><a class="tocitem" href="../../dev_man/">DocStrings</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Random Notebooks</a></li><li class="is-active"><a href>Lagrange Interpolation</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Lagrange Interpolation</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/manuelbb-upb/Morbit.jl/blob/master/docs/src/notebooks/notebook_polynomial_interpolation.md#" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><style>
+    table {
+        display: table !important;
+        margin: 2rem auto !important;
+        border-top: 2pt solid rgba(0,0,0,0.2);
+        border-bottom: 2pt solid rgba(0,0,0,0.2);
+    }
+
+    pre, div {
+        margin-top: 1.4rem !important;
+        margin-bottom: 1.4rem !important;
+    }
+</style>
+
+<!-- PlutoStaticHTML.Begin -->
+<!--
+    # This information is used for caching.
+    [PlutoStaticHTML.State]
+    input_sha = "82012d577aa3f4c8a17e8ae42e5be8699cf7aae035a78d6f6e96e99bcbd777d2"
+    julia_version = "1.6.5"
+-->
+<pre class='language-julia'><code class='language-julia'>begin
+	import Pkg
+	Pkg.activate(tempname())
+	Pkg.add("DynamicPolynomials")
+	Pkg.add("NLopt")
+	Pkg.add("StaticArrays")
+	Pkg.add("CairoMakie")
+	Pkg.add("Makie")
+	Pkg.add("Combinatorics")
+	Pkg.add("BenchmarkTools")
+end</code></pre>
+
+
+<pre class='language-julia'><code class='language-julia'>begin
+	using DynamicPolynomials
+	using BenchmarkTools
+	import NLopt
+	using StaticArrays
+	using Makie, CairoMakie
+	using Combinatorics
+end</code></pre>
+
+
+
+<div class="markdown"><p>We denote by <span class="tex">$Π_n^d$</span> the space of <span class="tex">$n$</span>-variate Polyoniams of degree at most <span class="tex">$d$</span>. To construct polynomials we use <code>DynamicPolynomials.jl</code>.</p>
+</div>
+
+
+<div class="markdown"><p>The canonical basis is obtained by calculating the non-negative integral solutions to the euqation</p>
+<p class="tex">$$x_1 &#43; … &#43; x_n \le d.$$</p>
+</div>
+
+
+<div class="markdown"><p>These solutions can be found using the <code>Combinatorics</code> package via <code>multiexponents&#40;n,d&#41;</code> &#40;<code>d</code> must be successively increased&#41;.</p>
+</div>
+
+<pre class='language-julia'><code class='language-julia'>function non_negative_ineq_solutions(deg, n_vars)
+	collect(Iterators.flatten( ( collect(multiexponents( n_vars, d )) for d = 0 : deg ) ))
+end</code></pre>
+<pre id='var-non_negative_ineq_solutions' class='pre-class'><code class='code-output'>non_negative_ineq_solutions (generic function with 1 method)</code></pre>
+
+<pre class='language-julia'><code class='language-julia'>function get_poly_basis( deg, n_vars)
+	exponents = non_negative_ineq_solutions(deg, n_vars )
+	polys = let
+		@polyvar x[1:n_vars]
+		[ prod(x.^e) for e in exponents ]
+	end
+	return polys
+end</code></pre>
+<pre id='var-get_poly_basis' class='pre-class'><code class='code-output'>get_poly_basis (generic function with 1 method)</code></pre>
+
+
+<div class="markdown"><p>We are going to use the canonical basis to determine a <strong>poised set</strong> of points. This does in fact work with any polynomial basis for <span class="tex">$Π_n^d$</span>. <br />In the process of doing so, we also modify &#40;a copy of?&#41; the basis so that it becomes the Lagrange basis for the returned point set.</p>
+</div>
+
+
+<div class="markdown"><p>The Larange basis is formed by normalizing and orthogonalizing with respect to the point set:</p>
+</div>
+
+<pre class='language-julia'><code class='language-julia'>function orthogonalize_polys( poly_arr, x, i )
+	# normalize i-th polynomial with respect to `x`
+	p_i = poly_arr[i] / poly_arr[i](x)
+	
+	# orthogoalize 
+	return [ j != i ? poly_arr[j] - poly_arr[j](x) * p_i : p_i for j = eachindex( poly_arr ) ]
+end</code></pre>
+<pre id='var-orthogonalize_polys' class='pre-class'><code class='code-output'>orthogonalize_polys (generic function with 1 method)</code></pre>
+
+
+<div class="markdown"><p>We use Algorithm 6.2 and Algorithm 6.3 from the book  &quot;Introduction to Derivative-Free Optimization&quot; by Conn et. al. <br />Algorithm 6.2 makes the set poised &#40;suited for interpolation&#41; and returns the corresponding Lagrange basis. Algorithm 6.3 takes the poised set and the Lagrange basis and tries to make it <span class="tex">$Λ$</span>-poised. <span class="tex">$Λ$</span> must be greater 1 and a smaller value makes the set more suited for good models.</p>
+</div>
+
+<pre class='language-julia'><code class='language-julia'>"""
+    get_poised_set( basis, points; solver = :LN_BOBYQA, max_solver_evals = -1 )
+
+Compute a point set suited for polynomial interpolation.
+
+Input:
+* `basis`: A vector of polynomials constituting a basis for the polynomial space.
+* `points`: (optional) A set of candidate points to be tried for inclusion into the poised set.
+* `solver`: NLopt solver to use. Should be derivative-free.
+* `max_solver_evals`: Maximum number of evaluations in each optimization run. 
+
+Return:
+* `poised_points :: Vector{T}` where `T` is either a `Vector{F}` or an `SVector{n_vars, F}` and `F` is the precision of the points in `points`, but at least `Float32`. 
+* `lagrange_basis :: Vector{&lt;:AbstractPolynomialLike}`: The Lagrange basis corresponding to `poised_points`.
+* `point_indices`: An array indicating which points from `points` are also in `poised_points`. A positive entry corresponds to the index of a poised point in `points`. If a poised point is new, then the entry is `-1`.
+"""
+function get_poised_set( basis, points :: AbstractArray{T} = Vector{Float32}[]; 
+		solver = :LN_BOBYQA, max_solver_evals = -1 ) where {
+		T &lt;: AbstractArray{&lt;:Real}
+	}
+	
+	p = length(basis)
+	@assert p &gt; 0 "`basis` must not be an empty array."
+
+	vars = variables( basis[end] )
+	n_vars = length(vars)
+	@assert n_vars &gt; 0 "The number of variables must be positive."
+	
+	if max_solver_evals &lt; 0
+		max_solver_evals = 2000 * n_vars
+	end
+
+	F = promote_type( eltype( T ), Float32 )
+	P_type = n_vars &gt; 100 ? Vector{Vector{F}} : Vector{SVector{n_vars, F}}
+	ZERO_TOL = min(eps(F) * 100, eps(Float16) * 10)
+	
+	# indicates which points from points have been accepted
+	point_indices = fill(-1, p)
+	not_accepted_indices = collect( eachindex( points ) )
+	# return array of points that form a poised set
+	poised_points = P_type(undef, p)
+		
+	new_basis = basis
+	for i = 1 : p
+		_points = points[not_accepted_indices]
+		
+		# find the point that maximizes the i-th polynomial 
+		# if the polynomial is constant, then the first remaining point is used (j = 1)
+		l_max, j = if isempty(_points)
+			0.0, 0
+		else
+			findmax( abs.( [ new_basis[i]( x ) for x in _points ] ) )
+		end
+		
+		if l_max &gt; ZERO_TOL
+			# accept the `j`-th point from `_points`
+			poised_points[i] = _points[j]
+			## indicate what the actual point index was  
+			point_indices[i] = not_accepted_indices[j]
+			## delete from further consideration
+			deleteat!(not_accepted_indices, j)
+		else
+			# no point was suitable to add to the set
+			# trying to find the maximizer for a | l_i(x) |
+			opt = NLopt.Opt( solver, n_vars ) 
+			opt.lower_bounds = zeros(F, n_vars )
+            opt.upper_bounds = ones(F, n_vars )
+            opt.maxeval = max_solver_evals
+            opt.xtol_rel = 1e-3
+            opt.max_objective = (x,g) -&gt; abs( new_basis[i](x) )
+			
+			x₀_tmp = [ rand(F, n_vars) for i = 1 : 50 * n_vars ]
+            x₀ = x₀_tmp[argmax( abs.(new_basis[i].(x₀_tmp)) ) ] 
+            
+			_, ξ, ret = NLopt.optimize(opt, x₀)
+			
+			poised_points[i] = ξ
+		end		
+		
+		new_basis = orthogonalize_polys( new_basis, poised_points[i], i )
+	end
+	
+	return poised_points, new_basis, point_indices
+end
+			</code></pre>
+
+
+<pre class='language-julia'><code class='language-julia'>"""
+    make_set_lambda_poised( basis, points; 
+        LAMBDA = 1.5, solver = :LN_BOBYQA, max_solver_evals = -1, max_loops = -1, skip_indices = [1,] )
+
+Make the output of `get_poised_set` even better suited for interpolation.
+
+Input:
+* `basis`: A vector of polynomials constituting a Lagrange basis for the polynomial space.
+* `points`: The vector of points belonging to the Lagrange basis.
+* `LAMBDA :: Real &gt; 1`: Determines the quality of the interpolation. 
+* `solver`: NLopt solver to use. Should be derivative-free.
+* `max_solver_evals`: Maximum number of evaluations in each optimization run. 
+* `max_loops`: Maximum number of loops that try to make the set Λ-poised.
+* `skip_indices`: Inidices of points to discard last.
+
+Return:
+* `poised_points :: Vector{T}` where `T` is either a `Vector{F}` or an `SVector{n_vars, F}` and `F` is the precision of the points in `points`, but at least `Float32`. 
+* `lagrange_basis :: Vector{&lt;:AbstractPolynomialLike}`: The Lagrange basis corresponding to `poised_points`.
+* `point_indices`: An array indicating which points from `points` are also in `poised_points`. A positive entry corresponds to the index of a poised point in `points`. If a poised point is new, then the entry is `-1`.
+"""
+function make_set_lambda_poised( basis, points :: AbstractArray{T}; 
+		LAMBDA :: Real = 1.5, solver = :LN_BOBYQA, max_solver_evals = -1,
+		max_loops = -1, skip_indices = [1,] ) where {
+		T &lt;: AbstractArray{&lt;:Real}
+	}
+	
+	@assert length(basis) == length(points) "Polynomial array `basis` and point array `points` must have the same length."
+	
+	if length(points) &gt; 0
+		n_vars = length(points[1])
+		@assert n_vars &gt; 0 "The number of variables must be positive."
+		
+		F = promote_type( eltype( T ), Float32 )
+		P_type = n_vars &gt; 100 ? Vector{Vector{F}} : Vector{SVector{n_vars, F}}
+
+		if max_loops &lt; 0 
+			max_loops = length(basis) * 100
+		end
+
+		if max_solver_evals &lt; 0
+			max_solver_evals = 2000 * n_vars
+		end
+
+		new_basis = basis
+		new_points = P_type(points)
+		point_indices = collect(eachindex(new_points))
+
+		for k = 1 : max_loops
+			iₖ = -1
+			xₖ = points[1]
+			for (i, polyᵢ) in enumerate(new_basis)
+				opt = NLopt.Opt( solver, n_vars )
+				opt.lower_bounds = zeros(F, n_vars)
+				opt.upper_bounds = ones(F, n_vars)
+				opt.maxeval = max_solver_evals
+				opt.xtol_rel = 1e-3
+				opt.max_objective = (x,g) -&gt; abs( polyᵢ( x ) ) 
+
+				x₀_tmp = [ rand(F, n_vars) for i = 1 : 50 * n_vars ]
+				x₀ = x₀_tmp[argmax( abs.(new_basis[i].(x₀_tmp)) ) ] 
+
+				abs_lᵢ, xᵢ, _ = NLopt.optimize(opt, x₀)
+
+				if abs_lᵢ &gt; LAMBDA
+					iₖ = i
+					xₖ = xᵢ
+					if i ∉ skip_indices
+						# i is not prioritized we can brake here
+						break
+					end#if
+				end#if
+			end#for
+
+			if iₖ &gt; 0
+				# perform a point swap
+				new_points[iₖ] = xₖ
+				point_indices[iₖ] = -1
+				# adapt coefficients of lagrange basis
+				new_basis = orthogonalize_polys( new_basis, xₖ, iₖ )
+			else
+				# we are done, the set is lambda poised
+				break
+			end#if
+		end#for
+
+		return new_points, new_basis, point_indices
+	else
+		return points, basis, collect(eachindex(points))
+	end
+	
+end</code></pre>
+
+
+
+<div class="markdown"><p>For the sake of convenience we combine both functions:</p>
+</div>
+
+<pre class='language-julia'><code class='language-julia'>function get_lambda_poised_set( basis, points; solver1 = :LN_BOBYQA, solver2 = :LN_BOBYQA, max_solver_evals1 = -1, max_solver_evals2 = -1, LAMBDA = 1.5, max_lambda_loops = -1 )
+	lagrange_points, lagrange_basis, lagrange_indices = get_poised_set( 
+		basis, points; solver = solver1, max_solver_evals = max_solver_evals1 )
+	lambda_points, lambda_basis, lambda_indices = make_set_lambda_poised( 
+		lagrange_basis, lagrange_points; LAMBDA, max_loops = max_lambda_loops,
+		solver = solver2, max_solver_evals = max_solver_evals2 )
+	combined_indices = [ i &lt; 0 ? i : lagrange_indices[j] for (j,i) in enumerate( lambda_indices ) ]
+	return lambda_points, lambda_basis, combined_indices
+end</code></pre>
+<pre id='var-get_lambda_poised_set' class='pre-class'><code class='code-output'>get_lambda_poised_set (generic function with 1 method)</code></pre>
+
+
+<div class="markdown"><p>Let&#39;s have a look at what the points look like:</p>
+</div>
+
+<pre class='language-julia'><code class='language-julia'>begin 
+	basis = get_poly_basis(2,2)
+	custom_points =  [ ones(Float32, 2), ones(Float32,2)] 
+	
+	#lambda_points, lambda_basis, c_indices = get_lambda_poised_set( basis,custom_points)
+	lambda_points, lambda_basis, c_indices = get_poised_set( basis,custom_points)
+	c_indices
+end</code></pre>
+<pre id='var-lambda_points' class='pre-class'><code class='code-output'>6-element Vector{Int64}:
+  1
+ -1
+ -1
+ -1
+ -1
+ -1</code></pre>
+
+<pre class='language-julia'><code class='language-julia'>scatter(Tuple.(lambda_points))</code></pre>
+<img src="data:image/png;base64,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">
+
+<!-- PlutoStaticHTML.End --></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../notebook_finite_differences/">« Finite Differences</a><a class="docs-footer-nextpage" href="../../custom_logging/">Pretty Printing »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.12 on <span class="colophon-date" title="Tuesday 22 February 2022 09:30">Tuesday 22 February 2022</span>. Using Julia version 1.6.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

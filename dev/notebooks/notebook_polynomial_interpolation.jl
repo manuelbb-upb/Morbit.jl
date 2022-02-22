@@ -11,9 +11,10 @@ begin
 	Pkg.add("DynamicPolynomials")
 	Pkg.add("NLopt")
 	Pkg.add("StaticArrays")
-	Pkg.add("GLMakie")
+	Pkg.add("CairoMakie")
 	Pkg.add("Makie")
 	Pkg.add("Combinatorics")
+	Pkg.add("BenchmarkTools")
 end
 
 # ╔═╡ 9956f874-e481-4e3e-97fc-150aef8b69fa
@@ -22,7 +23,7 @@ begin
 	using BenchmarkTools
 	import NLopt
 	using StaticArrays
-	using Makie, GLMakie
+	using Makie, CairoMakie
 	using Combinatorics
 end
 
