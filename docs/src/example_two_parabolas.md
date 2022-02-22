@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/examples/example_two_parabolas.jl"
+EditURL = "<unknown>/../examples/example_two_parabolas.jl"
 ```
 
 # Two Parabolas

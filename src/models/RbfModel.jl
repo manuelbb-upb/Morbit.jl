@@ -177,6 +177,306 @@ end
 
 # ## Construction
 
+# When an RBF model is constructed, there are three to four rounds of 
+# data collection and sampling. 
+
+# In the first round, we look within a box with bounds `lb_1` and `ub_2` and 
+# maximum radius `Δ_1` for suitable datasites in the database `db`.
+# A site is deemed "suitable" if its sufficiently affinely independent from 
+# the sites already collected, and the test ``\|\operatorname{proj}_Z ξ\| \ge θ`` 
+# is performed with ``θ`` as `piv_val_1`, an iteration dependent threshold.
+
+# The second round is much the same, but we look in a larger box with corners 
+# `lb_2` and `ub_2`, and respect the sites we allready found.\
+# Hence, in both cases we can make use of the following helper.
+# `Y` is a matrix whose columns consists of previously found sites translated by 
+# ``-x`` and the columns of `Z` are orthogonal to it: 
+
+function _find_suitable_points(db, lb, ub, x :: Vector{F}, x_index, piv_val;
+	already_inspected_indices = Int[], 
+	Y = Matrix{F}(undef, length(x), 0), 
+	Z = Matrix{F}(I(length(x))),
+	n_missing = length(x),
+	collect_improving_directions = true
+) where F
+
+	## Look for candidates in box …
+	candidate_indices = results_in_box_indices( 
+		db, lb, ub, [x_index; already_inspected_indices],
+	)
+
+	## … and filter them to obtain affinely independent points.
+	index_filter = AffinelyIndependentPointFilter(; 
+		x_0 = x, 
+		seeds = get_site.(db, candidate_indices),
+		return_indices = true, 
+		pivot_val = piv_val,
+		n = n_missing,
+		p = Inf,	# for consistency, use norm(…, Inf)
+		Y,Z
+	)		
+	
+	filtered_indices = candidate_indices[ collect( index_filter ) ]
+	
+	improving_directions = if collect_improving_directions 
+		reverse(collect(Vector{F}, eachcol(index_filter.Z)))
+	else
+		nothing
+	end
+
+	return filtered_indices, improving_directions, candidate_indices, index_filter.Y, index_filter.Z
+end
+
+# Now, if the right values `lb_1`, `ub_1` and `piv_val_1`
+# are already provided, we simply forward to the helper function:
+function _rbf_round1(db, lb_1, ub_1, x, x_index, piv_val_1) 
+	filtered_indices, improving_directions, candidate_indices, Y, Z = _find_suitable_points(
+		db, lb_1, ub_1, x, x_index, piv_val_1
+	)
+	@logmsg loglevel3 "Found $(length(filtered_indices)) sites in first round."
+	return filtered_indices, improving_directions, candidate_indices, Y, Z
+end
+
+# For round 2 we have to set the keyword arguments:
+function _rbf_round2(
+	db, lb_2, ub_2, Δ_2, x, x_index, piv_val_2,
+	n_missing, Y, Z, candidate_indices_1
+)
+	@logmsg loglevel3 "Missing $(n_missing) sites still."
+	@logmsg loglevel3 "Round2: Inspect box with radius $(Δ_2) and pivot value $(piv_val_2)."
+		
+	filtered_indices, _ = _find_suitable_points( 
+		db, lb_2, ub_2, x, x_index, piv_val_2; 
+		already_inspected_indices = candidate_indices_1,
+		collect_improving_directions = false,
+		n_missing, Y, Z
+	)
+	return filtered_indices
+end 
+
+# If there are still not enough data sites (``<n``), then we perform sampling 
+# along the improving directions from round 1 (i.e., the colums of `Z_1`):
+function _rbf_round3(db, lb_1, ub_1, Δ_1, x::Vector{F}, piv_val_1,
+	improving_directions, max_new, n_missing, ensure_fully_linear, force_rebuild
+) where F
+	@logmsg loglevel3 "Round3: Still missing $(n_missing). Sampling in box of radius $(Δ_1)."
+	
+	n_new = min(n_missing, max_new)
+	
+	new_points = Vector{Vector{F}}(undef, n_new)
+	_fully_linear = n_new >= n_missing
+
+	@assert length(improving_directions) >= n_new "There must be more improving directions than points missing."
+	
+	for i = 1 : n_new
+		dir = improving_directions[i]
+		len = intersect_box( x, dir, lb_1, ub_1; return_vals = :absmax )
+		offset = len .* dir
+		if norm( offset, Inf ) <= piv_val_1
+			### the new point does not pass the thresholding test 
+			if ensure_fully_linear && !force_rebuild
+				### If we need a fully linear model, we dismiss the inidices gathered so far …
+				### … and call for a rebuild along the coordinate axis (in the caller method):
+				return nothing, nothing, nothing
+			else
+				### we include the point nonetheless, 
+				### but the model will not qualify as fully linear...
+				_fully_linear = false
+			end
+		end	
+		new_points[i] = x .+ offset
+	end
+
+	## by adding the points to the database at this point in time (i.e., afterwards), 
+	## we avoid requesting unnecessary results from a round 3 interrupted by rebuilding
+	new_indices = Vector{Int}(undef, length(new_points))
+	for (i,p) = enumerate(new_points)
+		new_id = new_result!( db, p, F[] )
+		new_indices[i] = new_id
+	end
+
+	return new_indices, _fully_linear, improving_directions[n_new+1:end]
+end
+
+# As rounds 1-3 are based on gemotric reasoning only (and do not depend on the RBF kernel),
+# we can actually exploit the work done for previous RBF models in the same outer iteration:
+function _exploit_other_rbf_metas!(meta,db,sdb,meta_array)
+	isnothing(meta_array) && return false
+	skip_first_rounds = false
+
+	for other_meta in meta_array
+		if other_meta isa RbfMeta && other_meta.signature == meta.signature 	
+			other_db = get_sub_db(sdb, other_meta.func_indices )
+			for fn in [ Symbol("round$(i)_indices") for i = 1: 3 ]
+				this_id_arr = getfield(meta, fn)
+				empty!(this_id_arr)
+				for res_id = getfield(other_meta, fn)
+					## transfer result from `other_db` to `db`
+					res = get_result.(other_db, res_id)
+					new_res_id = ensure_contains_res_with_site!(db, get_site(res))
+					## push! index into correct array in `meta`
+					push!( this_id_arr, new_res_id )
+				end
+			end
+			## also transfer the improving directions
+			empty!(meta.improving_directions)
+			append!(
+				meta.improving_directions, 
+				deepcopy(other_meta.improving_directions)
+			)
+			meta.fully_linear = other_meta.fully_linear
+			skip_first_rounds = true
+			break
+		end
+	end
+
+	return skip_first_rounds
+end
+
+# Round 4 is different from rounds 1-3 in that we now have sufficiently linearly independent
+# points and try to find additional points in the database, such that the model hessians stay bounded.
+# The procedure is described in [^wild_diss].
+function _rbf_round4(db, lb_2, ub_2, x::Vector{F}, Δ, indices_found_so_far, cfg,
+) where F
+	n_vars = length(x)
+
+	max_points = cfg.max_model_points <= 0 ? 2 * n_vars + 1 : cfg.max_model_points
+
+	N = length(indices_found_so_far)
+	
+	candidate_indices_4 = results_in_box_indices( db, lb_2, ub_2, indices_found_so_far )
+	
+	max_tries = 10 * max_points	
+	num_tries = 0
+	
+	round4_indices = Int[]
+
+	if N < max_points && ( !isempty(candidate_indices_4) || cfg.use_max_points )
+		@logmsg loglevel3 "Round4: Can we find $(max_points - N) additional sites?"
+
+		chol_pivot = cfg.θ_pivot_cholesky
+
+		centers = get_site.(db, indices_found_so_far)
+		φ = _get_radial_function( Δ, cfg )
+		Φ, Π, kernels, polys = RBF.get_matrices( φ, centers; 
+			poly_deg = cfg.polynomial_degree )
+		
+		## prepare matrices as by Wild, R has to be augmented by rows of zeros
+		Q, R = qr( transpose(Π) )
+		R = [
+			R;
+			zeros( size(Q,1) - size(R,1), size(R,2) )
+		]
+		Z = Q[:, N + 1 : end ] ## columns of Z are orthogonal to Π
+
+		## Note: usually, Z, ZΦZ and L should be empty (if N == n_vars + 1)
+		ZΦZ = Hermitian(Z'Φ*Z)	## make sure, it is really symmetric
+		L = cholesky( ZΦZ ).L   ## perform cholesky factorization
+		L⁻¹ = inv(L)			## most likely empty at this point
+
+		φ₀ = Φ[1,1]
+
+		@logmsg loglevel3 "Round4: Considering $(length(candidate_indices_4)) candidates."
+		
+		while N < max_points && num_tries <= max_tries
+			
+			if !isempty( candidate_indices_4 )
+				id = popfirst!( candidate_indices_4 )
+				### get candidate site ξ ∈ ℝⁿ
+				ξ = get_site( db, id )
+			else
+				if cfg.use_max_points
+					### there are no more sites in the db, but we **want**
+					### to use as many as possible
+					id = -1
+					ξ = _rand_box_point( lb_2, ub_2, F)
+					num_tries += 1
+				else 
+					break 
+				end
+			end
+
+			### apply all RBF kernels
+			φξ = kernels( ξ )
+		
+			### apply polynomial basis system and augment polynomial matrix
+			πξ = polys( ξ )
+			Rξ = [ R; πξ' ]
+
+			### perform Givens rotations to turn last row in Rξ to zeros
+			row_index = size( Rξ, 1)
+			G = Matrix(I, row_index, row_index) # whole orthogonal matrix
+			for j = 1 : size(R,2) 
+				## in each column, take the diagonal as pivot to turn last elem to zero
+				g = givens( Rξ[j,j], Rξ[row_index, j], j, row_index )[1]
+				Rξ = g*Rξ;
+				G = g*G;
+			end
+
+			### now, from G we can update the other matrices 
+			Gᵀ = transpose(G)
+			g̃ = Gᵀ[1 : end-1, end]
+			ĝ = Gᵀ[end, end]
+
+			Qg = Q*g̃;
+			v_ξ = Z'*( Φ*Qg + φξ .* ĝ )
+			σ_ξ = Qg'*Φ*Qg + (2*ĝ) * φξ'*Qg + ĝ^2*φ₀
+
+			τ_ξ² = σ_ξ - norm( L⁻¹ * v_ξ, 2 )^2 
+			## τ_ξ (and hence τ_ξ^2) must be bounded away from zero 
+			## for the model to remain fully linear
+			if τ_ξ² > chol_pivot
+				
+				if id < 0
+					id = new_result!( db, ξ, F[] )
+				end
+				push!(round4_indices, id)	# accept the result
+				
+				τ_ξ = sqrt(τ_ξ²)
+
+				## zero-pad Q and multiply with Gᵗ
+				Q = [
+					Q 					zeros( size(Q,1), 1);
+					zeros(1, size(Q,2)) 1
+				] * Gᵀ
+
+				Z = [ 
+					Z  						Qg;
+					zeros(1, size(Z,2)) 	ĝ 
+				]
+				
+				L = [
+					L          zeros(size(L,1), 1) ;
+					v_ξ'L⁻¹'   τ_ξ 
+				]
+
+				L⁻¹ = [
+					L⁻¹                zeros(size(L⁻¹,1),1);
+					-(v_ξ'L⁻¹'L⁻¹)./τ_ξ   1/τ_ξ 
+				]
+
+				R = Rξ
+
+				## finally, augment basis matrices and add new kernel for next iteration
+				Π = [ Π πξ ]
+
+				Φ = [ 
+					Φ   φξ;
+					φξ' φ₀
+				]
+				push!( kernels, RBF.make_kernel(φ, ξ) )
+
+				## assert all( diag( L * L⁻¹) .≈ 1 )
+				N += 1
+			end#if 
+		end#for 
+		@logmsg loglevel3 "Round4: found $(length(round4_indices)) additional sites."
+	end#if
+	return round4_indices
+end
+
+# ### Piecing it all together 
+
 # The initial `prepare_init_model` function should return a meta object that can be used
 # to build an initial surrogate model.
 # We delegate the work to `prepare_update_model`.
@@ -191,6 +491,7 @@ end
 
 # Usually, `prepare_update_model` would only accept a model as its first argument.
 # Because of the trick from above, we actually allow `nothing`, too.
+# We then make use of the `_rbf_roundX` methods:
 function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta, 
 		cfg, func_indices, mop, scal, 
 		iter_data, sdb, algo_config;
@@ -218,34 +519,10 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 	## By default, assume that our model is not fully linear
 	meta.fully_linear = false
 
-	## Can we skip the first rounds? (Because we already found interpolation sets for other RBFModels?)	
-	skip_first_rounds = false
-
-	if !isnothing(meta_array)
-		for other_meta in meta_array
-			if other_meta isa RbfMeta && other_meta.signature == meta.signature 	
-				other_db = get_sub_db(sdb, other_meta.func_indices )
-				for fn in [ Symbol("round$(i)_indices") for i = 1: 3 ]
-					this_id_arr = getfield(meta, fn)
-					empty!(this_id_arr)
-					for res_id = getfield(other_meta, fn)
-						res = get_result.(other_db, res_id)
-						new_res_id = ensure_contains_res_with_site!(db, get_site(res))
-						push!( this_id_arr, new_res_id )
-					end
-				end
-				empty!(meta.improving_directions)
-				append!(
-					meta.improving_directions, 
-					deepcopy(other_meta.improving_directions)
-				)
-				meta.fully_linear = other_meta.fully_linear
-				skip_first_rounds = true
-
-				break
-			end
-		end
-	end
+	## Can we skip the first rounds? 
+	## (Because we already found interpolation sets for other RBFModels?)	
+	skip_first_rounds = _exploit_other_rbf_metas!(meta,db,sdb,meta_array)
+		
 	## use center as first training site ⇒ at least `n_vars` required still
 	meta.center_index = x_index
 
@@ -256,6 +533,7 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 	piv_val_1 = F.(cfg.θ_pivot * Δ_1) # threshold value for acceptance in filter
 
 	### `Δ_2` is the maximum allowed trust region radius and used in rounds 2 & 4
+	### We set it here due to the `@goto` statement.
 	Δ_2 = F.(cfg.θ_enlarge_2 * Δ_max )
 	lb_2, ub_2 = local_bounds( scal, x, Δ_2 )
 	piv_val_2 = piv_val_1 # the pivot value stays the same 
@@ -265,27 +543,13 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 	if force_rebuild || !cfg.optimized_sampling
 		### `force_rebuild` makes us skip the point searching procedures to …
 		### … rebuild the model along the coordinate axes.
-		filtered_indices_1 = Int[]
-		improving_directions = [ [zeros(F,i-1); one(F); zeros(F,n_vars - i)] for i = 1:n_vars ]
+		filtered_indices_1 = candidate_indices_1 = Int[]
+		improving_directions = collect( Vector{F}, eachcol(I(n_vars)) )
+		Y_1 = Z_1 = nothing ## should never be used due to the `if` conditions
 	else
-		@logmsg loglevel3 "Round1: Inspect box with radius $(Δ_1) and pivot value $(piv_val_1)."
-
-		### only consider points from within current trust region …
-		candidate_indices_1 = results_in_box_indices( db, lb_1, ub_1, [x_index],)
-
-		### … and filter them to obtain affinely independent points.
-		filter = AffinelyIndependentPointFilter(; 
-			x_0 = x, 
-			seeds = get_site.(db, candidate_indices_1),
-			return_indices = true, 
-			pivot_val = piv_val_1
-		)		
-		
-		filtered_indices_1 = candidate_indices_1[ collect( filter ) ]
-		### TODO should we rather use Z₂ to sample along unexplored directions? (for now, i simply reverse Z₁) #src
-		improving_directions = reverse(collect(Vector{F}, eachcol(filter.Z)))
-
-		@logmsg loglevel3 "Round1: Found $(length(filtered_indices_1)) sites in database."
+		filtered_indices_1, improving_directions, candidate_indices_1, Y_1, Z_1 = _rbf_round1(
+			db, lb_1, ub_1, x, x_index, piv_val_1
+		)
 	end
 	### Store indices in meta data object:
 	empty!(meta.round1_indices)
@@ -294,36 +558,21 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 	append!(meta.improving_directions, improving_directions )
 
 	## Second round of sampling:
-	### If there are not enough sites to have a fully linear model …
-	### … try to at least find more sites in maximum allowed radius
+
+	### If there are not enough sites to have a fully linear model
+	### try to at least find more sites in maximum allowed radius `Δ_2`.
+
 	n_missing = n_vars - length( meta.round1_indices )
 
 	if n_missing == 0 || force_rebuild || !cfg.optimized_sampling || ensure_fully_linear || Δ ≈ Δ_max && cfg.θ_enlarge_1 == cfg.θ_enlarge_2
 		@logmsg loglevel3 "Skipping round 2."
-	
 		meta.fully_linear = true
-		filter_2 = filter
 		empty!(meta.round2_indices)
 	else
 		### actually perform round 2
-
-		@logmsg loglevel3 "Missing $(n_missing) sites still."
-		@logmsg loglevel3 "Round2: Inspect box with radius $(Δ_2) and pivot value $(piv_val_1)."
-			
-		### as before, only consider points in box of radius `Δ_2`, but ignore `x` and the previous points
-		candidate_indices_2 = results_in_box_indices( db, lb_2, ub_2, [x_index; candidate_indices_1])
-		
-		filter_2 = AffinelyIndependentPointFilter(; 
-			x_0 = x, 
-			seeds = get_site.(db, candidate_indices_2),
-			Y = filter.Y,	# pass prior matrices, so that new points are projected onto span of Z
-			Z = filter.Z,
-			n = n_missing,
-			return_indices = true, 
-			pivot_val = piv_val_2
+		filtered_indices_2 = _rbf_round2(db, lb_2, ub_2, Δ_2, x, x_index, piv_val_2, 
+			n_missing, Y_1, Z_1, candidate_indices_1
 		)
-		
-		filtered_indices_2 = candidate_indices_2[ collect(filter_2) ]
 		
 		### Store indices
 		empty!(meta.round2_indices)
@@ -339,189 +588,45 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 	n_missing -= length(meta.round2_indices)
 	empty!(meta.round3_indices)
 	if n_missing > 0
-
-		@logmsg loglevel3 "Round3: Still missing $(n_missing). Sampling in box of radius $(Δ_1)."
-		
-		### If round 2 did not yield any new points, the model will hopefully be made fully linear now.
-		if length(meta.round2_indices) == 0
-			meta.fully_linear = true 
-		end
-
 		### Take into consideration the maximum number of evaluations allowed:
 		num_objf_evals = maximum( num_evals(_get(mop, ind)) for ind in func_indices ) 
 		num_unevaluated = length(_missing_ids(db))
-		max_new = min(max_evals(algo_config), max_evals(cfg)) - 1 - num_objf_evals - num_unevaluated
-		n_new = min(n_missing, max_new)
+		max_new = min( max_evals(algo_config), max_evals(cfg) ) - 
+			1 - num_objf_evals - num_unevaluated;
 		
-		new_points = Vector{F}[]
-		while !isempty(meta.improving_directions) && length( new_points ) < n_new
-			dir = popfirst!( meta.improving_directions )
-			len = intersect_box( x, dir, lb_1, ub_1; return_vals = :absmax )
-			offset = len .* dir
-			if norm( offset, Inf ) <= piv_val_1
-				### the new point does not pass the thresholding test 
-				if ensure_fully_linear && !force_rebuild
-					### If we need a fully linear model, we dismiss the inidices gathered so far …
-					### … and call for a rebuild along the coordinate axis:
-					return prepare_update_model(mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; ensure_fully_linear = true, force_rebuild = true)
-				else
-					### we include the point nonetheless, but the model will not qualify as fully linear...
-					meta.fully_linear = false
-				end
-			end	
-			push!( new_points, x .+ offset )
-		end
+		### Perform round 3:
+		new_indices, _fully_linear, improving_directions  = _rbf_round3(
+			db, lb_1, ub_1, Δ_1, x, piv_val_1, 
+			improving_directions, max_new, n_missing, ensure_fully_linear, force_rebuild
+		)
 
-		### by adding the points to the database at this point in time we avoid 
-		### requesting unnecessary results from a round 3 interrupted by rebuilding
-		new_indices = Int[]
-		for p ∈ new_points
-			new_id = new_result!( db, p, F[] )
-			push!(new_indices, new_id)		
+		### Update `meta`:
+		if !isnothing( new_indices )
+			append!(meta.round3_indices, new_indices)
+			### If round 2 did not yield any new points, 
+			### the model is (hopefully) fully linear now.
+			meta.fully_linear = _fully_linear && (length(meta.round2_indices) == 0)
+		else
+			### If round 3 was not successful, the model is rebuild along the coordinate axes:
+			return prepare_update_model(
+				mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; 
+				ensure_fully_linear = true, force_rebuild = true
+			)
 		end
-
-		append!(meta.round3_indices, new_indices)
 	end
 
 	@label round4
-	## In round 4 we have found `n_vars + 1` training sites and try to find additional points within the 
-	## largest possible trust region.
+	## In round 4 we have found `n_vars + 1` training sites and try to 
+	## find additional points within the largest possible trust region.
+	
 	empty!(meta.round4_indices)
 
 	if cfg.optimized_sampling
-			
-		max_points = cfg.max_model_points <= 0 ? 2 * n_vars + 1 : cfg.max_model_points
 		indices_found_so_far = _collect_indices( meta )
-		N = length(indices_found_so_far)
 		
-		candidate_indices_4 = results_in_box_indices( db, lb_2, ub_2, indices_found_so_far )
-		
-		max_tries = 10 * max_points	
-		num_tries = 0
-
-		if N < max_points && ( !isempty(candidate_indices_4) || cfg.use_max_points )
-			@logmsg loglevel3 "Round4: Can we find $(max_points - N) additional sites?"
-			round4_indices = Int[]
-
-			chol_pivot = cfg.θ_pivot_cholesky
-
-			centers = get_site.(db, indices_found_so_far)
-			φ = _get_radial_function( Δ, cfg )
-			Φ, Π, kernels, polys = RBF.get_matrices( φ, centers; poly_deg = cfg.polynomial_degree )
-			
-			## prepare matrices as by Wild, R has to be augmented by rows of zeros
-			Q, R = qr( transpose(Π) )
-			R = [
-				R;
-				zeros( size(Q,1) - size(R,1), size(R,2) )
-			]
-			Z = Q[:, N + 1 : end ] ## columns of Z are orthogonal to Π
-
-			## Note: usually, Z, ZΦZ and L should be empty (if N == n_vars + 1)
-			ZΦZ = Hermitian(Z'Φ*Z)	## make sure, it is really symmetric
-			L = cholesky( ZΦZ ).L   ## perform cholesky factorization
-			L⁻¹ = inv(L)				 ## most likely empty at this point
-
-			φ₀ = Φ[1,1]
-
-			@logmsg loglevel3 "Round4: Considering $(length(candidate_indices_4)) candidates."
-			
-			while N < max_points && num_tries <= max_tries
-				
-				if !isempty( candidate_indices_4 )
-					id = popfirst!( candidate_indices_4 )
-					### get candidate site ξ ∈ ℝⁿ
-					ξ = get_site( db, id )
-				else
-					if cfg.use_max_points
-						### there are no more sites in the db, but we **want**
-						### to use as many as possible
-						id = -1
-						ξ = _rand_box_point( lb_2, ub_2, F)
-						num_tries += 1
-					else 
-						break 
-					end
-				end
-
-				### apply all RBF kernels
-				φξ = kernels( ξ )
-			
-				### apply polynomial basis system and augment polynomial matrix
-				πξ = polys( ξ )
-				Rξ = [ R; πξ' ]
-
-				### perform Givens rotations to turn last row in Rξ to zeros
-				row_index = size( Rξ, 1)
-				G = Matrix(I, row_index, row_index) # whole orthogonal matrix
-				for j = 1 : size(R,2) 
-					## in each column, take the diagonal as pivot to turn last elem to zero
-					g = givens( Rξ[j,j], Rξ[row_index, j], j, row_index )[1]
-					Rξ = g*Rξ;
-					G = g*G;
-				end
-
-				### now, from G we can update the other matrices 
-				Gᵀ = transpose(G)
-				g̃ = Gᵀ[1 : end-1, end]
-				ĝ = Gᵀ[end, end]
-
-				Qg = Q*g̃;
-				v_ξ = Z'*( Φ*Qg + φξ .* ĝ )
-				σ_ξ = Qg'*Φ*Qg + (2*ĝ) * φξ'*Qg + ĝ^2*φ₀
-
-				τ_ξ² = σ_ξ - norm( L⁻¹ * v_ξ, 2 )^2 
-				## τ_ξ (and hence τ_ξ^2) must be bounded away from zero 
-				## for the model to remain fully linear
-				if τ_ξ² > chol_pivot
-					
-					if id < 0
-						id = new_result!( db, ξ, F[] )
-					end
-					push!(round4_indices, id)	# accept the result
-					
-					τ_ξ = sqrt(τ_ξ²)
-
-					## zero-pad Q and multiply with Gᵗ
-					Q = [
-						Q 					zeros( size(Q,1), 1);
-						zeros(1, size(Q,2)) 1
-					] * Gᵀ
-
-					Z = [ 
-						Z  						Qg;
-						zeros(1, size(Z,2)) 	ĝ 
-					]
-					
-					L = [
-						L          zeros(size(L,1), 1) ;
-						v_ξ'L⁻¹'   τ_ξ 
-					]
-
-					L⁻¹ = [
-						L⁻¹                zeros(size(L⁻¹,1),1);
-						-(v_ξ'L⁻¹'L⁻¹)./τ_ξ   1/τ_ξ 
-					]
-
-					R = Rξ
-
-					## finally, augment basis matrices and add new kernel for next iteration
-					Π = [ Π πξ ]
-
-					Φ = [ 
-						Φ   φξ;
-						φξ' φ₀
-					]
-					push!( kernels, RBF.make_kernel(φ, ξ) )
-
-					## assert all( diag( L * L⁻¹) .≈ 1 )
-					N += 1
-				end#if 
-			end#for 
-			append!(meta.round4_indices, round4_indices)
-			@logmsg loglevel3 "Round4: found $(length(round4_indices)) additional sites."
-		end#if
-	end# if cfg.optimized_sampling
+		round4_indices = _rbf_round4(db,lb_2,ub_2,x,Δ,indices_found_so_far,cfg)
+		append!(meta.round4_indices, round4_indices)
+	end
 
 	return meta
 end
@@ -680,8 +785,8 @@ end
 # 3. If you don't want to use a polynomial:  
 #    ```julia
 #    add_objective!(mop, f;
-#		model_cfg = RbfConfig(;kernel = :cubic, polynomial_degree = -1 ),
-#		n_out = 1)
+#      model_cfg = RbfConfig(;kernel = :cubic, polynomial_degree = -1 ),
+#      n_out = 1)
 #    ```
 #    This only works for certain kernels. `polynomial_degree = 0` will add a constant term.
 # 4. To require sampling of the maximum number of allowed model points:  

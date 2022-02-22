@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/src/models/RbfModel.jl"
+EditURL = "<unknown>/../src/models/RbfModel.jl"
 ```
 
 # Radial Basis Function Surrogate Models
@@ -722,12 +722,8 @@ end
 3. If you don't want to use a polynomial:
    ```julia
    add_objective!(mop, f;
-
-````julia
-#		model_cfg = RbfConfig(;kernel = :cubic, polynomial_degree = -1 ),
-#		n_out = 1)
-````
-
+     model_cfg = RbfConfig(;kernel = :cubic, polynomial_degree = -1 ),
+     n_out = 1)
    ```
    This only works for certain kernels. `polynomial_degree = 0` will add a constant term.
 4. To require sampling of the maximum number of allowed model points:

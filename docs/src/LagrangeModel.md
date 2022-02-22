@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/src/models/LagrangeModel.jl"
+EditURL = "<unknown>/../src/models/LagrangeModel.jl"
 ```
 
 # Lagrange Polynomial Models
