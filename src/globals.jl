@@ -15,7 +15,8 @@ const LP_OPTIMIZER = OSQP.Optimizer
 # These types do not depend on anything else, but are important for 
 # all the other stuff:
 
-import MathOptInterface as MOI
+import MathOptInterface
+const MOI = MathOptInterface # import X as Y syntax not supported by Julia 1.5
 const VarInd = MOI.VariableIndex
 
 struct ObjectiveIndex

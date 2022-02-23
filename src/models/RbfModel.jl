@@ -13,7 +13,9 @@ export RbfConfig, RbfMeta, RbfModel #src
 # A scalar RBF model consists of a ``n``-variate Polynomial and linear combination of shifted radial kernels.
 # For more information, see [the documentation of `RadialBasisFunctionModels.jl`](https://manuelbb-upb.github.io/RadialBasisFunctionModels.jl/stable).
 
-import RadialBasisFunctionModels as RBF
+import RadialBasisFunctionModels
+const RBF = RadialBasisFunctionModels
+
 using LinearAlgebra: qr, Hermitian, cholesky, inv, I, givens, diag
 
 # The polyonmials will have a degree of at most 1. 
