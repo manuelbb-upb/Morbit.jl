@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Constraints · Morbit.jl</title><script data-outdated-warner src="../assets/warner.js"></script><link rel="canonical" href="https://manuelbb-upb.github.io/Morbit.jl/constraints/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.039/juliamono-regular.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><script src="../../copy.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">Morbit.jl</a></span></div><form class="docs-search" action="../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../example_two_parabolas/">Two Parabolas</a></li><li class="is-active"><a class="tocitem" href>Constraints</a><ul class="internal"><li><a class="tocitem" href="#Box-Constraints"><span>Box Constraints</span></a></li><li><a class="tocitem" href="#Linear-Constraints"><span>Linear Constraints</span></a></li><li><a class="tocitem" href="#Nonlinear-Constraints"><span>Nonlinear Constraints</span></a></li><li><a class="tocitem" href="#Optimization"><span>Optimization</span></a></li></ul></li></ul></li><li><span class="tocitem">Models</span><ul><li><a class="tocitem" href="../ExactModel/">ExactModels</a></li><li><a class="tocitem" href="../RbfModel/">RbfModels</a></li><li><a class="tocitem" href="../TaylorModel/">TaylorModels</a></li><li><a class="tocitem" href="../LagrangeModel/">LagrangeModels</a></li></ul></li><li><span class="tocitem">Random Notebooks</span><ul><li><a class="tocitem" href="../notebooks/notebook_finite_differences/">Finite Differences</a></li><li><a class="tocitem" href="../notebooks/notebook_polynomial_interpolation/">Lagrange Interpolation</a></li></ul></li><li><a class="tocitem" href="../custom_logging/">Pretty Printing</a></li><li><span class="tocitem">Developer</span><ul><li><a class="tocitem" href="../dev_man/">DocStrings</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Examples</a></li><li class="is-active"><a href>Constraints</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Constraints</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/manuelbb-upb/Morbit.jl/blob/master/examples/constraints.jl" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="Constrained-Optimization"><a class="docs-heading-anchor" href="#Constrained-Optimization">Constrained Optimization</a><a id="Constrained-Optimization-1"></a><a class="docs-heading-anchor-permalink" href="#Constrained-Optimization" title="Permalink"></a></h1><h2 id="Box-Constraints"><a class="docs-heading-anchor" href="#Box-Constraints">Box Constraints</a><a id="Box-Constraints-1"></a><a class="docs-heading-anchor-permalink" href="#Box-Constraints" title="Permalink"></a></h2><p>Box constraints are supported and treated as &quot;un-relaxable&quot;. The true problem functions won&#39;t be evaluated outside of global box constraints.</p><p>The easiest way to define box constraints is by calling the <code>MOP</code> constructor with a lower bound vector and an upper bound vector.</p><pre><code class="language- hljs">n_vars = 2
+lb = [-1.0, -2.0]
+ub = [3.0, 4.0]
+mop = MOP(lb, ub)</code></pre><p>If the problem is fully finitely box constrained, i.e., all variables are constrained to finite intervals, then the algorithm internally scales the global domain to the unit hypercube <span>$[0,1]^n$</span> and the trust region radius is defined with respect to the scaled domain.</p><p>Alternatively, the problem can be set up similarly to how its done with <code>MathOptInterface</code>:</p><pre><code class="language- hljs">mop = MOP()
+
+var_1 = Morbit.add_variable!(mop)
+Morbit.add_lower_bound!(mop, var_1, -1.0)
+Morbit.add_upper_bound!(mop, var_1, 3.0)
+
+var_2 = Morbit.add_variable!(mop)
+Morbit.add_lower_bound!(mop, var_2, -2.0)
+Morbit.add_upper_bound!(mop, var_2, 4.0)</code></pre><p>Or, if the variables have not been added manually:</p><pre><code class="language- hljs">mop = MOP( n_vars )
+vars = Morbit.var_indices(mop)
+
+Morbit.add_lower_bound!(mop, vars[1], -1.0)
+Morbit.add_upper_bound!(mop, vars[1], 3.0)
+
+Morbit.add_lower_bound!(mop, vars[2], -2.0)
+Morbit.add_upper_bound!(mop, vars[2], 4.0)</code></pre><p>To delete the bound on a variable, use <code>del_lower_bound!(mop, var_index)</code> or <code>del_upper_bound!(mop, var_index)</code>. <br/>The bound vectors can be inspected with <code>full_lower_bounds</code> and <code>full_upper_bounds</code>.</p><h2 id="Linear-Constraints"><a class="docs-heading-anchor" href="#Linear-Constraints">Linear Constraints</a><a id="Linear-Constraints-1"></a><a class="docs-heading-anchor-permalink" href="#Linear-Constraints" title="Permalink"></a></h2><p>Linear constraints are supported, but treated as &quot;relaxable&quot;, that is, the true problem functions might be evaluated outside of the global feasible set. In theory, the original trust region algorithm supports any convex constraints natively. However, it is difficult to check for convexity and the constraints also have to be supported by the inner solver for the descent step calculation. For this reason, only linear constraints are passed to the inner solver without modification (except possibly scaling).</p><p>Internally, a <code>MOP</code> stores linear constraints as <code>MOI.VectorAffineFunction</code>s. They also can be added as such, using the internal <code>_add_eq_constraint!</code> or <code>_add_ineq_constraint!</code> method:</p><pre><code class="language- hljs">const MOI = Morbit.MOI
+# x₂ ≤ 4 - x₁   ⇔   x₁ + x₂ - 4 ≤ 0
+x1_term = MOI.VectorAffineTerm(1, MOI.ScalarAffineTerm(1, vars[1]))
+x2_term = MOI.VectorAffineTerm(1, MOI.ScalarAffineTerm(1, vars[2]))
+lin_const = MOI.VectorAffineFunction([x1_term, x2_term], [-4,])
+c1 = Morbit._add_ineq_constraint!(mop,lin_const)</code></pre><p>It is much easier to provide matrices:</p><pre><code class="language- hljs"># x₂ ≤ x₁ + 3   ⇔  -x₁ + x₂ - 3 ≤ 0
+c2 = add_ineq_constraint!(mop, [-1 1], [-3])</code></pre><h2 id="Nonlinear-Constraints"><a class="docs-heading-anchor" href="#Nonlinear-Constraints">Nonlinear Constraints</a><a id="Nonlinear-Constraints-1"></a><a class="docs-heading-anchor-permalink" href="#Nonlinear-Constraints" title="Permalink"></a></h2><p>Relaxable nonlinear constraints are supported via an algorithm extension. To add them to the model, the <code>add_nl_eq_constraint!</code> and <code>add_nl_ineq_constraint!</code> methods can be used. These methods work just like the <code>add_objective!</code> method. The constraint functions have to be reformulated so as to conform to <span>$g(x) ≦ 0$</span>. For example, if want to add the constraint <span>$x₂ ≥ (x₁-1)² - 2$</span>, we have to add the function <span>$g(x) = (x₁-1)² - x₂ - 2$</span>.</p><pre><code class="language- hljs">c3 = add_nl_ineq_constraint!(
+	mop, x -&gt; (x[1] - 1)^2 - x[2] - 2;
+	n_out = 1, model_cfg = ExactConfig()
+)</code></pre><p>As can be seen, the same mandatory keyword arguments (<code>n_out</code> and <code>model_cfg</code>) are required as for objectives. The constraint with index <code>c3</code> will be evaluated exactly and by default its derivatives are calculated using automatic differentiation. First order derivative functions could also be provided with the <code>gradients</code> or <code>jacobian</code> keyword arguments.</p><p>We also support inexact constraint gradients! Just like with objectives, ask for a derivative surrogate model with the <code>model_cfg</code> keyword. For scalar functions, there are also shorthands:</p><ul><li><code>add_exact_nl_eq_constraint</code> and <code>add_exact_nl_ineq_constraint</code></li><li><code>add_rbf_nl_eq_constraint</code> and <code>add_rbf_nl_ineq_constraint</code></li><li><code>add_lagrange_nl_eq_constraint</code> and <code>add_lagrange_nl_ineq_constraint</code></li><li><code>add_taylor_nl_eq_constraint</code> and <code>add_taylor_nl_ineq_constraint</code>.</li></ul><pre><code class="language- hljs"># x₁²+x₂²-10 ≤ 0
+c4 = add_rbf_nl_ineq_constraint!(mop, x -&gt; sum(x.^2)-10)</code></pre><h2 id="Optimization"><a class="docs-heading-anchor" href="#Optimization">Optimization</a><a id="Optimization-1"></a><a class="docs-heading-anchor-permalink" href="#Optimization" title="Permalink"></a></h2><p>For the problem to be setup completely, objectives are still missing:</p><pre><code class="language- hljs">o1 = add_lagrange_objective!(mop, x -&gt; sum( (x .- 1).^2 ) )
+#o2 = add_taylor_objective!(mop, x -&gt; sum( (x .- 1).^2 ) )</code></pre><p>Now, we can call <code>optimize</code> as usual. The initial vector <code>x0</code> must not necessarily be feasible for the nonlinear constraints. (ATM it must be feasible for the box constraints.) If it is not feasible, then the first iteration will enter the so called &quot;restoration&quot; procedure. At the moment, this procedure is very expensive, as the true constraints are used by <code>NLopt</code> to reduce the constraint violation.</p><pre><code class="language- hljs">x0 = [-0.8, 1.7]
+x, fx, ret, sdb, id, filter = optimize(mop, x0; max_iter = 100, verbosity = 2);
+nothing #hide</code></pre><p>Constraint values can be either be calculated …</p><pre><code class="language- hljs"># linear eq, linear ineq constraint values:
+Morbit.eval_linear_constraints_at_unscaled_site( x, mop )
+# nonlinear ineq constraint values
+Morbit.eval_nl_ineq_constraints_to_vec_at_unscaled_site( mop, x )</code></pre><p>… or extracted from the final <code>AbstractIterate</code> object <code>id</code>:</p><pre><code class="language- hljs"># linear inequality constraint values &amp; nonlinear inequality values:
+id.l_i, id.c_i</code></pre><h3 id="Results"><a class="docs-heading-anchor" href="#Results">Results</a><a id="Results-1"></a><a class="docs-heading-anchor-permalink" href="#Results" title="Permalink"></a></h3><p>Let&#39;s plot everything …</p><pre><code class="language-julia hljs">using CairoMakie
+using CairoMakie.GeometryBasics</code></pre><p>First, the box constraints</p><pre><code class="language-julia hljs">fig, ax, _ = poly( Point2f[ Tuple(lb), (ub[1], lb[2]), Tuple(ub), (lb[1], ub[2]) ],
+	color = RGBAf(0,0,0,0), strokecolor = :blue, strokewidth = 2
+)
+
+ax.aspect = DataAspect() #src</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Makie.MakieLayout.DataAspect()</code></pre><p>Now, the constraint boundaries:</p><pre><code class="language-julia hljs">xs = LinRange(lb[1], ub[1], 50)
+
+y1 = - xs .+ 4
+y2 = xs .+ 3
+y3 = (xs .- 1).^2 .- 1
+lines!(xs,y1; color = RGBf(204/255,51/255,1), label = &quot;c1&quot;)
+lines!(xs,y2; color = RGBf(204/255,0,153/255), label = &quot;c2&quot; )
+lines!(xs,y3; color = RGBf(102/255,0,51/255), label = &quot;c3&quot; )
+
+φ = LinRange(0,2*π,100)
+x4 = sqrt(10) .* cos.(φ)
+y4 = sqrt(10) .* sin.(φ)
+lines!(x4,y4, label = &quot;c4&quot;)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">MakieCore.Lines{Tuple{Vector{GeometryBasics.Point{2, Float32}}}}</code></pre><p>And the constraint interior:</p><pre><code class="language-julia hljs">xs = LinRange(lb[1], ub[1], 300)
+ys = LinRange(lb[2], ub[2], 300)
+θ = function (x1,x2)
+	constraint_vector = [
+		lb[1] - x1;
+		lb[2] - x2;
+		x1 - ub[1];
+		x2 - ub[2];
+		x1 + x2 - 4;
+		-x1 + x2 - 3;
+		(x1 - 1)^2 - x2 - 1;
+		x1^2 + x2^2 - 10
+	]
+	if maximum(constraint_vector) &lt;= 0
+		return 0
+	else
+		return 1
+	end
+end
+zs = [θ(x,y) for x = xs, y=ys]
+image!(xs,ys,zs; colormap = [RGBAf(0,0,0,0.2), RGBAf(0,0,0,0)])</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">MakieCore.Image{Tuple{Vector{Float32}, Vector{Float32}, Matrix{Float32}}}</code></pre><p>Finally, plot the unconstrained Pareto set (the line connecting (-1,-1) and (1,1)) as well the iterates:</p><pre><code class="language- hljs">lines!([(-1,-1),(1,1)], color = :green, label = &quot;PS&quot;)
+
+x_iter = [ Tuple(iter.x) for iter = sdb.iter_data]
+scatter!(x_iter, color = :red, markersize = 5 )
+lines!(x_iter, color = :orange)
+
+axislegend()
+fig</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../example_two_parabolas/">« Two Parabolas</a><a class="docs-footer-nextpage" href="../ExactModel/">ExactModels »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.12 on <span class="colophon-date" title="Thursday 24 February 2022 16:37">Thursday 24 February 2022</span>. Using Julia version 1.6.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
