@@ -12,9 +12,9 @@ mod = sc.surrogates[1].model
 objf = Morbit.list_of_objectives(smop)[1]
 meta = sc.surrogates[1].meta
 
-# `Morbit.eval_objf` evaluates at a site from the original domain
-_eval_objf_original = x -> Morbit.eval_objf(objf, x)
-_eval_objf_scaled = x -> Morbit.eval_objf( objf, Morbit.unscale(x, smop) )
+# `Morbit.eval_vfun` evaluates at a site from the original domain
+_eval_vfun_original = x -> Morbit.eval_vfun(objf, x)
+_eval_vfun_scaled = x -> Morbit.eval_vfun( objf, Morbit.unscale(x, smop) )
 
 # `eval_models`, `get_gradient` etc., on the other hand,
 # take input from [0,1]^n:
@@ -90,9 +90,9 @@ for cfg in lagrange_configs
 					objf = Morbit.list_of_objectives(smop)[1]
 					meta = sc.surrogates[1].meta
 
-					# `Morbit.eval_objf` evaluates at a site from the original domain
-					_eval_objf_original = x -> Morbit.eval_objf(objf, x)
-					_eval_objf_scaled = x -> Morbit.eval_objf( objf, Morbit.unscale(x, smop) )
+					# `Morbit.eval_vfun` evaluates at a site from the original domain
+					_eval_vfun_original = x -> Morbit.eval_vfun(objf, x)
+					_eval_vfun_scaled = x -> Morbit.eval_vfun( objf, Morbit.unscale(x, smop) )
 
 					# `eval_models`, `get_gradient` etc., on the other hand,
 					# take input from [0,1]^n:
@@ -103,7 +103,7 @@ for cfg in lagrange_configs
 					#%%
 					# check if scaling went alright:
 					@test x0_s ≈ Morbit.get_x( iter_data )
-					@test _eval_objf_original( x0 ) ≈ _eval_objf_scaled( x0_s )
+					@test _eval_vfun_original( x0 ) ≈ _eval_vfun_scaled( x0_s )
 
 					# did we succeed in making an orthogonal basis?
 					X = Morbit.get_site.( data_base, meta.interpolation_indices )
@@ -133,7 +133,7 @@ for cfg in lagrange_configs
 					#%%
 					# does evaluation work alright?
 					if 1 in meta.interpolation_indices
-						@test _eval_model( x0_s ) ≈ _eval_objf_original( x0 )
+						@test _eval_model( x0_s ) ≈ _eval_vfun_original( x0 )
 					end
 					@test Morbit.get_gradient( mod, x0_s, 1) ≈ ForwardDiff.gradient( x -> _eval_model(x)[1], x0_s )
 					@test Morbit.get_jacobian( mod, x0_s ) ≈ ForwardDiff.jacobian( _eval_model, x0_s )

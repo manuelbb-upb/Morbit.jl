@@ -126,7 +126,7 @@ end#testset
 	mod = Morbit.get_surrogates(sc, objf_ind)
 	objf = Morbit._get(smop, objf_ind)
 
-	@test Morbit._eval_models_vec( mod, scal, x0 ) ≈ Morbit.eval_objf(objf,x0)
+	@test Morbit._eval_models_vec( mod, scal, x0 ) ≈ Morbit.eval_vfun(objf,x0)
 	@test Morbit.get_gradient( mod, scal, x0, 1 ) ≈ [1, 1]
 	@test Morbit.get_jacobian( mod, scal, x0) ≈ [ 1 1 ]
 	@test Morbit.eval_container_objectives_jacobian_at_scaled_site( sc, scal, x0 ) ≈ [1 1]
@@ -147,9 +147,9 @@ end#testset
 
 	x̂0 = Morbit.transform( x0, scal )
 
-	@test Morbit._eval_models_vec( mod, scal, x̂0 ) ≈ Morbit.eval_objf(objf, x0 )
+	@test Morbit._eval_models_vec( mod, scal, x̂0 ) ≈ Morbit.eval_vfun(objf, x0 )
 	@test Morbit.get_gradient( mod, scal, x̂0, 1 ) ≈ ForwardDiff.gradient( 
-		ξ -> Morbit.eval_objf(objf, Morbit.untransform(ξ, scal) )[end], x̂0 )
+		ξ -> Morbit.eval_vfun(objf, Morbit.untransform(ξ, scal) )[end], x̂0 )
 	@test Morbit.get_jacobian( mod, scal, x̂0 ) ≈ ForwardDiff.jacobian( 
 		ξ -> Morbit.eval_objectives_to_vec_at_unscaled_site( mop, Morbit.untransform(ξ, scal)), x̂0)
 
@@ -169,7 +169,7 @@ end#testset
 	mod = Morbit.get_surrogates(sc, objf_ind)
 	objf = Morbit._get(smop, objf_ind)
 
-	@test Morbit._eval_models_vec( mod, scal, x0 ) ≈ Morbit.eval_objf(objf,x0)
+	@test Morbit._eval_models_vec( mod, scal, x0 ) ≈ Morbit.eval_vfun(objf,x0)
 	@test Morbit.get_gradient( mod, scal, x0, 1 ) ≈ 2 .* x0
 	@test Morbit.get_jacobian(mod, scal, x0) ≈ 2 .* x0'
 end#testset
@@ -223,7 +223,7 @@ end#testset
 
 		x̂0 = Morbit.transform( x0, scal )
 
-		@test Morbit._eval_models_vec( mod, scal, x̂0 ) ≈ Morbit.eval_objf(objf, x0)
+		@test Morbit._eval_models_vec( mod, scal, x̂0 ) ≈ Morbit.eval_vfun(objf, x0)
 		@test Morbit.get_gradient( mod, scal, x̂0, 1 ) ≈ [1, 1]
 		@test Morbit.get_jacobian( mod, scal, x̂0) ≈ [ 1 1 ]
 
@@ -245,7 +245,7 @@ end#testset
 
 		x̂0 = Morbit.transform( x0, scal )
 
-		@test Morbit._eval_models_vec( mod, scal, x̂0 ) ≈ Morbit.eval_objf(objf, x0)
+		@test Morbit._eval_models_vec( mod, scal, x̂0 ) ≈ Morbit.eval_vfun(objf, x0)
 		@test Morbit.get_gradient( mod, scal, x̂0, 1) ≈ 2 .* x0 
 		@test Morbit.get_jacobian( mod, scal, x̂0) ≈ 2 .* x0'
 		@test mod.model_ref[].H[1] ≈ [ 2.0 0.0; 0.0 2.0 ] 

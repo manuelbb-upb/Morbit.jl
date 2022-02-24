@@ -35,13 +35,13 @@ batchable_fn( x :: AbstractVector{<:AbstractVector{<:Real}}) = batchable_fn.(x)
 		batchable_FN.counter = 0
 		stored_objf = Morbit._get( _mop, objf_ind )
 
-		Morbit.eval_objf( stored_objf, rand(2) )
+		Morbit.eval_vfun( stored_objf, rand(2) )
 		@test batchable_FN.counter == 1
-		Morbit.eval_objf( stored_objf, rand(2) )
+		Morbit.eval_vfun( stored_objf, rand(2) )
 		@test batchable_FN.counter == 2
 
 		# test it broadcasting works as overwritten in Morbit
-		Morbit.eval_objf.( stored_objf, [rand(2) for i = 1 : 3])
+		Morbit.eval_vfun.( stored_objf, [rand(2) for i = 1 : 3])
 		@test batchable_FN.counter == 3
 
 		x = rand(2)
