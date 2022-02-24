@@ -259,7 +259,7 @@ function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, scal :: AbstractVa
     missing_ids = copy(_missing_ids(db))
 
     n_missing = length(missing_ids)
-    @logmsg loglevel2 "Performing $(n_missing) objective evaluations into the database."
+    @logmsg loglevel2 "Performing $(n_missing) evaluations into the database for \n\t\t$(func_indices...)."
     
     if n_missing > 0
         ## evaluate everything in one go to exploit parallelism

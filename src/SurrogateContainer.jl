@@ -330,7 +330,7 @@ for (_fieldname, fnname) = [
 						nl_index = mod.nl_index,
 						inner_output_indices = mod.inner_output_indices,
 						cache_in = mod.cache_in,
-						cache_out = eval_models( new_mod, scal, mod.cache_in, mod.inner_output_indices)
+						cache_out = eval_models( new_mod, scal, mod.cache_in, mod.inner_output_indices )
 					)
 				end
 			end

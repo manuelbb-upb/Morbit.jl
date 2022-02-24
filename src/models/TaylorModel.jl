@@ -172,6 +172,7 @@ function prepare_update_model(
     kwargs... 
 )
 
+    @logmsg loglevel2 "Building Taylor model for $(func_indices)"
     db = get_sub_db( sdb, func_indices )
     x = get_x_scaled( iter_data )
     x_index = get_x_index( iter_data, func_indices )
@@ -240,6 +241,9 @@ function update_model( mod::Union{Nothing,TaylorModel}, meta :: TaylorIndexMeta,
     
     db = get_sub_db( sdb, func_indices )
     x = get_x_scaled(iter_data)
+    x_index = get_x_index( iter_data, func_indices )
+    fx = get_value( db, x_index )
+
     if isnothing(mod) || (x != mod.x0)
         all_leave_vals = get_value.( db, meta.database_indices )
             
@@ -263,7 +267,7 @@ function update_model( mod::Union{Nothing,TaylorModel}, meta :: TaylorIndexMeta,
         
         return TaylorModel(;
             x0 = x,
-            fx0 = get_fx( iter_data ),
+            fx0 = fx,
             g, H
         ), meta
     else

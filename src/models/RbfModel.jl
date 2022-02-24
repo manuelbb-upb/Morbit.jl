@@ -500,10 +500,8 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 		ensure_fully_linear = false, force_rebuild = false, meta_array = nothing 
 	)
 	
-	!force_rebuild && @logmsg loglevel2 """
-	Trying to find results for fitting an RBF model.
-	Function indices are \n\t•$(join(string.(func_indices), "\n\t•")).
-	"""	
+	!force_rebuild && @logmsg loglevel2 "Building RBF model for $(func_indices)"
+	
 	force_rebuild && @logmsg loglevel2 "Rebuilding along coordinate axes."
 	
 	## Retrieve current iteration information and some meta data.

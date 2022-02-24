@@ -242,7 +242,7 @@ function _eval_objectives_at_unscaled_site( mop, x ) end
 function _eval_nl_eq_constraints_at_unscaled_site( mop, x ) end
 function _eval_nl_ineq_constraints_at_unscaled_site( mop, x ) end
 
-for fntype = [:nl_function, :objective, :nl_eq_constraints, :nl_ineq_constraints ]
+for fntype = [:nl_function, :objective, :nl_eq_constraint, :nl_ineq_constraint ]
     get_XXX_indices = Symbol("get_", fntype, "_indices")
     _eval_XXXs_at_unscaled_site = Symbol("_eval_$(fntype)s_at_unscaled_site")
     eval_XXXs_to_vec_at_unscaled_site = Symbol("eval_$(fntype)s_to_vec_at_unscaled_site")
@@ -451,7 +451,7 @@ end
 function add_ineq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector = [], vars :: Union{Nothing,AbstractVector{<:VarInd}} = nothing)
 	_vars = isnothing( vars ) ? var_indices(mop) : vars
     _b = isempty( b ) ? zeros( Bool, size(A,1) ) : b
-	return add_ineq_constraint!(mop, 
+	return _add_ineq_constraint!(mop, 
 		_matrix_to_vector_affine_function( A, _b, _vars )
 	)
 end
@@ -459,7 +459,7 @@ end
 function add_eq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector, vars :: Union{Nothing,AbstractVector{<:VarInd}} = nothing)
 	_vars = isnothing( vars ) ? var_indices(mop) : vars
     _b = isempty( b ) ? zeros( Bool, size(A,1) ) : b
-	return add_ineq_constraint!(mop, 
+	return _add_ineq_constraint!(mop, 
 		_matrix_to_vector_affine_function( A, _b, _vars )
 	)
 end

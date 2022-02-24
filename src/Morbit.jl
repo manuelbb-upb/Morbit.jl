@@ -117,7 +117,9 @@ for (s1,s2) = [
 	end
 end
 export AlgorithmConfig, AlgoConfig 
-export MOP, add_lower_bound!, add_upper_bound!, del_lower_bound!, del_upper_bound!, add_objective!
+export MOP, add_lower_bound!, add_upper_bound!, del_lower_bound!, 
+	del_upper_bound!, add_objective!, add_nl_eq_constraint!, add_nl_ineq_constraint!,
+	add_eq_constraint!, add_ineq_constraint!
 export ExactConfig
 export TaylorConfig, TaylorCallbackConfig
 export RbfConfig

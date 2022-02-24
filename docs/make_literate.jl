@@ -15,6 +15,11 @@ end
 
 #%%
 Literate.markdown(
+    joinpath( example_dir, "constraints.jl"), 
+    joinpath( @__DIR__, "src" );    
+    preprocess = replace_comments,
+)
+Literate.markdown(
     joinpath( example_dir, "example_two_parabolas.jl"), 
     joinpath( @__DIR__, "src" );    
     preprocess = replace_comments,

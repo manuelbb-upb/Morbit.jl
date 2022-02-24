@@ -477,7 +477,8 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel},
     mop, scal, x_it, 
     sdb, algo_config; 
     ensure_fully_linear = true, kwargs... )
-
+ 
+    @logmsg loglevel2 "Building LagrangeModel for $(func_indices)."
     x_scaled = get_x_scaled( x_it )
     n_vars = length(x_scaled)
 
