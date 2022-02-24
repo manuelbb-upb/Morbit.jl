@@ -119,15 +119,19 @@ from the inner model output.
 
 [`RefVecFun`](@ref)
 """
-struct RefSurrogate{W <: Base.RefValue} <: AbstractSurrogate
+@with_kw struct RefSurrogate{W <: Base.RefValue} <: AbstractSurrogate
 	model_ref :: W
 	output_indices :: Vector{Int}
 	nl_index :: NLIndex
+	num_outputs :: Int = num_outputs(nl_index)
+	@assert num_outputs == length(output_indices)
 end
 
 function RefSurrogate( m :: AbstractSurrogate, output_indices, nl_index ) 
-	return RefSurrogate( Ref(m), output_indices, nl_index )
+	return RefSurrogate(; model_ref = Ref(m), output_indices, nl_index )
 end
+
+num_outputs(r :: RefSurrogate) = r.num_outputs
 
 """ 
     ExprSurrogate( model_ref, generated_function, output_indices)
@@ -139,13 +143,15 @@ is used for evaluation and differentiation.
 
 [`RefSurrogate`](@ref)
 """
-struct ExprSurrogate{W <: Base.RefValue,F} <: AbstractSurrogate
+@with_kw struct ExprSurrogate{W <: Base.RefValue,F} <: AbstractSurrogate
 	model_ref :: W
 	generated_function :: F
 	output_indices :: Vector{Int}
 	expr_str :: String
 	nl_index :: NLIndex
-	#is_updated :: Bool
+	num_outputs :: Int = num_outputs(nl_index)
+
+	@assert num_outputs == length(output_indices)
 end
 
 """ 
@@ -157,12 +163,35 @@ replaced by a call to model and extracting the values at positions `output_indic
 
 [`str2func`](@ref)
 """
-function ExprSurrogate( m :: AbstractSurrogate, expr_str :: String, scal, output_indices, nl_index )
+function ExprSurrogate( m :: AbstractSurrogate, _expr_str :: String, scal, output_indices, nl_index )
 	model_ref = Ref(m)
-	gen_func = str2func(expr_str,m, scal, output_indices; register_adjoint = true)
-	return ExprSurrogate( model_ref, gen_func, output_indices, expr_str, nl_index)
-	#return ExprSurrogate( model_ref, gen_func, output_indices, requires_update(cfg))
+	expr_str = replace( _expr_str, "VREF(x)" => "VREF(x̂)")
+	generated_function = str2func(expr_str,m, scal, output_indices; register_adjoint = true)
+	return ExprSurrogate(; model_ref, generated_function, output_indices, expr_str, nl_index)
 end
+
+num_outputs(e :: ExprSurrogate) = e.num_outputs
+
+@with_kw struct CompositeSurrogate{
+	I <: Base.RefValue{<:AbstractSurrogate}, 
+	O <: Base.RefValue{<:AbstractVecFun},
+	X <: AbstractFloat,
+	Y <: AbstractFloat
+} <: AbstractSurrogate
+	
+	model_ref :: I 
+	outer_ref :: O 
+	
+	inner_output_indices = Int[]
+
+	nl_index :: NLIndex
+	
+	num_outputs :: Int = num_outputs( outer_ref[] )
+
+	# caching of last inner model evaluation result
+	cache_in :: Vector{X} = MIN_PRECISION[]
+	cache_out :: Vector{Y} = MIN_PRECISION[]
+end 
 
 fully_linear( r :: Union{ExprSurrogate, RefSurrogate} ) = fully_linear( r.model_ref[] )
 set_fully_linear!( r :: Union{ExprSurrogate, RefSurrogate}, val ) = set_fully_linear!( r.model_ref[], val )
@@ -170,20 +199,47 @@ set_fully_linear!( r :: Union{ExprSurrogate, RefSurrogate}, val ) = set_fully_li
 function eval_models( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec )
 	eval_models( m.model_ref[], scal, x_scaled, m.output_indices )
 end
-function eval_models( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec )
-	#if m.is_updated
-		#return Base.invokelatest(m.generated_function, x_scaled)
-	#else
-		return m.generated_function(x_scaled)
-	#end
+function eval_models( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ )
+	eval_models( m.model_ref[], scal, x_scaled, m.output_indices[ℓ] )
+end
+
+function eval_models( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec)
+	# we are using the `GeneralizedGenerated` package and can thereby avoid `Base.invokelatest`
+	return m.generated_function(x_scaled)
+end
+
+function _eval_inner( m :: CompositeSurrogate, scal, x_scaled )
+	if m.cache_in != x_scaled || isempty(m.cache_out)
+		empty!(m.cache_in)
+		append!(m.cache_in, x_scaled)
+		empty!(m.cache_out)
+		append!(m.cache_out,
+			eval_models( m.model_ref[], scal, x_scaled, m.inner_output_indices )
+		)
+	end
+	return m.cache_out
+end
+function eval_models( m :: CompositeSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec )
+	return eval_vfun(
+		m.outer_ref[],
+		_eval_inner(m, scal, x_scaled )
+	)
 end
 
 function get_gradient( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec, ℓ = 1 )
-	get_gradient( m.model_ref[], scal, x_scaled, m.output_indices[ℓ] )
+	return get_gradient( m.model_ref[], scal, x_scaled, m.output_indices[ℓ] )
 end
 
 function get_gradient( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ = 1 )
-	Zyoge.gradient( ξ -> m.generated_function(ξ)[ℓ], x_scaled)
+	return Zygote.gradient( ξ -> m.generated_function(ξ)[ℓ], x_scaled)
+end
+
+function get_gradient( m :: CompositeSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ = 1)
+	# Df = Dφ(g(x))Dg(x)
+	gx = _eval_inner(m,scal,x_scaled)
+	Dφ = _get_gradient( m.outer_ref[], gx, ℓ )
+	Dg = get_jacobian(m.model_ref[],scal, x_scaled, m.inner_output_indices )
+	return vec( Dφ'Dg )
 end
 
 function get_jacobian( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec )
@@ -193,40 +249,46 @@ function get_jacobian( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::
 	get_jacobian( m.model_ref[], scal, x_scaled, m.output_indices[rows])
 end
 
+function get_jacobian( m :: CompositeSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, args...)
+	# Df = Dφ(g(x))Dg(x)
+	gx = _eval_inner(m,scal,x_scaled)
+	Dφ = _get_jacobian( m.outer_ref[], gx, args... )
+	Dg = get_jacobian(m.model_ref[], scal, x_scaled, m.inner_output_indices )
+	return Dφ*Dg
+end
+
 import Dates: now
 function get_jacobian( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec )
-	println("call $(now())")
+	@logmsg loglevel4 "call $(now())";
 	return Zygote.jacobian( m.generated_function, x_scaled)[1]
 end
 function get_jacobian( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec, rows )
 	return Base.invokelatest( Zygote.jacobian, ξ -> m.generated_function[m.output_indices[rows]], x_scaled )
 end
 
-using GeneralizedGenerated
-
 """
 	str2func(expr_str, model, scal, output_indices; register_adjoint = true)
 
 Parse a user provided string describing some function of `x` and 
 return the resulting function.
-Each occurence of "VREF(x)" in `expr_str` is replaced by a function 
-evaluating outputs `output_indices` of `mod::AbstractSurrogate` at `x`.
+Each occurence of "VREF(x̂)" in `expr_str` is replaced by a function 
+evaluating outputs `output_indices` of `mod::AbstractSurrogate` at 
+the scaled site `x̂`.
 If `register_adjoint == true`, then we register a custom adjoint for 
 `vfunc` that uses the `get_jacobian` method.
 
 The user may also use custom functions in `expr_str` hat have been 
-registered with `register_func`.
+registered with `register_func` (and that are differentiable with Zygote).
 
 [`register_func`](@ref)
 """
-function str2func(expr_str, vfunc :: AbstractSurrogate, scal, output_indices; 
+function str2func(expr_str, mod :: AbstractSurrogate, scal, output_indices; 
 	register_adjoint = true
 )
 	global registered_funcs
 	
-	evaluator = x -> _eval_models_vec( vfunc, scal, x, output_indices ) 
-	#registered_funcs[:evaluator] = evaluator
-	jacobian_handle = x -> get_jacobian(vfunc, scal, x, output_indices)
+	evaluator = x -> _eval_models_vec( mod, scal, x, output_indices ) 
+	jacobian_handle = x -> get_jacobian(mod, scal, x, output_indices)
 
 	parsed_expr = Meta.parse(expr_str)
 	reg_funcs_expr = Expr[ :($k = $v) for (k,v) = registered_funcs ]
@@ -237,7 +299,7 @@ function str2func(expr_str, vfunc :: AbstractSurrogate, scal, output_indices;
 			let $(reg_funcs_expr...);
 				Zygote.@adjoint $(evaluator)(x) = $(evaluator)(x), y -> (
 				begin 
-					println("gen  $($(gen_date))");
+					@logmsg loglevel4 "gen  $($(gen_date))";
 					$(jacobian_handle)(x)'y 
 				end,
 				);
@@ -246,8 +308,9 @@ function str2func(expr_str, vfunc :: AbstractSurrogate, scal, output_indices;
 		Zygote.refresh()
 	end
 
-	gen_func = mk_function( @__MODULE__, :( x -> begin 
+	gen_func = mk_function( @__MODULE__, :( x̂ -> begin 
 		let $(reg_funcs_expr...), VREF = $evaluator;
+			x = untransform(x̂, $scal);
 			return $(parsed_expr)
 		end 
 	end) )

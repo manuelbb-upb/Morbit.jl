@@ -6,9 +6,7 @@
 function _budget_okay( mop :: AbstractMOP, ac :: AbstractConfig ) :: Bool
     max_conf_evals = max_evals( ac )
     for objf ∈ list_of_objectives(mop)
-        if num_evals(objf) >= min( max_evals(objf), max_conf_evals ) - 1
-            return false;
-        end
+        !_budget_okay(objf,max_conf_evals) && return false
     end
     return true
 end

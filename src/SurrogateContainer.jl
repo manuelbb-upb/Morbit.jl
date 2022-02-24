@@ -136,7 +136,7 @@ Provided a vector function `vfun` that is either of type
 that contains the model for `vfun.nl_index`, create and return 
 a `RefSurrogate` or `ExprSurrogate` from `gs`.
 """
-function _surrogate_from_vec_function( vfun, scal, gs )
+function _surrogate_from_vec_function( vfun, scal, gs, x_scaled )
 	output_indices = get_output_indices(gs, vfun.nl_index)
 	model = get_model( gs )
 	cfg = get_cfg(gs)
@@ -144,29 +144,38 @@ function _surrogate_from_vec_function( vfun, scal, gs )
 		return RefSurrogate( model, output_indices, vfun.nl_index )
 	elseif vfun isa ExprVecFun 
 		return ExprSurrogate( model, vfun.expr_str, scal, output_indices, vfun.nl_index )
+	elseif vfun isa CompositeVecFun
+		return CompositeSurrogate(;
+			model_ref = Ref(model), 
+			outer_ref = vfun.outer_ref,
+			nl_index = vfun.nl_index,
+			inner_output_indices = output_indices,
+			cache_in = x_scaled,
+			cache_out = eval_models( model, scal, x_scaled, output_indices)
+		)
 	end
 end
 
-function _surrogate_from_vec_function( vfun, scal, gs_array, groupings_dict )
+function _surrogate_from_vec_function( vfun, scal, gs_array, groupings_dict, x_scaled )
 	#gs_position = findfirst( gs -> vfun.nl_index in get_indices(gs) )
 	gs_position = groupings_dict[vfun.nl_index]
-	return _surrogate_from_vec_function( vfun, scal, gs_array[gs_position] )
+	return _surrogate_from_vec_function( vfun, scal, gs_array[gs_position], x_scaled )
 end
 
-function _create_dict(mop, gs_array, groupings_dict, indices, scal, index_type = FunctionIndex )
+function _create_dict(mop, gs_array, groupings_dict, indices, scal, x_scaled, index_type = FunctionIndex )
 	if isempty( indices )
 		return Base.ImmutableDict{index_type, Nothing}()
 	else
 		num_indices = length(indices)
-		dict_vals = [ _surrogate_from_vec_function( _get(mop,ind), scal, gs_array, groupings_dict ) for ind = indices ]		
+		dict_vals = [ _surrogate_from_vec_function( _get(mop,ind), scal, gs_array, groupings_dict, x_scaled ) for ind = indices ]		
 		return ArrayDictionary{ index_type, eltype(dict_vals) }( SVector{num_indices}(collect(indices)), dict_vals )
 	end
 end
 
-function init_surrogate_container( grouped_surrogate_array, groupings_dict, mop :: AbstractMOP, scal :: AbstractVarScaler )
-	objective_functions = _create_dict( mop, grouped_surrogate_array, groupings_dict, get_objective_indices(mop), scal, ObjectiveIndex)
-	nl_eq_constraints = _create_dict( mop, grouped_surrogate_array, groupings_dict, get_nl_eq_constraint_indices(mop), scal, ConstraintIndex)
-	nl_ineq_constraints = _create_dict( mop, grouped_surrogate_array, groupings_dict, get_nl_ineq_constraint_indices(mop), scal, ConstraintIndex)
+function init_surrogate_container( grouped_surrogate_array, groupings_dict, mop :: AbstractMOP, scal :: AbstractVarScaler, x_scaled )
+	objective_functions = _create_dict( mop, grouped_surrogate_array, groupings_dict, get_objective_indices(mop), scal, x_scaled, ObjectiveIndex)
+	nl_eq_constraints = _create_dict( mop, grouped_surrogate_array, groupings_dict, get_nl_eq_constraint_indices(mop), scal, x_scaled, ConstraintIndex)
+	nl_ineq_constraints = _create_dict( mop, grouped_surrogate_array, groupings_dict, get_nl_ineq_constraint_indices(mop), scal, x_scaled, ConstraintIndex)
 	return SurrogateContainer( 
 		grouped_surrogate_array,
 		groupings_dict,
@@ -286,7 +295,7 @@ function init_surrogates( mop :: AbstractMOP, scal :: AbstractVarScaler, id :: A
         push!(gs_array, gs)
     end
 
-    return init_surrogate_container(gs_array, groupings_dict, mop, scal)
+    return init_surrogate_container(gs_array, groupings_dict, mop, scal, get_x_scaled(id))
 end
 
 for (_fieldname, fnname) = [
@@ -300,15 +309,28 @@ for (_fieldname, fnname) = [
 		for (ind, mod) = pairs(fn_dict)
 			surrogate_index = sc.surrogates_grouping_dict[ mod.nl_index ] 
 			if surrogate_index in updated_indices 
+				new_mod = get_model(sc.surrogates[ surrogate_index ])
 				if mod isa RefSurrogate
 					fn_dict[ind] = RefSurrogate(
-						get_model(sc.surrogates[ surrogate_index ]), # updated model
+						new_mod, # updated model
 						mod.output_indices, mod.nl_index
 					)
 				elseif mod isa ExprSurrogate
 					fn_dict[ind] = ExprSurrogate( 
-						get_model(sc.surrogates[ surrogate_index ]),
-						mod.expr_str, scal, mod.output_indices, mod.nl_index
+						new_mod,
+						mod.expr_str, 
+						scal, 
+						mod.output_indices, 
+						mod.nl_index
+					)
+				elseif mod isa CompositeSurrogate
+					fn_dict[ind] = CompositeSurrogate(;
+						model_ref = Ref(new_mod), 
+						outer_ref = mod.outer_ref,
+						nl_index = mod.nl_index,
+						inner_output_indices = mod.inner_output_indices,
+						cache_in = mod.cache_in,
+						cache_out = eval_models( new_mod, scal, mod.cache_in, mod.inner_output_indices)
 					)
 				end
 			end

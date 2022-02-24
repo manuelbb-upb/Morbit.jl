@@ -38,10 +38,12 @@ const RFD = RecursiveFiniteDifferences
     ## gradient(s) at x0
     g :: G
     H :: HT = nothing
+
+    num_outputs = length(fx0)
 end
 
 fully_linear( :: TaylorModel ) = true
-num_outputs( :: TaylorModel ) = length(fx0)
+num_outputs( m :: TaylorModel ) = m.num_outputs
 
 # Note, that the derivative approximations are actually constructed for the function(s)
 # ```math
@@ -371,7 +373,7 @@ function _eval_models( tm :: TaylorModel, h :: Vec, ℓ :: Int )
     return ret_val
 end
 
-"Evaluate (internal) output `ℓ` of `tm` at scaled site `x̂`."
+"Evaluate (internal) output(s) `ℓ` of `tm` at scaled site `x̂`."
 function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
     h = x̂ .- tm.x0
     return reduce( vcat, _eval_models( tm, h, l ) for l = ℓ )
@@ -380,7 +382,7 @@ function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, 
 # For the vector valued model, we iterate over all (internal) outputs:
 function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec )
     h = x̂ .- tm.x0
-    return [ _eval_models(tm, h, ℓ) for ℓ = eachindex(tm.g)]
+    return eval_models(tm, scal, x̂, 1:num_outputs(tm))
 end
 
 # The gradient of ``m_ℓ`` can easily be determined:

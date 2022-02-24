@@ -34,6 +34,8 @@ const AD = Zygote.ForwardDiff
 import Logging: LogLevel, @logmsg
 import Logging
 
+using GeneralizedGenerated
+
 using Lazy: @forward
 
 registered_funcs = Dict{Symbol,Function}() 
@@ -42,6 +44,15 @@ include("custom_logging.jl")
 
 include("globals.jl");	# has types meant to be available globally -> import first
 include("SuperTypes.jl"); # abstract types and interfaces 
+
+# ### Interface Definitions
+include("AbstractSurrogateInterface.jl");
+include("AbstractMOPInterface.jl");
+include("AbstractConfigInterface.jl")
+include("AbstractFilterInterface.jl")
+
+include("DiffFn.jl") # required by VecFun.jl
+include("VarScaler.jl")
 
 # record keeping (order should not matter)
 include("Result.jl")
@@ -58,7 +69,6 @@ include(joinpath(@__DIR__, "models", "TaylorModel.jl"))
 include(joinpath(@__DIR__, "models", "RbfModel.jl"))
 include(joinpath(@__DIR__, "models", "LagrangeModel.jl"))
 
-include("VarScaler.jl")
 include("ConfigImplementations.jl")
 
 include("utilities.jl")

@@ -131,7 +131,6 @@ function _width( mop :: AbstractMOP )
 end
 =#
 
-"Return a list of `AbstractVectorObjective`s."
 function list_of_objectives( mop :: AbstractMOP )
     return [ _get( mop, func_ind ) for func_ind = get_objective_indices(mop) ]
 end
@@ -191,7 +190,7 @@ for func_name in [:add_objective!, :add_nl_eq_constraint!, :add_nl_ineq_constrai
     end
 end
 
-# `eval_objf` respects custom batching
+# `eval_vfun` respects custom batching
 
 # ## Evaluation of an AbstractMOP,
 # should be improved in implementations
@@ -201,7 +200,7 @@ end
 
 # helpers
 function _eval_at_index_at_unscaled_site(mop, ind, x)
-    return eval_objf( _get(mop, ind), x ) 
+    return eval_vfun( _get(mop, ind), x ) 
 end
 
 function _eval_at_indices_at_unscaled_site( mop, indices, x )
@@ -212,7 +211,7 @@ function _eval_at_indices_at_unscaled_site( mop, indices, x )
 end
 
 function _eval_at_index_at_unscaled_sites(mop, ind, X)
-    return eval_objf.( _get(mop, ind), X ) 
+    return eval_vfun.( _get(mop, ind), X ) 
 end
 
 function _eval_at_indices_at_unscaled_sites( mop, indices, x )
@@ -290,7 +289,7 @@ of the corresponding objectives of `mop` evaluated on all `sites`."
 function eval_dict_mop_at_func_indices_at_unscaled_sites( 
         mop :: AbstractMOP, func_indices, X_unscaled :: VecVec
     )
-    return Base.Dict( func_ind => eval_objf.( _get(mop, func_ind), X_unscaled ) for func_ind=func_indices )
+    return Base.Dict( func_ind => eval_vfun.( _get(mop, func_ind), X_unscaled ) for func_ind=func_indices )
 end
 
 """
@@ -302,7 +301,7 @@ of the corresponding objectives of `mop` evaluated at `x`."
 function eval_dict_mop_at_func_indices_at_unscaled_site( 
         mop :: AbstractMOP, func_indices, x_unscaled :: Vec
     )
-    return Base.Dict( func_ind => eval_objf( _get(mop, func_ind), x_unscaled ) for func_ind=func_indices )
+    return Base.Dict( func_ind => eval_vfun( _get(mop, func_ind), x_unscaled ) for func_ind=func_indices )
 end
 
 function flatten_mop_dicts( eval_dicts, _func_indices = nothing )
@@ -413,8 +412,8 @@ end
 
 @doc "Set evaluation counter to 0 for each VecFun in `m.vector_of_objectives`."
 function reset_evals!(mop :: AbstractMOP) :: Nothing
-    for objf ∈ list_of_functions( mop )
-        wrapped_function(objf).counter[] = 0
+    for vfun ∈ list_of_functions( mop )
+        reset_evals!(vfun, 0)
     end
     return nothing
 end
