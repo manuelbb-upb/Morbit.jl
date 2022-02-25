@@ -47,6 +47,7 @@ makedocs(;
         "Examples" => [
             "Two Parabolas" => "example_two_parabolas.md",
             "Constraints" => "constraints.md",
+            "Composite Functions" => "composites.md",
             #"ZDT3" => "example_zdt.md"
         ],
         "Models" => [

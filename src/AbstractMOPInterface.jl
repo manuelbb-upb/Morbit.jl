@@ -224,7 +224,7 @@ end
 # helper used to put evaluations into database
 function _eval_to_vecs_at_indices_at_unscaled_sites( mop, indices, X )
     dicts = _eval_at_indices_at_unscaled_sites(mop, indices, X)
-    return [ [dicts[k][ℓ][end] for k=indices] for ℓ = 1 : length(X) ]
+    return [ reduce(vcat, dicts[k][ℓ] for k=indices) for ℓ = 1 : length(X) ]
 end
 
 function _flatten_mop_dict( eval_dict, _indices = nothing )

@@ -262,7 +262,17 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	# initalize first objective vector, constraint vectors etc.
 	@logmsg loglevel2 "Evaluating at start site."
 	tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( smop, x )
-	
+
+	# We check if the output dimensions for the inner functions are right
+	# this is not strictly necessary, but we can give verbose errors:
+	for (k,v) = pairs(tmp_dict)
+		if num_outputs(k) != length(v)
+			error("""
+			Output dimension for $(k) and evaluation length mismatch $(length(v)).
+			Has `n_out` been set correctly?.""")
+		end
+	end
+
 	# build SuperDB `sdb` for functions with `NLIndex`
 	groupings, groupings_dict = do_groupings( smop, ac )
 	if isnothing( populated_db ) 
@@ -279,7 +289,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 		end
 		sub_dbs = sdb.sub_dbs
 	end
-	
+
 	l_e, l_i = eval_linear_constraints_at_scaled_site( x_scaled, smop, scal )
 	fx, c_e, c_i = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
 	Δ_0 = eltype(x).(get_delta_0(ac))

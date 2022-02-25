@@ -150,8 +150,8 @@ function _surrogate_from_vec_function( vfun, scal, gs, x_scaled )
 			outer_ref = vfun.outer_ref,
 			nl_index = vfun.nl_index,
 			inner_output_indices = output_indices,
-			cache_in = x_scaled,
-			cache_out = eval_models( model, scal, x_scaled, output_indices)
+#			cache_in = x_scaled,
+#			cache_out = eval_models( model, scal, x_scaled, output_indices)
 		)
 	end
 end
@@ -329,8 +329,8 @@ for (_fieldname, fnname) = [
 						outer_ref = mod.outer_ref,
 						nl_index = mod.nl_index,
 						inner_output_indices = mod.inner_output_indices,
-						cache_in = mod.cache_in,
-						cache_out = eval_models( new_mod, scal, mod.cache_in, mod.inner_output_indices )
+#						cache_in = mod.cache_in,
+#						cache_out = eval_models( new_mod, scal, mod.cache_in, mod.inner_output_indices )
 					)
 				end
 			end

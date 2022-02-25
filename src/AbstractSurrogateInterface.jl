@@ -175,8 +175,7 @@ num_outputs(e :: ExprSurrogate) = e.num_outputs
 @with_kw struct CompositeSurrogate{
 	I <: Base.RefValue{<:AbstractSurrogate}, 
 	O <: Base.RefValue{<:AbstractVecFun},
-	X <: AbstractFloat,
-	Y <: AbstractFloat
+	# X, Y
 } <: AbstractSurrogate
 	
 	model_ref :: I 
@@ -189,8 +188,8 @@ num_outputs(e :: ExprSurrogate) = e.num_outputs
 	num_outputs :: Int = num_outputs( outer_ref[] )
 
 	# caching of last inner model evaluation result
-	cache_in :: Vector{X} = MIN_PRECISION[]
-	cache_out :: Vector{Y} = MIN_PRECISION[]
+	# cache_in :: Vector{X} = MIN_PRECISION[]
+	# cache_out :: Vector{Y} = MIN_PRECISION[]
 end 
 
 fully_linear( r :: Union{ExprSurrogate, RefSurrogate} ) = fully_linear( r.model_ref[] )
@@ -209,6 +208,7 @@ function eval_models( m :: ExprSurrogate, scal :: AbstractVarScaler, x_scaled ::
 end
 
 function _eval_inner( m :: CompositeSurrogate, scal, x_scaled )
+	#= 
 	if m.cache_in != x_scaled || isempty(m.cache_out)
 		empty!(m.cache_in)
 		append!(m.cache_in, x_scaled)
@@ -217,7 +217,8 @@ function _eval_inner( m :: CompositeSurrogate, scal, x_scaled )
 			eval_models( m.model_ref[], scal, x_scaled, m.inner_output_indices )
 		)
 	end
-	return m.cache_out
+	return m.cache_out=#
+	return eval_models( m.model_ref[], scal, x_scaled, m.inner_output_indices )
 end
 function eval_models( m :: CompositeSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec )
 	return eval_vfun(
