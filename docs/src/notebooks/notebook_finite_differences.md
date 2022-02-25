@@ -1,18 +1,3 @@
-```@raw html
-<style>
-    table {
-        display: table !important;
-        margin: 2rem auto !important;
-        border-top: 2pt solid rgba(0,0,0,0.2);
-        border-bottom: 2pt solid rgba(0,0,0,0.2);
-    }
-
-    pre, div {
-        margin-top: 1.4rem !important;
-        margin-bottom: 1.4rem !important;
-    }
-</style>
-
 <!-- PlutoStaticHTML.Begin -->
 <!--
     # This information is used for caching.
@@ -695,4 +680,3 @@ end</code></pre>
 <pre id='var-ingredients' class='pre-class'><code class='code-output'>ingredients (generic function with 1 method)</code></pre>
 
 <!-- PlutoStaticHTML.End -->
-```

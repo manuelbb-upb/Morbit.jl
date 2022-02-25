@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/../src/custom_logging.jl"
+EditURL = "<unknown>/src/custom_logging.jl"
 ```
 
 # Printing Debug Info

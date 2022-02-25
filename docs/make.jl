@@ -18,8 +18,10 @@ function build_notebooks()
     println("Building notebooks")
     hopts = HTMLOptions(; append_build_context=false)
     output_format = documenter_output
-    bopts = BuildOptions(NOTEBOOK_DIR; output_format)
-    parallel_build(bopts, ["notebook_finite_differences.jl", "notebook_polynomial_interpolation.jl"], hopts)
+    bopts = BuildOptions(NOTEBOOK_DIR; output_format, previous_dir = NOTEBOOK_DIR)
+    parallel_build(bopts, 
+        ["notebook_finite_differences.jl", "notebook_polynomial_interpolation.jl"], hopts
+    )
     return nothing
 end
 

@@ -126,10 +126,10 @@ end
 "Return the maximum or minimum stepsize ``σ`` such that ``x + σd`` conforms to the linear constraints."
 function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], 
         A_eq = [], b_eq = [], A_ineq = [], b_ineq = []; 
-        ret_mode = :pos, impossible_val = 0, _eps = -1 ) where R <: Real
+        ret_mode = :pos, impossible_val = 0, _eps = 0 ) where R <: Real
 	
     T = Base.promote_type(R, MIN_PRECISION )
-    EPS = _eps < 0 ? eps( T ) : T(_eps)
+    EPS = _eps < 0 ? eps( T ) : T(_eps) # "safety buffer" for box constraints
 
 	IMPOSSIBLE_VAL = R( impossible_val )
 	# TODO instead of returning 0, we could error 
@@ -177,27 +177,27 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [],
 			σ_non_neg_index = σ .>= 0
 			σ_neg_index = .!(σ_non_neg_index)
 
-			σ_non_neg = σ[ σ_non_neg_index ]
-			σ_neg = σ[ σ_neg_index ]
+			σ₊_array = σ[ σ_non_neg_index ]
+			σ₋_array = σ[ σ_neg_index ]
 			
 			if ret_mode in [:pos, :absmax]
-				σ_pos = isempty( σ_non_neg ) ? T(0) : minimum( σ_non_neg )
+				σ_pos = isempty( σ₊_array ) ? T(0) : minimum( σ₊_array )
 				ret_mode == :pos && return σ_pos
 			end
 			
 			if ret_mode in [:neg, :absmax]
-				σ_not_pos = isempty( σ_neg ) ? T(0) : maximum( σ_neg )
-				ret_mode == :neg && return σ_not_pos
+		        σ_neg = isempty( σ₋_array ) ? T(0) : maximum( σ₋_array )
+				ret_mode == :neg && return σ_neg
 			end
-			
+            
             if ret_mode == :absmax
-                if abs(σ_pos) >= abs(σ_not_pos)
+                if abs(σ_pos) >= abs(σ_neg)
                     return σ_pos
                 else
-                    return σ_not_pos
+                    return σ_neg
                 end
             elseif ret_mode == :both 
-                return σ_not_pos, σ_pos 
+                return σ_neg, σ_pos 
             end
 		end
 	
@@ -233,7 +233,7 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [],
 			return IMPOSSIBLE_VAL
 		end
 		
-		if N == 1 && abs(σ) < EPS
+		if N == 1 && abs(σ) <= EPS
 			# check if direction and single equality constraint are parallel?
 			if d[2] / d[1] ≈ -A_eq[1,1] / A_eq[1,2]
 				return _intersect_bounds(x, d, lb, ub, [], [], A_ineq, b_ineq )

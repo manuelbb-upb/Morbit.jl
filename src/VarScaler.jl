@@ -1,5 +1,5 @@
 Base.broadcastable( scal :: AbstractVarScaler ) = Ref(scal)
-# AbstractVarScaler represents linear transformations of the form 
+# AbstractVarScaler represents affine linear transformations of the form 
 # x̂ = Sx + b 	# S =̂ scaling matrix, b =̂ scaling_offset
 # x = S⁻¹(x̂ - b)
 
@@ -54,7 +54,7 @@ function combined_untransform_transform_scaler(
 	lb_old, ub_old = full_bounds_internal( scal1 )
 	lb = scal_mat * lb_old + scal_offset
 	ub = scal_mat * ub_old + scal_offset
-	return LinearScaling(lb, ub, scal_mat, scal_offset, unscal_mat)		
+	return AffineScaling(lb, ub, scal_mat, scal_offset, unscal_mat)		
 end
 
 #####
@@ -88,7 +88,7 @@ untransform( _x, :: NoVarScaling ) = copy(_x)
  
 jacobian_of_unscaling_inv(scal :: NoVarScaling) = jacobian_of_unscaling( scal )
 
-struct LinearScaling{
+struct AffineScaling{
 		LBType, UBType, DType, BType, DInvType,
 	} <: AbstractVarScaler
 	
@@ -103,7 +103,7 @@ struct LinearScaling{
 
 end
 
-function LinearScaling( lb :: L, ub :: U, D :: DType, b :: BType ) where{L, U, DType, BType}
+function AffineScaling( lb :: L, ub :: U, D :: DType, b :: BType ) where{L, U, DType, BType}
 	n, m = size(D)
 	@assert n == m "Scaling Matrix `D` must be square and invertible." 
 	@assert m == length(b) "Dimensions of scaling matrix `D` and translation vector `b` do not match."
@@ -112,20 +112,20 @@ function LinearScaling( lb :: L, ub :: U, D :: DType, b :: BType ) where{L, U, D
 	lb_scaled = D * lb .+ b
 	ub_scaled = D * ub .+ b
 
-	return LinearScaling(lb_scaled,ub_scaled,D,b,Dinv)
+	return AffineScaling(lb_scaled,ub_scaled,D,b,Dinv)
 end
 
-function LinearScaling( lb, ub, d :: Vector{T}, b = nothing ) where T<:Real
+function AffineScaling( lb, ub, d :: Vector{T}, b = nothing ) where T<:Real
 	_b = isnothing(b) ? zeros(T, length(d)) : b
-	return LinearScaling( lb, ub, LinearAlgebra.Diagonal(d), _b )
+	return AffineScaling( lb, ub, LinearAlgebra.Diagonal(d), _b )
 end
 
-scaling_matrix( scal :: LinearScaling ) = scal.D
-unscaling_matrix( scal :: LinearScaling ) = scal.Dinv
-scaling_offset( scal :: LinearScaling ) = scal.b
+scaling_matrix( scal :: AffineScaling ) = scal.D
+unscaling_matrix( scal :: AffineScaling ) = scal.Dinv
+scaling_offset( scal :: AffineScaling ) = scal.b
 
-full_lower_bounds_internal( scal :: LinearScaling ) = scal.lb_scaled
-full_upper_bounds_internal( scal :: LinearScaling ) = scal.ub_scaled
+full_lower_bounds_internal( scal :: AffineScaling ) = scal.lb_scaled
+full_upper_bounds_internal( scal :: AffineScaling ) = scal.ub_scaled
 
 # derived functions and helpers, used by the algorithm:
 
@@ -189,7 +189,7 @@ function _estimate_linear_scaling( lb, ub, J )
 	end
 	var_factors[:] .= max.( min.( var_factors, MAX_SCALING_FACTOR ), MIN_SCALING_FACTOR )
 	
-	return LinearScaling( lb, ub, var_factors )
+	return AffineScaling( lb, ub, var_factors )
 end
 
 function get_var_scaler(x0, mop :: AbstractMOP, ac :: AbstractConfig)
@@ -209,7 +209,7 @@ function get_var_scaler(x0, mop :: AbstractMOP, ac :: AbstractConfig)
 			w = ub .- lb
 			w_inv = 1 ./ w
 			t = - lb .* w_inv
-			return LinearScaling( lb, ub, w_inv, t )
+			return AffineScaling( lb, ub, w_inv, t )
 		end	
 	else
 		if user_scaler == :auto

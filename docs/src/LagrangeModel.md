@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/../src/models/LagrangeModel.jl"
+EditURL = "<unknown>/src/models/LagrangeModel.jl"
 ```
 
 # Lagrange Polynomial Models
@@ -511,6 +511,7 @@ function prepare_update_model( mod :: Union{Nothing, LagrangeModel},
     sdb, algo_config;
     ensure_fully_linear = true, kwargs... )
 
+    @logmsg loglevel2 "Building LagrangeModel for $(func_indices)."
     x_scaled = get_x_scaled( x_it )
     n_vars = length(x_scaled)
 

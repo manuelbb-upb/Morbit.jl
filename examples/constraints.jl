@@ -1,5 +1,11 @@
 # # Constrained Optimization
-using Morbit #src
+
+using Pkg #src
+Pkg.activate(@__DIR__) #src
+using Test #src
+## #src
+using Morbit 
+
 # ## Box Constraints
 # 
 # Box constraints are supported and treated as "un-relaxable".
@@ -30,6 +36,7 @@ Morbit.add_lower_bound!(mop, var_2, -2.0)
 Morbit.add_upper_bound!(mop, var_2, 4.0)
 
 # Or, if the variables have not been added manually:
+
 mop = MOP( n_vars )
 vars = Morbit.var_indices(mop)
 
@@ -55,15 +62,16 @@ Morbit.add_upper_bound!(mop, vars[2], 4.0)
 # 
 # Internally, a `MOP` stores linear constraints as `MOI.VectorAffineFunction`s. 
 # They also can be added as such, using the internal `_add_eq_constraint!` or 
-# `_add_ineq_constraint!` method:
+# `_add_ineq_constraint!` method.
 const MOI = Morbit.MOI
-## x₂ ≤ 4 - x₁   ⇔   x₁ + x₂ - 4 ≤ 0
+# Construct ``x₂ ≤ 4 - x₁ \;  ⇔  \; x₁ + x₂ - 4 ≤ 0`` :
 x1_term = MOI.VectorAffineTerm(1, MOI.ScalarAffineTerm(1, vars[1]))
 x2_term = MOI.VectorAffineTerm(1, MOI.ScalarAffineTerm(1, vars[2]))
 lin_const = MOI.VectorAffineFunction([x1_term, x2_term], [-4,])
 c1 = Morbit._add_ineq_constraint!(mop,lin_const)
-# It is much easier to provide matrices:
-## x₂ ≤ x₁ + 3   ⇔  -x₁ + x₂ - 3 ≤ 0
+
+# It is much easier to provide matrices, e.g., for
+# ``x₂ ≤ x₁ + 3   ⇔  -x₁ + x₂ - 3 ≤ 0`` :
 c2 = add_ineq_constraint!(mop, [-1 1], [-3])
 
 # ## Nonlinear Constraints 
@@ -76,7 +84,7 @@ c2 = add_ineq_constraint!(mop, [-1 1], [-3])
 # For example, if want to add the constraint ``x₂ ≥ (x₁-1)² - 2``, we have 
 # to add the function ``g(x) = (x₁-1)² - x₂ - 2``.
 c3 = add_nl_ineq_constraint!(
-	mop, x -> (x[1] - 1)^2 - x[2] - 2;
+	mop, x -> (x[1] - 1)^2 - x[2] - 1;
 	n_out = 1, model_cfg = ExactConfig()
 )
 
@@ -91,29 +99,28 @@ c3 = add_nl_ineq_constraint!(
 # Just like with objectives, ask for a derivative surrogate model 
 # with the `model_cfg` keyword.
 # For scalar functions, there are also shorthands:
-# * `add_exact_nl_eq_constraint` and `add_exact_nl_ineq_constraint`
-# * `add_rbf_nl_eq_constraint` and `add_rbf_nl_ineq_constraint`
-# * `add_lagrange_nl_eq_constraint` and `add_lagrange_nl_ineq_constraint`
-# * `add_taylor_nl_eq_constraint` and `add_taylor_nl_ineq_constraint`.
-
-## x₁²+x₂²-10 ≤ 0
+# * `add_exact_nl_eq_constraint!` and `add_exact_nl_ineq_constraint!`
+# * `add_rbf_nl_eq_constraint!` and `add_rbf_nl_ineq_constraint!`
+# * `add_lagrange_nl_eq_constraint!` and `add_lagrange_nl_ineq_constraint!`
+# * `add_taylor_nl_eq_constraint!` and `add_taylor_nl_ineq_constraint!`
+#
+# Let's do it for ``x₁²+x₂²-10 ≤ 0``:
 c4 = add_rbf_nl_ineq_constraint!(mop, x -> sum(x.^2)-10)
 
 # ## Optimization
 
 # For the problem to be setup completely, objectives are still missing:
 o1 = add_lagrange_objective!(mop, x -> sum( (x .- 1).^2 ) )
-#o2 = add_taylor_objective!(mop, x -> sum( (x .- 1).^2 ) )
+o2 = add_taylor_objective!(mop, x -> sum( (x .+ 1).^2 ) )
 
 # Now, we can call `optimize` as usual. 
 # The initial vector `x0` must not necessarily be feasible for the nonlinear constraints.
-# (ATM it must be feasible for the box constraints.)
 # If it is not feasible, then the first iteration will enter 
 # the so called "restoration" procedure.
 # At the moment, this procedure is very expensive, as the true constraints 
 # are used by `NLopt` to reduce the constraint violation.
-x0 = [-0.8, 1.7]
-x, fx, ret, sdb, id, filter = optimize(mop, x0; max_iter = 100, verbosity = 2);
+x0 = [3.5, -1]
+x, fx, ret, sdb, id, filter = optimize(mop, x0; max_iter = 10, verbosity = 0);
 
 # Constraint values can be either be calculated …
 ## linear eq, linear ineq constraint values:
@@ -129,12 +136,11 @@ id.l_i, id.c_i
 using CairoMakie
 using CairoMakie.GeometryBasics
 
-# First, the box constraints 
+# First, the box constraints:
 fig, ax, _ = poly( Point2f[ Tuple(lb), (ub[1], lb[2]), Tuple(ub), (lb[1], ub[2]) ],
 	color = RGBAf(0,0,0,0), strokecolor = :blue, strokewidth = 2
 )
-
-ax.aspect = DataAspect() #src 
+nothing #hide 
 
 # Now, the constraint boundaries:
 xs = LinRange(lb[1], ub[1], 50)
@@ -150,6 +156,7 @@ lines!(xs,y3; color = RGBf(102/255,0,51/255), label = "c3" )
 x4 = sqrt(10) .* cos.(φ)
 y4 = sqrt(10) .* sin.(φ)
 lines!(x4,y4, label = "c4")
+nothing #hide
 
 # And the constraint interior:
 xs = LinRange(lb[1], ub[1], 300)
@@ -173,6 +180,7 @@ ys = LinRange(lb[2], ub[2], 300)
 end
 zs = [θ(x,y) for x = xs, y=ys]
 image!(xs,ys,zs; colormap = [RGBAf(0,0,0,0.2), RGBAf(0,0,0,0)])
+nothing #hide
 
 # Finally, plot the unconstrained Pareto set (the line connecting (-1,-1) and (1,1))
 # as well the iterates:

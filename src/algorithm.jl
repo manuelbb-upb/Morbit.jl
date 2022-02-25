@@ -242,13 +242,26 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 
 	# scale bound vars and ensure at least single-precision
 	x = ensure_precision( x0 )
+	# check box feasibility (unrelaxble)
+	lb, ub = full_bounds(mop)
+	if any( lb .> x ) || any( ub .< x )
+		@warn "`x0` violates the box constraints. Projecting into global box domain."
+		x = _project_into_box(x, lb, ub)
+	end
+
+	scal = get_var_scaler(x, mop :: AbstractMOP, ac :: AbstractConfig )
+	x_scaled = transform(x, scal)
+	
+	# x and x_scaled need same precision, else it might to lead to 
+    # inconsistencies when evaluating mop at scaled and unscaled sites;
+	# needs to be done before first evaluation
+	XT = Base.promote_eltype(x,x_scaled)
+	x = XT.(x)
+	x_scaled = XT.(x_scaled)	
 	
 	# initalize first objective vector, constraint vectors etc.
 	@logmsg loglevel2 "Evaluating at start site."
 	tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( smop, x )
-
-	scal = get_var_scaler(x, mop :: AbstractMOP, ac :: AbstractConfig )
-	x_scaled = transform(x, scal)
 	
 	# build SuperDB `sdb` for functions with `NLIndex`
 	groupings, groupings_dict = do_groupings( smop, ac )
@@ -296,7 +309,7 @@ end
 function restoration(iter_data :: AbstractIterate, data_base,
 		mop :: AbstractMOP, algo_config :: AbstractConfig, 
 		filter :: AbstractFilter, scal :: AbstractVarScaler;
-		r_guess_scaled = nothing
+		r_guess_scaled = nothing, θ_k 
 	)
 	
 	# TODO This is a very expensive task:
@@ -307,13 +320,12 @@ function restoration(iter_data :: AbstractIterate, data_base,
 	x = get_x( iter_data )
 	Xet = eltype(x)
 	n_vars = length(x)	
-	r0 = isnothing( r_guess_scaled ) ? zeros_like(x) : untransform( r_guess_scaled, scal )
+	r0 = if isnothing( r_guess_scaled ) 
+		zeros_like(x)
+	else
+		x - untransform( get_x_scaled(iter_data) .+ r_guess_scaled, scal )
+	end
 	
-	θ_k = compute_constraint_val( filter, iter_data )
-
-	# could also use
-	# `eval_linear_constraints_at_scaled_site( x_scaled, smop, scal )`
-	# A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints(scal, mop)
 	A_eq, b_eq = get_eq_matrix_and_vector( mop )
 	A_ineq, b_ineq = get_ineq_matrix_and_vector( mop )
 
@@ -326,33 +338,43 @@ function restoration(iter_data :: AbstractIterate, data_base,
 		return compute_constraint_val( filter, l_e, l_i, c_e, c_i)
 	end
 
+	lb, ub = full_bounds(mop)
 	opt = NLopt.Opt(:LN_COBYLA, n_vars )
+	opt.lower_bounds = collect(lb)	# vectors needed (not tuples)
+	opt.upper_bounds = collect(ub)
 	opt.min_objective = optim_objf
 	opt.ftol_rel = 1e-3
 	opt.stopval = _zero_for_constraints(θ_k)
 	opt.maxeval = 500 * n_vars
 	minθ, _rfin, ret = NLopt.optimize( opt, r0 )
-	rfin = Xet.(_rfin)
+	if ret in NLOPT_SUCCESS_CODES
+		rfin = Xet.(_rfin)
 
-	r_scaled = transform( rfin, scal )
-	x_r = get_x_scaled( iter_data ) .+ r_scaled
-	
-	mop_res_restoration = eval_dict_mop_at_unscaled_site(mop, x_r )
-	fx_r, c_e_r, c_i_r, = eval_result_to_all_vectors( mop_res_restoration, mop )
-	l_e_r, l_i_r = eval_linear_constraints_at_unscaled_site( x_r, mop )
+		x_r = x .+ rfin
+		x_r_scaled = transform(x_r, scal)
 
-	x_indices_r = put_eval_result_into_db!( data_base, mop_res_restoration, x_r )
+		tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( mop, x_r )
+		fx_r, c_e_r, c_i_r = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
+		l_e_r, l_i_r = eval_linear_constraints_at_unscaled_site( x_r, mop )
+		
+		x_indices_r = put_eval_result_into_db!( data_base, tmp_dict, x_r_scaled )
 
-	return r_scaled, minθ, x_r, fx_r, c_e_r, c_i_r, l_e_r, l_i_r, x_indices_r
+		return (minθ, x_r, x_r_scaled, fx_r, c_e_r, c_i_r, l_e_r, l_i_r, x_indices_r)
+	else
+		return nothing
+	end
 end
 
 function find_normal_step(iter_data :: I, data_base :: SuperDB, 
 	mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
 	filter :: AbstractFilter, scal :: AbstractVarScaler;
-	iter_counter, last_it_stat :: ITER_TYPE
+	iter_counter, last_it_stat :: ITER_TYPE, θ_k
 ) :: Tuple{Symbol, I} where I<:AbstractIterate
 	
+	@logmsg loglevel2 "Trying to find a normal step."
 	x = get_x(iter_data)
+	fx = get_fx(iter_data)
+
 	_SWITCH_last_iter_restoration = (last_it_stat == RESTORATION)
 	
 	if _SWITCH_last_iter_restoration
@@ -406,20 +428,24 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 	end
 
 	if _SWITCH_perform_restoration
-		@logmsg loglevel2 "Performing Restoration for feasibility."
+		@logmsg loglevel2 "Performing restoration for feasibility."
 		add_entry!( filter, x, (θ_k, compute_objective_val(filter,fx)) )
 
-		# all decision space stuff is scaled:
-		r, θ_r, x_r, fx_r, c_e_r, c_i_r, l_e_r, l_i_r, x_indices_r = restoration(
+		restoration_results = restoration(
 			iter_data, data_base, mop, algo_config, filter, scal; 
-			r_guess_scaled = r_guess
+			r_guess_scaled = r_guess, θ_k
 		)
-		if is_acceptable( (θ_r, fx_r), filter )
-			@logmsg loglevel2 "Found an acceptable restoration step. Going to next iteration."
-			iter_data_r = init_iterate( I, untransform(x_r, scal), x_r,
-					fx_r, l_e_r, l_i_r, c_e_r, c_i_r, get_delta( iter_data ), x_indices_r )
 
-			return :restoration, iter_data_r 
+		if !isnothing(restoration_results)
+			θ_r, x_r, x_r_scaled, fx_r, c_e_r, c_i_r, l_e_r, l_i_r, x_indices_r = restoration_results
+			if is_acceptable( (θ_r, fx_r), filter )
+				@logmsg loglevel2 "Found an acceptable restoration step with θ_r = $(θ_r). Next iteration."
+				iter_data_r = init_iterate( I, x_r, x_r_scaled,
+					fx_r, l_e_r, l_i_r, c_e_r, c_i_r, get_delta( iter_data ), x_indices_r 
+				)
+
+				return :restoration, iter_data_r 
+			end
 		end
 		
 		# no acceptable restoration step could be found ⇒ exit
@@ -435,7 +461,7 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 	x_n_scaled = get_x_scaled( iter_data ) .+ n
 	x_n_unscaled = untransform( x_n_scaled, scal )
 
-	@logmsg loglevel2 "x_n = $(_prettify(x_n_unscaled))"
+	@logmsg loglevel2 "The normal step is compatible, \n\t\tx_n = $(_prettify(x_n_unscaled))"
 	
 	# update all values and constraint_violations
 	tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( mop, x_n_unscaled )
@@ -625,9 +651,10 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	@logmsg loglevel1 "Constraint Violation is $(θ_k)"
 	
 	if !( constraint_violation_is_zero(θ_k) )
+		# if necessary, compute normal step:
 		status, iter_data_n = find_normal_step(
 			iter_data, data_base, mop, sc, algo_config, filter, scal; 
-			iter_counter, last_it_stat 
+			iter_counter, last_it_stat, θ_k
 		)
 		if status == :exit
 			return INFEASIBLE, EARLY_EXIT, scal, iter_data
@@ -641,6 +668,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 		end
 
 		θ_n = compute_constraint_val( filter,iter_data_n )
+		@logmsg loglevel3 "θ_n = $(θ_n)"
 	else
 		# in case, we did not need a normal step (n == 0)
 		# keep the values as they are 

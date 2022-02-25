@@ -48,7 +48,7 @@ x0 = lb .+ (ub .- lb ) .* rand(2)
 x0_scaled = unit_scaling_fn(x0)
 smop, iter_data, data_base, sc, ac, filter, scal = Morbit.initialize_data(mop, x0);
 
-@test scal isa Morbit.LinearScaling
+@test scal isa Morbit.AffineScaling
 @test x0 == Morbit.get_x( iter_data )
 @test x0_scaled ≈ Morbit.get_x_scaled( iter_data )
 
@@ -71,7 +71,7 @@ lb = fill(-5, 2)
 ub = fill(5, 2)
 
 factors = 1 ./ (2 .* (ub .- lb) )
-scaler = Morbit.LinearScaling(lb, ub, Diagonal( factors ), (- lb .* factors) )
+scaler = Morbit.AffineScaling(lb, ub, Diagonal( factors ), (- lb .* factors) )
 
 ac = Morbit.AlgorithmConfig(; var_scaler = scaler )
 
@@ -102,7 +102,7 @@ xf, _ = optimize( smop, x0; max_iter = 0 )
 end
 
 @testset "Unconstrained Problem, User Scaling" begin
-scaler = Morbit.LinearScaling( fill(-Inf, 2), fill(Inf, 2), Diagonal([1, 2]), zeros(2) )
+scaler = Morbit.AffineScaling( fill(-Inf, 2), fill(Inf, 2), Diagonal([1, 2]), zeros(2) )
 
 ac = Morbit.AlgorithmConfig(; var_scaler = scaler )
 
@@ -133,7 +133,7 @@ end
 
 @testset "Scaling changes" begin 
 
-scaler = Morbit.LinearScaling( fill(-Inf, 2), fill(Inf, 2), Diagonal([1, 2]), zeros(2) )
+scaler = Morbit.AffineScaling( fill(-Inf, 2), fill(Inf, 2), Diagonal([1, 2]), zeros(2) )
 
 ac = Morbit.AlgorithmConfig(; var_scaler = scaler, var_scaler_update = :model )
 

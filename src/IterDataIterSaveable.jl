@@ -134,9 +134,14 @@ function init_iterate( T :: Type{<:AbstractIterate}, x :: Vec, x_scaled :: Vec, 
     l_e :: Vec, l_i :: Vec, c_e :: Vec, c_i :: Vec, Δ :: NumOrVec,
     x_index_mapping )
     base_type = @eval $(_typename(T))    # strip any type parameters from T
+    # x and x_scaled need same precision, else it might to lead to 
+    # inconsistencies when evaluating mop at scaled and unscaled sites
+    _x = ensure_precision(x)
+    _x_scaled = ensure_precision(x_scaled)
+    XT = Base.promote_eltype(_x, _x_scaled)
 	return _init_iterate( base_type,
-        ensure_precision(x),
-        ensure_precision(x_scaled),
+        XT.(x),
+        XT.(x_scaled),
         ensure_precision(fx),
         ensure_precision(l_e), ensure_precision(l_i), 
         ensure_precision(c_e), ensure_precision(c_i), 

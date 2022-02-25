@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/../src/models/ExactModel.jl"
+EditURL = "<unknown>/src/models/ExactModel.jl"
 ```
 
 Exact models
@@ -110,9 +110,8 @@ requires_improve( cfg :: ExactConfig ) = false
 
 ````julia
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."
-function eval_models( em :: ExactModel, scal :: AbstractVarScaler, x_scaled :: Vec )
-    #return eval_vec_mop_at_func_indices_at_scaled_site( em.mop[], [em.func_index,], x_scaled, scal )
-    return eval_objf( _get(em.mop[], em.func_index), untransform(x_scaled, scal) )
+function eval_models( em :: ExactModel, scal :: AbstractVarScaler, x_scaled :: Vec)
+    return eval_vfun( _get(em.mop[], em.func_index), untransform(x_scaled, scal) )
 end
 
 @doc "Gradient vector of output `ℓ` of `em` at scaled site `x̂`."
@@ -120,7 +119,7 @@ function get_gradient( em :: ExactModel, scal :: AbstractVarScaler, x_scaled :: 
     mop = em.mop[]
     f_ind = em.func_index
     objf = _get( mop, f_ind )
-    J = jacobian_of_unscaling( scal)
+    J = jacobian_of_unscaling( scal )
     x = untransform( x_scaled, scal )
     return _ensure_vec( J'_get_gradient( objf, x, ℓ ) )
 end

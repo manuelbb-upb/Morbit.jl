@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/../src/models/TaylorModel.jl"
+EditURL = "<unknown>/src/models/TaylorModel.jl"
 ```
 
 # Taylor Polynomial Models
@@ -44,10 +44,12 @@ The actual model is defined only by the gradient vectors at `x₀` and the Hessi
     # gradient(s) at x0
     g :: G
     H :: HT = nothing
+
+    num_outputs = length(fx0)
 end
 
 fully_linear( :: TaylorModel ) = true
-num_outputs( :: TaylorModel ) = length(fx0)
+num_outputs( m :: TaylorModel ) = m.num_outputs
 ````
 
 Note, that the derivative approximations are actually constructed for the function(s)
@@ -201,6 +203,7 @@ function prepare_update_model(
     kwargs...
 )
 
+    @logmsg loglevel2 "Building Taylor model for $(func_indices)"
     db = get_sub_db( sdb, func_indices )
     x = get_x_scaled( iter_data )
     x_index = get_x_index( iter_data, func_indices )
@@ -275,6 +278,9 @@ function update_model( mod::Union{Nothing,TaylorModel}, meta :: TaylorIndexMeta,
 
     db = get_sub_db( sdb, func_indices )
     x = get_x_scaled(iter_data)
+    x_index = get_x_index( iter_data, func_indices )
+    fx = get_value( db, x_index )
+
     if isnothing(mod) || (x != mod.x0)
         all_leave_vals = get_value.( db, meta.database_indices )
 
@@ -298,7 +304,7 @@ function update_model( mod::Union{Nothing,TaylorModel}, meta :: TaylorIndexMeta,
 
         return TaylorModel(;
             x0 = x,
-            fx0 = get_fx( iter_data ),
+            fx0 = fx,
             g, H
         ), meta
     else
@@ -427,7 +433,7 @@ function _eval_models( tm :: TaylorModel, h :: Vec, ℓ :: Int )
     return ret_val
 end
 
-"Evaluate (internal) output `ℓ` of `tm` at scaled site `x̂`."
+"Evaluate (internal) output(s) `ℓ` of `tm` at scaled site `x̂`."
 function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
     h = x̂ .- tm.x0
     return reduce( vcat, _eval_models( tm, h, l ) for l = ℓ )
@@ -439,7 +445,7 @@ For the vector valued model, we iterate over all (internal) outputs:
 ````julia
 function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec )
     h = x̂ .- tm.x0
-    return [ _eval_models(tm, h, ℓ) for ℓ = eachindex(tm.g)]
+    return eval_models(tm, scal, x̂, 1:num_outputs(tm))
 end
 ````
 

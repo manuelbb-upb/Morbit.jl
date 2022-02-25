@@ -269,7 +269,7 @@ function _rbf_round3(db, lb_1, ub_1, Δ_1, x::Vector{F}, piv_val_1,
 	_fully_linear = n_new >= n_missing
 
 	@assert length(improving_directions) >= n_new "There must be more improving directions than points missing."
-	
+
 	for i = 1 : n_new
 		dir = improving_directions[i]
 		len = intersect_box( x, dir, lb_1, ub_1; return_vals = :absmax )
@@ -609,7 +609,7 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 		else
 			### If round 3 was not successful, the model is rebuild along the coordinate axes:
 			return prepare_update_model(
-				mod, meta, cfg, func_indices, mop, scal, iter_data, db, algo_config; 
+				mod, meta, cfg, func_indices, mop, scal, iter_data, sdb, algo_config; 
 				ensure_fully_linear = true, force_rebuild = true
 			)
 		end
