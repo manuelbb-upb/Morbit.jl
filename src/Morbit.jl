@@ -46,7 +46,7 @@ include("globals.jl");	# has types meant to be available globally -> import firs
 include("SuperTypes.jl"); # abstract types and interfaces 
 
 # ### Interface Definitions
-include("AbstractSurrogateInterface.jl");
+include("AbstractSurrogateInterface.jl");	# needs to come before "SurrogateContainer.jl"
 include("AbstractMOPInterface.jl");
 include("AbstractConfigInterface.jl")
 include("AbstractFilterInterface.jl")
@@ -59,7 +59,7 @@ include("Result.jl")
 include("IterDataIterSaveable.jl")
 include("Databases.jl")
 
-include("VecFun.jl"); # makes availabe `RefVecFun` & `ExprVecFun` for file `MOP.jl`
+include("VecFun.jl"); # makes availabe `RefVecFun` & `CompositeVecFun` for file `MOP.jl`
 include("MOP.jl")
 
 #include("RbfModel.jl")

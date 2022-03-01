@@ -47,44 +47,6 @@ end
 RefVecFun( F :: AbstractVecFun, nl_index = nothing ) = RefVecFun( Ref(F), nl_index )
 
 """
-    ExprVecFun(inner_ref, generated_function, num_outputs, nl_index = nothing)
-
-Like `RefVecFun`, an `ExprVecFun` object stores a reference to a `VecFun`.
-But this reference is only used for retrieval of basic information. 
-For evaluation, we have a `generated_function`.
-
-[`RefVecFun`](@ref), [`VecFun`](@ref), [`str2func`](@ref)
-"""
-struct ExprVecFun{R <: Base.RefValue{<:AbstractVecFun},F,S} <: AbstractVecFun
-	inner_ref :: R
-	generated_function :: F
-    substitutor :: S
-    expr_str :: String
-	num_outputs :: Int
-	nl_index :: Union{Nothing, NLIndex}
-	function ExprVecFun(fr::R, f::F, s::S, e, n, i = nothing) where{R,F,S}
-		return new{R,F,S}(fr,f,s,e,n,i)
-	end
-end
-
-"""
-    ExprVecFun( vf :: AbstractVecFun, expr_str :: String,
-        n_out :: Int, nl_index = nothing )
-
-Initialize an `ExprVecFun` object from another vector function.
-An evaluation function is created from `expr_str` by replacing each occurence 
-of "VREF(x)" to a call to `vf`.
-"""
-function ExprVecFun( vf :: AbstractVecFun, expr_str :: String, n_out :: Int, nl_index = nothing)
-	@assert n_out > 0 "Need a positive output number."
-
-    #expr_str = replace(_expr_str, "VREF(x)" => "VREF(x̂)")
-	gen_func, substitutor = str2func( expr_str, vf )
-
-	return ExprVecFun(Ref(vf),gen_func,substitutor,expr_str,n_out,nl_index)
-end
-
-"""
     CompositeVecFun(; inner_ref, outer_ref,
         inner_nl_index = nothing, outer_nl_index = nothing,
         num_outputs = num_outputs( outer_ref ) 
@@ -219,28 +181,69 @@ function make_vec_fun( fn :: Function;
     return make_vec_fun(wrapped_fn; kwargs...)
 end
 
-# ## Information retrieval methods:
+"""
+    make_outer_fun( func :: Function; n_vars, n_out, kwargs...)
 
-num_vars( objf :: VecFun ) = objf.n_in
-num_vars( r :: Union{RefVecFun,ExprVecFun} ) = num_vars( r.inner_ref[] )
+Helper function to build a `VecFun` from a function `func` taking 
+two vector valued arguments: First, the argument vector ``x`` 
+of length `n_vars` and second, the value of an inner function evaluated at ``x``.
+"""
+function make_outer_fun( fn;
+    n_vars :: Int,
+    jacobian_1 :: Union{Function, Nothing} = nothing, 
+    jacobian_2 :: Union{Function, Nothing} = nothing,
+    kwargs...
+)
+    @assert n_vars > 0 "The number of variables `n_vars` must be positive."
+    
+    # ξ = [x;y]; 
+    # we have to use this concatenation because VecFuns were initially designed 
+    # for univariate vector input
+    func = ξ -> fn( ξ[1:n_vars], ξ[n_vars+1:end] )
+    jacobian = if !(isnothing(jacobian_1) || isnothing(jacobian_2))
+        ξ -> hcat( jacobian_1(ξ), jacobian_2(ξ) )
+    else
+        nothing
+    end
+    return make_vec_fun( func; jacobian, model_cfg = ExactConfig(), kwargs...)
+end
+
+
+"""
+    make_outer_fun( expr_str :: String; n_vars, kwargs...)
+
+Helper function to build a `VecFun` from a an expression string.
+"""
+function make_outer_fun( expr_str :: AbstractString;
+    kwargs...
+)
+    fn = outer_fn_from_expr(expr_str)
+    return make_outer_fun(fn; kwargs...)
+end   
+
+# ## Information retrieval methods:
 
 num_outputs( objf :: VecFun ) = objf.n_out
 num_outputs( r :: RefVecFun ) = num_outputs( r.inner_ref[] )
-num_outputs( e :: Union{ExprVecFun,CompositeVecFun} ) = e.num_outputs
+num_outputs( e :: CompositeVecFun ) = e.num_outputs
 
 # `model_cfg` should in practice only ever be called for `VecFun`s (??? not anymore)
 # it refers to the config for the inner AbstractVecFun which is considered expensive
 model_cfg( vfun :: VecFun ) = vfun.model_config
 model_cfg( vfun :: RefVecFun ) = model_cfg(vfun.inner_ref[])
-model_cfg( vfun :: ExprVecFun ) = model_cfg(vfun.inner_ref[])
-model_cfg( vfun :: CompositeSurrogate ) = model_cfg(vfun.inner_ref[])
+model_cfg( vfun :: CompositeVecFun ) = model_cfg(vfun.inner_ref[])
 
 function eval_vfun( vfun :: VecFun, x :: Vec )
     return vfun.function_handle(x)
 end
 eval_vfun( vfun :: RefVecFun, x ) = eval_vfun( vfun.inner_ref[], x)
-eval_vfun( vfun :: ExprVecFun, x ) = vfun.generated_function(x)
-eval_vfun( vfun :: CompositeVecFun, x ) = eval_vfun( vfun.outer_ref[], eval_vfun( vfun.inner_ref[], x) )
+
+function eval_vfun( vfun :: CompositeVecFun, x )
+    return eval_vfun( 
+        vfun.outer_ref[], 
+        [x; eval_vfun( vfun.inner_ref[], x)] 
+    )
+end
 
 function Broadcast.broadcasted( ::typeof(eval_vfun), vfun :: VecFun, X :: VecVec )
     return vfun.function_handle.(X)
@@ -249,7 +252,7 @@ function Broadcast.broadcasted( ::typeof(eval_vfun), vfun :: RefVecFun, X :: Vec
     return vfun.inner_ref[].function_handle.(X)
 end
 function Broadcast.broadcasted( ::typeof(eval_vfun), s :: CompositeVecFun, X :: VecVec )
-    X̃ = eval_vfun.( s.inner_ref[], X)
+    X̃ = [[x,y] for (x,y) = zip(X, eval_vfun.( s.inner_ref[], X))]
     return eval_vfun.(s.outer_ref[], X̃)
 end
 
@@ -263,9 +266,6 @@ function _get_gradient( objf :: VecFun{<:Any, <:DiffFn, <:Any}, x :: Vec, ℓ )
 end
 #=
 _get_gradient( r :: RefVecFun, x :: Vec, args ...) = _get_gradient( r.inner_ref[], x, args...)
-function _get_gradient( ef :: ExprVecFun, x :: Vec, ℓ )
-	return Zygote.gradient( ξ -> ef.generated_function(ξ)[ℓ], x )[1]
-end
 
 using LRUCache
 @memoize LRU(maxsize=1) function _eval_inner( s :: CompositeVecFun, x :: Vec )
@@ -288,12 +288,6 @@ function _get_jacobian( objf :: VecFun{<:Any, <:DiffFn, <:Any}, x :: Vec, args..
 end
 #=
 _get_jacobian( r :: RefVecFun, x :: Vec, args ...) = _get_jacobian( r.inner_ref[], x, args...)
-function _get_jacobian( ef :: ExprVecFun, x :: Vec )
-	return Zygote.jacobian( ef.generated_function, x )[1]
-end
-function _get_jacobian( ef :: ExprVecFun, x :: Vec, rows )
-	return Zygote.jacobian( ξ -> ef.generated_function(ξ)[rows], x )[1]
-end
 function _get_jacobian( s :: CompositeVecFun, x :: Vec, rows )
     gx = _eval_inner(s, x)
     Jφ = _get_jacobian( s.outer_ref[], gx, rows )
@@ -307,9 +301,6 @@ function _get_hessian( objf :: VecFun{<:Any, <:DiffFn, <:Any}, x :: Vec, args...
 end
 #=
 _get_hessian( r :: RefVecFun, x :: Vec, args ...) = _get_hessian( r.inner_ref[], x, args...)
-function _get_hessian( ef :: ExprVecFun, x :: Vec, ℓ = 1 )
-	return Zygote.gradient( ξ -> ef.generated_function(ξ)[ℓ], x )[1]
-end
 
 function _get_hessian( s :: CompositeVecFun, x :: Vec, ℓ)
     # (Hφ_ℓ(g(x)) \\ Dg(x))\\cdot Dg(x) + Dφ_ℓ(g(x)) \\cdot Hg(x)
@@ -335,18 +326,20 @@ end
 # Derived Methods specific to `VecFun`
 # Note: `num_evals` and `max_evals` are defined for all (but for printing only)
 num_evals( vfun :: VecFun ) = getfield( vfun.function_handle, :counter )[]
-num_evals( vfun :: Union{RefVecFun, ExprVecFun} ) = num_evals(vfun.inner_ref[])
-num_evals( vfun :: CompositeVecFun ) = max( num_evals(vfun.inner_ref[]), num_evals(vfun.outer_ref[]) )
+num_evals( vfun :: RefVecFun ) = num_evals(vfun.inner_ref[])
+num_evals( vfun :: CompositeVecFun ) = num_evals(vfun.inner_ref[])
+#num_evals( vfun :: CompositeVecFun ) = max( num_evals(vfun.inner_ref[]), num_evals(vfun.outer_ref[]) )
 
 "(Soft) upper bound on the number of function calls. "
 max_evals( objf :: AbstractVecFun) = max_evals( model_cfg(objf) );
-max_evals( vfun :: CompositeVecFun ) = min( max_evals(vfun.inner_ref[]), max_evals(vfun.outer_ref[]) )
+max_evals( vfun :: CompositeVecFun ) = max_evals(vfun.inner_ref[])
+#max_evals( vfun :: CompositeVecFun ) = min( max_evals(vfun.inner_ref[]), max_evals(vfun.outer_ref[]) )
 
 function reset_evals!( vfun :: VecFun, N = 0 )
     vfun.function_handle.counter[] = N
     nothing 
 end
-reset_evals!( vfun :: Union{RefVecFun,ExprVecFun}, N = 0 ) = reset_evals!( vfun.inner_ref[], N)
+reset_evals!( vfun :: RefVecFun, N = 0 ) = reset_evals!( vfun.inner_ref[], N)
 function reset_evals!( vfun :: CompositeVecFun, N = 0 )
     reset_evals!(vfun.inner_ref[], N)
     reset_evals!(vfun.outer_ref[], N)
@@ -376,59 +369,18 @@ function Broadcast.broadcasted( ::typeof(_get_hessian), objf :: VecFun, X :: Vec
 end
 =#
 
-"""
-	str2func(expr_str, vfunc)
 
-Parse a user provided string describing some function of `x` and 
-return the resulting function.
-Each occurence of "VREF(x)" in `expr_str` is replaced by a function 
-evaluating `vfunc::AbstractVecFun` at `x`.
-
-The user may also use custom functions in `expr_str` hat have been 
-registered with `register_func`.
-
-[`register_func`](@ref)
-"""
-function str2func(expr_str, inner_vfunc :: AbstractVecFun; register_adjoint = false)
+function outer_fn_from_expr(expr_str)
 	global registered_funcs
-
-    evaluator =  x -> eval_vfun( inner_vfunc, x ) 
-    jacobian_handle =  x -> _get_jacobian( inner_vfunc, x)
 
     parsed_expr = Meta.parse(expr_str)
 	reg_funcs_expr = Expr[ :($k = $v) for (k,v) = registered_funcs ]
 
-    if register_adjoint
-        @eval begin 
-            let $(reg_funcs_expr...);
-                Zygote.@adjoint $(evaluator)(x) = $(evaluator)(x), y -> ($jacobian_handle(x)'y,);
-            end
-        end
-	    Zygote.refresh();
-    end
-
-	gen_func = mk_function( @__MODULE__, :( x -> begin  
-		let $(reg_funcs_expr...), VREF = $evaluator ;  
-			return $(parsed_expr)
-		end
-	end))
-
-    subst_func = mk_function( @__MODULE__, :( (x,y) -> begin
-        let $(reg_funcs_expr...), VREF = x -> y;
+    outer_fn = mk_function( @__MODULE__, :( (x,gx) -> begin
+        let $(reg_funcs_expr...), VREF = gx;
 			return $(parsed_expr)
         end
 	end))
-
-    #=
-    subst_func = function( x, y )
-        result = @eval begin 
-		    let $(reg_funcs_expr...), x = $x, y = $y, VREF = (x -> y);
-			    $(parsed_expr)
-            end
-		end
-        return result
-	end
-    =#
     
-	return CountedFunc( gen_func ), subst_func	# TODO can_batch ?
+	return outer_fn
 end

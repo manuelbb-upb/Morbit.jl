@@ -57,7 +57,7 @@ $(FIELDS)
 """
 @with_kw struct RbfConfig <: AbstractSurrogateConfig
 	"RBF kernel (Symbol), either `:cubic`, `:inv_multiquadric`, `:multiquadric`, `:exp` or `:thin_plate_spline`."
-	kernel :: Symbol = :inv_multiquadric
+	kernel :: Symbol = :cubic
 
 	"RBF shape paremeter, either a number or a string containing `Δ`."
 	shape_parameter :: Union{String, Float64} = NaN
@@ -78,7 +78,7 @@ $(FIELDS)
 	θ_pivot_cholesky :: Float64 = 1e-7
 
 	"Require models to be fully linear in each iteration."
-	require_linear :: Bool = false
+	require_linear :: Bool = true
 
 	"Maximum number of training sites. `-1` is reset to `2n+1`."
 	max_model_points :: Int64 = -1 # is probably reset in the algorithm
@@ -342,7 +342,7 @@ function _rbf_round4(db, lb_2, ub_2, x::Vector{F}, Δ, indices_found_so_far, cfg
 ) where F
 	n_vars = length(x)
 
-	max_points = cfg.max_model_points <= 0 ? 2 * n_vars + 1 : cfg.max_model_points
+	max_points = cfg.max_model_points <= 0 ? ((n_vars + 1 ) * (n_vars + 2) / 2) : cfg.max_model_points
 
 	N = length(indices_found_so_far)
 	

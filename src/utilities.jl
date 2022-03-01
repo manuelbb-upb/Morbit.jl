@@ -123,49 +123,56 @@ function _project_into_box( z, lb, ub)
     return min.( max.( z, lb ), ub )
 end
 
-"Return the maximum or minimum stepsize ``σ`` such that ``x + σd`` conforms to the linear constraints."
+"Return the maximum or minimum stepsize ``σ`` such that ``x + σd`` 
+conforms to the linear constraints ``lb ≤ x+σd ≤ ub`` and ``A(x+σd) - b ≦ 0``."
 function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], 
         A_eq = [], b_eq = [], A_ineq = [], b_ineq = []; 
         ret_mode = :pos, impossible_val = 0, _eps = 0 ) where R <: Real
 	
+    # TODO can we pass precalculated `Ax` values for `A_eq` and `A_ineq`
+    
     T = Base.promote_type(R, MIN_PRECISION )
     EPS = _eps < 0 ? eps( T ) : T(_eps) # "safety buffer" for box constraints
 
 	IMPOSSIBLE_VAL = R( impossible_val )
 	# TODO instead of returning 0, we could error 
 	
+    if iszero(d)
+        return T(Inf)
+    end
+
 	if isempty( A_eq )
 		# only inequality constraints
 	
 		d_zero_index = iszero.(d)
-		d_not_zero_index = .!( d_zero_index )
+		d_nz = .!( d_zero_index )
 
 		# lb <= x + σd - ε  ⇒  σ_i = (lb[i] - x[i] + ε) / d[i]
 		σ_lb = if isempty(lb)
 			T[]
 		else
-			( lb[ d_not_zero_index ] .- x[ d_not_zero_index ] .+ EPS) ./ d[ d_not_zero_index ]
+			( lb[ d_nz ] .- x[ d_nz ] .+ EPS) ./ d[ d_nz ]
 		end
 
 		# x + σ d + ε <= ub  ⇒  σ_i = (ub[i] - x[i] - ε) / d[i]
 		σ_ub = if isempty(ub)
 			T[]
 		else
-			( ub[ d_not_zero_index ] .- x[ d_not_zero_index ] .- EPS) ./ d[ d_not_zero_index ]
+			( ub[ d_nz ] .- x[ d_nz ] .- EPS) ./ d[ d_nz ]
 		end
 
-		# linear inequality constraints
-        # A * (x + d) + b .+ ε \le 0
-        # A d = -Ax -b - ε
+		# linear inequality constraint intersection
 		σ_ineq = if isempty( A_ineq)
 			T[] 
 		else
+             # A * (x + σd) - b .+ ε ꜝ= 0
+            # A σd = -Ax + b - ε = - (Ax -b + ε) ⇔ σ = -(Ax -b + ε)./Ad
 			denom_ineq = A_ineq * d
-			denom_ineq_not_zero_index = .!( iszero.( denom_ineq ) )
-			if isempty(b_ineq)
-				- (A_ineq[denom_ineq_not_zero_index, :] * x .- EPS) ./ denom_ineq[ denom_ineq_not_zero_index ]
+			nz = .!( iszero.( denom_ineq ) )
+			if isempty(b_ineq)  # b = 0
+				- (A_ineq[nz, :] * x .+ EPS) ./ denom_ineq[ nz ]
 			else
-				- ( A_ineq[denom_ineq_not_zero_index, :] * x .+ b_ineq[denom_ineq_not_zero_index] .- EPS) ./ denom_ineq[ denom_ineq_not_zero_index ]
+				- (A_ineq[nz, :] * x .- b_ineq[nz] .+ EPS) ./ denom_ineq[ nz ]
 			end
 		end
 
@@ -203,17 +210,21 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [],
 	
 	else
 		# there are equality constraints
-		# they have to be all fullfilled
+		# they have to be all fullfilled and we loop through them one by one (rows of A_eq)
 		N = size(A_eq, 1)
 		n = length(d)
 		_b = isempty(b_eq) ? zeros(T, N) : b_eq
-		
+		zero_tol = eps(T)
+
 		σ = missing
 		for i = 1 : N
-			if d[i] != 0
-				σ_i = - (A_eq[i, :]'x + _b[i]) / d[i]
+            # a'(x+ σd) - b = 0 ⇔ σ a'd = -(a'x - b) ⇔ σ = -(a'x -b)/a'd 
+            ad = A_eq[i,:]'d
+			if ad != 0  # abs(ad) > zero_tol ???? # TODO
+				σ_i = - (A_eq[i, :]'x - _b[i]) / ad
 			else
-				if A_eq[i,:]'x != 0
+                # check for primal feasibility of `x`:
+				if abs(A_eq[i,:]'x .- _b[i]) > zero_tol
 					return IMPOSSIBLE_VAL
 				end
 			end
@@ -229,15 +240,12 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [],
 		
 		if ismissing(σ)
 			# only way this could happen:
-			# d == 0 && x feasible w.r.t. eq const
-			return IMPOSSIBLE_VAL
+			# ad == 0 for all i && x feasible w.r.t. eq const
+            σ = Inf
 		end
 		
-		if N == 1 && abs(σ) <= EPS
-			# check if direction and single equality constraint are parallel?
-			if d[2] / d[1] ≈ -A_eq[1,1] / A_eq[1,2]
-				return _intersect_bounds(x, d, lb, ub, [], [], A_ineq, b_ineq )
-			end
+		if isinf(σ)
+			return _intersect_bounds(x, d, lb, ub, [], [], A_ineq, b_ineq )
 		end
 			
 		# check if x + σd is compatible with the other constraints
@@ -246,7 +254,7 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [],
 		
 		lb_incompat = !isempty(lb) && any(x_trial .< lb .- EPS )
 		ub_incompat = !isempty(ub) && any(x_trial .> ub .+ EPS )
-		ineq_incompat = !isempty(A_ineq) && any( A_ineq * x_trial .+ _b_ineq .> EPS )
+		ineq_incompat = !isempty(A_ineq) && any( A_ineq * x_trial .- _b_ineq .+ EPS .> 0 )
 		if lb_incompat || ub_incompat || ineq_incompat			
 			return IMPOSSIBLE_VAL
 		else

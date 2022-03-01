@@ -132,9 +132,9 @@ _meta_array_type( sc :: SurrogateContainer ) = typeof( [ get_meta(gs) for gs = s
 	_surrogate_from_vec_function( vfun, scal, gs, nl_ind )
 
 Provided a vector function `vfun` that is either of type 
-`RefVecFun` or `ExprVecFun` and a `GroupedSurrogates` object `gs`, 
+`RefVecFun` or `CompositeVecFun` and a `GroupedSurrogates` object `gs`, 
 that contains the model for `vfun.nl_index`, create and return 
-a `RefSurrogate` or `ExprSurrogate` from `gs`.
+a `RefSurrogate` or `CompositeSurrogate` from `gs`.
 """
 function _surrogate_from_vec_function( vfun, scal, gs, x_scaled )
 	output_indices = get_output_indices(gs, vfun.nl_index)
@@ -142,8 +142,6 @@ function _surrogate_from_vec_function( vfun, scal, gs, x_scaled )
 	cfg = get_cfg(gs)
 	if vfun isa RefVecFun
 		return RefSurrogate( model, output_indices, vfun.nl_index )
-	elseif vfun isa ExprVecFun 
-		return ExprSurrogate( model, vfun.expr_str, scal, output_indices, vfun.nl_index )
 	elseif vfun isa CompositeVecFun
 		return CompositeSurrogate(;
 			model_ref = Ref(model), 
@@ -314,14 +312,6 @@ for (_fieldname, fnname) = [
 					fn_dict[ind] = RefSurrogate(
 						new_mod, # updated model
 						mod.output_indices, mod.nl_index
-					)
-				elseif mod isa ExprSurrogate
-					fn_dict[ind] = ExprSurrogate( 
-						new_mod,
-						mod.expr_str, 
-						scal, 
-						mod.output_indices, 
-						mod.nl_index
 					)
 				elseif mod isa CompositeSurrogate
 					fn_dict[ind] = CompositeSurrogate(;

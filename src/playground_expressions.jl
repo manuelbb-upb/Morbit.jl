@@ -6,27 +6,29 @@ mop = MOP(2)
 F = x -> sum(x)
 o1 = add_objective!(mop, F; model_cfg = ExactConfig(), n_out = 1, diff_method = AutoDiffWrapper)
 
+# add `sin(sum(x.^2))` in different ways
+# `g = sum(x.^2)`
+# `φ(x,gx) = sin(gx)`
+
 G = x -> sum(x.^2)
 VG = M.make_vec_fun( G; n_out = 1, model_cfg = RbfConfig() )
-#VG = M.make_vec_fun( G; n_out = 1, model_cfg = ExactConfig() )
 gind = M._add_function!( mop, VG )
 o2 = M._add_objective!(mop, gind)
 
-sin_vfunc = M.make_vec_fun( x -> sin(x[end]); n_out = 1, model_cfg = ExactConfig(), diff_method = AutoDiffWrapper )
+sin_vfunc = M.make_outer_fun( (x,gx) -> sin(gx[end]); n_vars = 2, n_out = 1 )
 o3 = M._add_objective!(mop, gind, sin_vfunc)
 
-o4 = M._add_objective!(mop, gind, "(sin(VREF(x)[1]))", 1)
-#=
+o4 = M._add_objective!(mop, gind, "(sin(VREF[1]))"; n_vars = 2, n_out = 1 )
+
 T = x -> sin(x)
 M.register_func(T, :T)
 
-o5 = M._add_objective!(mop, VG, "T(VREF(x)[1])", 1)
-o5 = M._add_objective!(mop, gind, "T(VREF(x)[1])", 1)
-
+o5 = M._add_objective!(mop, gind, "T(VREF[1])"; n_vars = 2, n_out = 1)
+##
 for ind = [o1,o2,o3,o4,o5]
 	@show M.eval_vfun( M._get(mop, ind), ones(2) )
 end
-=#
+
 
 #=
 objf1 = M._get( mop, o1 )

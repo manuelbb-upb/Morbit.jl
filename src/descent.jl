@@ -55,8 +55,8 @@ end
     "Require a descent in all model objective components."
     strict_backtracking :: Bool = true 
 
-    armijo_const_rhs :: Float64 = 1e-3
-    armijo_const_shrink :: Float64 = .5 
+    armijo_const_rhs :: Float64 = 1e-6
+    armijo_const_shrink :: Float64 = .75 
 
     max_loops :: Int = 30
     min_stepsize :: Float64 = 1e-15
@@ -64,7 +64,23 @@ end
     normalize :: Bool = true
 end
 
-"Provided `x` and the (surrogate) jacobian `∇F` at `x`, as well as bounds `lb` and `ub`, return steepest multi descent direction."
+raw"""
+    _steepest_descent_direction( x, Df, lb, ub, A_eq, b_eq, A_ineq, b_ineq;
+        normalize = true)
+
+Provided `x` and the (surrogate) jacobian `Df` at `x`, return the constrained 
+steepest descent direction, i.e., the optimizer ``d`` of
+```math
+\begin{aligned}
+&\min_{β, d\in ℝ^n} β \quad\text{s.t.}\\
+& -1 ≤ d ≤ 1 ,
+& Df ⋅ d ≤ β , \\
+& lb ≤ x + d ≤ ub, \\ 
+& A (x+d) - b ≦ 0.
+\end{aligned}
+```
+If `normalize`, then the rows of `Df` are normalized, resulting in a more “central” direction.
+"""
 function _steepest_descent_direction(
     x :: AbstractVector{F}, ∇F :: Mat, lb :: Vec, ub :: Vec,
     A_eq = [], b_eq = [], A_ineq = [], b_ineq = [], normalize = true
@@ -101,12 +117,12 @@ function _steepest_descent_direction(
         JuMP.@constraint(opt_problem, global_scaled_var_bounds, lb .<= x .+ d .<= ub);
         if !isempty(A_eq)
             @assert size(A_eq, 1) == length(b_eq) "Equality constraint dimension mismatch."
-            JuMP.@constraint(opt_problem, linear_eq_constraints,  A_eq*d .+ b_eq .== 0 )
+            JuMP.@constraint(opt_problem, linear_eq_constraints,  A_eq*d .- b_eq .== 0 )
         end
         
         if !isempty(A_ineq)
-            @assert size(A_ineq, 1) == length(b_ineq) "Equality constraint dimension mismatch."
-            JuMP.@constraint(opt_problem, linear_ineq_constraints, A_ineq*d .+ b_ineq .<= 0 )
+            @assert size(A_ineq, 1) == length(b_ineq) "Inequality constraint dimension mismatch."
+            JuMP.@constraint(opt_problem, linear_ineq_constraints, A_ineq*d .- b_ineq .<= 0 )
         end
 
         JuMP.optimize!(opt_problem)
@@ -131,15 +147,13 @@ Perform a backtracking loop starting at `x` with an initial step of
 `step_size .* dir` and return trial point `x₊`, the surrogate value-vector `m_x₊`
 and the final step `s = x₊ .- x`.
 """
-function _backtrack( x :: AbstractVector{F}, dir, ω, sc, cfg, scal ) where F<:AbstractFloat
+function _backtrack( x :: AbstractVector{F}, dir, step_size, ω, sc, cfg, scal ) where F<:AbstractFloat
 
     MIN_STEPSIZE = cfg.min_stepsize >= 0 ? cfg.min_stepsize : eps(F)
     MAX_LOOPS = cfg.max_loops
     strict_backtracking = cfg.strict_backtracking 
     α = F(cfg.armijo_const_shrink)
     c = F(cfg.armijo_const_rhs)
-
-    step_size = 1 
 
     # values at iterate (required for _armijo_condition )
     mx = eval_container_objectives_at_scaled_site(sc, scal, x)
@@ -148,7 +162,6 @@ function _backtrack( x :: AbstractVector{F}, dir, ω, sc, cfg, scal ) where F<:A
     mx₊ = eval_container_objectives_at_scaled_site(sc, scal, x₊ )
 
     for i = 1 : MAX_LOOPS 
-        step_size * c * ω
         if _armijo_condition( Val(strict_backtracking), mx, mx₊, step_size, ω, c )
             break
         end
@@ -171,6 +184,7 @@ function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_
 
     @logmsg loglevel3 "Calculating steepest descent direction."
 
+    x = get_x_scaled(x_it)
     x_n = get_x_scaled(x_it_n)
 
     ∇m = eval_container_objectives_jacobian_at_scaled_site(sc, scal, x_n)
@@ -178,32 +192,42 @@ function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_
     lb, ub = full_bounds_internal( scal )
     
     # For computing a step `t`, starting at `x + n`, the linear constraints are 
-    # A⋅(x + n + t) + b ≤ 0
-    # As `x` and `n` are constant we use `b̃ = Ax + An + b` 
-    # which happens to be saved in `x_it_n` for constraints 
-    # A ⋅ t + b̃ ≦ 0
-    _b_eq = get_eq_const(x_it_n)   # A(x+n) + b
-    _b_ineq = get_ineq_const(x_it_n)
+    # A⋅(x + n + t) - b ≦ 0 ⇔ At - b + A(x + n) ≦ 0
+    # As `x` and `n` are constant we can use `b̃ = b - A(x + n)`.
+    # As it happens, `x_it_n` holds `A(x+n) - b`, i.e., `-b̃`.
+    _b_eq = -get_eq_const(x_it_n)
+    _b_ineq = -get_ineq_const(x_it_n)
     _A_eq, _, _A_ineq, _ = transformed_linear_constraints(scal, mop)
-   
+
+    # Variant 1
     # In theory, We approximate the nonlinear constraints via 
     # c(ξ) = m(x) + Dm(x)⋅(x - ξ)
     # Hence, when looking for a step `t` (taken from `x + n`),
     # we get the constraint approximations 
-    # m(x) + Dm(x)⋅(n + t) ≦ 0
-
-    # Here, we actually do the Taylor Expansion around `x+n` and get constraints 
-    # m(x + n) + Dm(x+n)⋅t ≦ 0
-    # The only reason to do so is to directly use `b = m(x_n)` and `A = Dm(x_n)`:    
-    Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal,x_n)    # TODO these should be returned by `compute_normal_step` 
-    Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal,x_n)    
+    # m(x) + Dm(x)⋅(n + t) ≦ 0 ⇔ Dm(x)t - (-m(x)-Dm(x)n) ≤ 0
+    Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal,x)
+    Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal,x)    
     m_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x_n)
     m_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x_n)
+    n = x_n .- x
+    __b_eq = -m_eq .- Dm_eq*n
+    __b_ineq = -m_ineq .- Dm_ineq*n
     
+    #=
+    # Variant 2 - disabled because of problems with `_intersect_bounds`
+    # Here, we actually do the Taylor Expansion around `x_n=x+n` and get constraints 
+    # m(x+n) + Dm(x+n)⋅t ≦ 0
+    # The only reason to do so is to directly use `b = -m(x_n)` and `A = Dm(x_n)`:    
+    Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal,x_n)    # TODO these should be returned by `compute_normal_step` 
+    Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal,x_n)    
+    m_eq = -eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x_n)
+    m_ineq = -eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x_n)
+    =#
+
     A_eq = vcat( _A_eq, Dm_eq )
-    b_eq = vcat( _b_eq, m_eq )
+    b_eq = vcat( _b_eq, __b_eq )
     A_ineq = vcat( _A_ineq, Dm_ineq )
-    b_ineq = vcat( _b_ineq, m_ineq )
+    b_ineq = vcat( _b_ineq, __b_ineq )
 
     # compute steepest descent at `x+n`
     d, ω = _steepest_descent_direction( x_n, ∇m, lb, ub, A_eq, b_eq, A_ineq, b_ineq, desc_cfg.normalize)
@@ -233,36 +257,54 @@ function compute_descent_step(desc_cfg :: SteepestDescentConfig, mop :: Abstract
     end
 
     # scale direction for backtracking as in paper
+    # σ is meant to be an inital stepsize for d
     norm_d = norm(d, Inf)
     σ = if Δ <= 1
+        # ⇒ if ‖d‖ ≤ Δ, set σ = 1 ≤ Δ/‖d‖
+        # ⇒ if Δ < ‖d‖, set σ = Δ/‖d‖ < 1, such that ‖σd‖ = Δ
         min( Δ/norm_d, 1 )
     else
         # Δ > 1
         if norm_d ≈ 1
+            # construct matrices for `_intersect_bounds(…)`, to find maximum 
+            # σ ≥ 0 such that A( x_n + σd ) - b ≤ 0
+
             # We need the linear constraint matrices to find a stepsize `σ` with 
-            # A * x_n + σt + b ≦ 0
+            # A * (x_n + σd) - b ≦ 0
             _A_eq, _b_eq, _A_ineq, _b_ineq = transformed_linear_constraints(scal, mop)
             
-            # Again we use a linearization of the constraints around `x_n` to find `σ` with
-            # m(x_n) + Dm(x_n)*σt ≦ 0:
+            σ_lin = _intersect_bounds(x_n, d, lb_eff, ub_eff, A_eq, b_eq, A_ineq, b_ineq; ret_mode = :pos)
+
+            # Variant 1 - paper variant
+            # Dm(x)(n + σd) + m(x) ≤ 0
+            # x + n + σ d ≤ ub ⇔ n + σd ≤ ub .- x
+            Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal, x)
+            Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal, x)    
+            m_eq = - eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x)
+            m_ineq = - eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x)           
+            n = x_n .- x
+            σ_nonlin = _intersect_bounds(
+                n, d, lb_eff .- x, ub_eff .-x , 
+                Dm_eq, m_eq, Dm_ineq, m_ineq; ret_mode = :pos
+            )
+            #=
+            # Variant 2 
+            # `d` was calculated using the linearization of the constraints around `x_n`:
+            # Dm(x_n)*d + m(x_n) = A d - b ≦ 0.
+            # Modifications to `_intersect_bounds` required # TODO
             Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal, x_n)    # TODO these should be returned by `compute_normal_step` 
             Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal, x_n)    
             m_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x_n)
             m_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x_n)
-
-            A_eq = vcat( _A_eq, Dm_eq )
-            b_eq = vcat( _b_eq, m_eq )
-            A_ineq = vcat( _A_ineq, Dm_ineq )
-            b_ineq = vcat( _b_ineq, m_ineq )
-
-            _intersect_bounds(x_n, d, lb_eff, ub_eff, A_eq, b_eq, A_ineq, b_ineq)
+            =#
+            min( σ_lin, σ_nonlin )
         else
             1
         end
     end
     
     if σ > desc_cfg.min_stepsize 
-        x₊, mx₊, step = _backtrack( x_n, σ * d, ω, sc, desc_cfg, scal )
+        x₊, mx₊, step = _backtrack( x_n, d, σ, ω, sc, desc_cfg, scal )
         return ω, x₊, mx₊, norm(step, Inf)
     end
     
@@ -651,8 +693,8 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     n_vars = length(x)
 
     A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
-    l_e = get_eq_const( x_it )  # == A_eq * x + b_eq
-    l_i = get_ineq_const( x_it ) # == A_ineq * x + b_ineq 
+    l_e = get_eq_const( x_it )  # == A_eq * x - b_eq
+    l_i = get_ineq_const( x_it ) # == A_ineq * x - b_ineq 
 
     Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal,x)    
     Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal,x)    
@@ -687,8 +729,9 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     JuMP.@constraint( opt_problem, -α .<= n)
     JuMP.@constraint( opt_problem, n .<= α)
 
-    JuMP.@constraint(opt_problem, linear_eq_const, l_e .+ A_eq * n .== 0)
-    JuMP.@constraint(opt_problem, linear_ineq_const, l_i .+ A_ineq * n .<= 0)
+    # A (x + n) - b ≦ 0 ⇔ An -b + Ax ≦ 0 ⇔ An - (b-Ax) ≦ 0 ⇔ An - (-l) ≦ 0
+    JuMP.@constraint(opt_problem, linear_eq_const, A_eq * n .+ l_e .== 0)
+    JuMP.@constraint(opt_problem, linear_ineq_const, A_ineq * n .+ l_i .<= 0)
     
     JuMP.@constraint(opt_problem, nl_eq_const, Dm_eq * n .+ m_eq .== 0)
     JuMP.@constraint(opt_problem, nl_ineq_const, Dm_ineq * n .+ m_ineq .<= 0)

@@ -4,7 +4,7 @@
 
 # I am now using Dictionaries.jl which should also preserve the order :)
 
-# depends on `VecFun.jl` (implementing `VecFun`, `ExprVecFun` and `RefVecFun`)
+# depends on `VecFun.jl` (implementing `VecFun`, `CompositeVecFun` and `RefVecFun`)
 
 @with_kw struct MOP <: AbstractMOP{true}
 	variables :: Vector{VarInd} = []
@@ -182,34 +182,33 @@ function _add_function!(mop, fun :: AbstractVecFun )
 end
 
 # helper to get the right type of "outer" function 
-# from `expr_str` and `n_out`
-function _get_outer_vec_fun(mop,nl_ind,expr_str,n_out)
-	fun = if expr_str isa AbstractString 
-		if isempty(expr_str)
+# from `outer` and `n_out`
+function _get_composite_vec_fun(mop, nl_ind, outer, n_vars, n_out)
+	if outer isa AbstractString 
+		if isempty(outer)
 			# if there is no expr, simply use a `RefVecFun` that stores 
 			# a reference to `fun` and forwards all relevant methods
-			RefVecFun( _get(mop,nl_ind), nl_ind )
+			return RefVecFun( _get(mop,nl_ind), nl_ind )
 		else
-			# else, we have to generate a function from `expr_str`
-			ExprVecFun( _get(mop,nl_ind), expr_str, n_out, nl_ind )
+			_outer = make_outer_fun( outer; n_vars, n_out )
 		end
-	elseif expr_str isa AbstractVecFun
-		if !(expr_str isa VecFun) || needs_gradients(model_cfg(expr_str)) == false
+	elseif outer isa AbstractVecFun
+		if !(outer isa VecFun) || needs_gradients(model_cfg(outer)) == false
 			# verbose error
 			error("The outer function must be of type `VecFun` and support 
 			first order derivatives as set up with an `ExactConfig()` or `TaylorCallbackConfig()`.")
 		end
-		# use `expr_str` as the `outer` function
-		CompositeVecFun( expr_str, _get(mop,nl_ind), nl_ind )
+		_outer = outer
 	end
-	return fun
+
+	return CompositeVecFun( _outer, _get(mop,nl_ind), nl_ind )
 end
 
 function _add_objective!(
 	mop :: MOP, nl_ind :: NLIndex, 
-	expr_str :: Union{String, AbstractVecFun} = "" , n_out = 0
+	outer :: Union{String, AbstractVecFun} = ""; n_out = 0, n_vars = 0
 )
-	_fun = _get_outer_vec_fun(mop, nl_ind, expr_str, n_out)
+	_fun = _get_composite_vec_fun(mop, nl_ind, outer, n_vars, n_out)
 	# obtain next `ObjectiveIndex`
 	ind = ObjectiveIndex( 
 		_next_val( mop.objective_functions ),
@@ -222,16 +221,16 @@ end
 
 # this definiton allows for the required call `_add_objective!(mop, fun)`
 function _add_objective!(mop :: MOP, fun :: AbstractVecFun, 
-	expr_str :: Union{String, AbstractVecFun} = "", n_out = 0 )
+	outer :: Union{String, AbstractVecFun} = ""; n_vars = 0, n_out = 0 )
 	# add the function to the `functions` dict in `MOP`
 	nl_ind = _add_function!(mop, fun)
-	return _add_objective!(mop, nl_ind, expr_str, n_out)
+	return _add_objective!(mop, nl_ind, outer; n_vars, n_out)
 end
 
 # Similar for equality constraints …
 function _add_nl_eq_constraint!(mop :: MOP, nl_ind :: NLIndex,
-	expr_str :: Union{String, AbstractVecFun} = "", n_out = 0 )
-	_fun = _get_outer_vec_fun(mop, nl_ind, expr_str, n_out)
+	outer :: Union{String, AbstractVecFun} = ""; n_out = 0, n_vars = 0 )
+	_fun = _get_composite_vec_fun(mop, nl_ind, outer, n_vars,n_out)
 	ind = ConstraintIndex( 
 		_next_val( mop.nl_eq_constraints ),
 		num_outputs( _fun ),
@@ -242,16 +241,16 @@ function _add_nl_eq_constraint!(mop :: MOP, nl_ind :: NLIndex,
 end
 
 function _add_nl_eq_constraint!(mop :: MOP, fun :: AbstractVecFun, 
-	expr_str :: Union{String, AbstractVecFun} = "", n_out = 0)
+	outer :: Union{String, AbstractVecFun} = ""; n_vars = 0, n_out = 0)
 	# add the function to the `functions` dict in `MOP`
 	nl_ind = _add_function!(mop, fun)
-	return _add_nl_eq_constraint!(mop, nl_ind, expr_str, n_out)
+	return _add_nl_eq_constraint!(mop, nl_ind, outer; n_vars, n_out)
 end
 
 # … and inequality constraints:
 function _add_nl_ineq_constraint!(mop :: MOP, nl_ind :: NLIndex, 
-	expr_str :: Union{String, AbstractVecFun} = "" , n_out = 0)
-	_fun = _get_outer_vec_fun(mop, nl_ind, expr_str, n_out )
+	outer :: Union{String, AbstractVecFun} = ""; n_vars = 0, n_out = 0)
+	_fun = _get_composite_vec_fun(mop, nl_ind, outer, n_vars, n_out)
 	ind = ConstraintIndex( 
 		_next_val( mop.nl_ineq_constraints ),
 		num_outputs( _fun ),
@@ -262,10 +261,10 @@ function _add_nl_ineq_constraint!(mop :: MOP, nl_ind :: NLIndex,
 end
 
 function _add_nl_ineq_constraint!(mop :: MOP, fun :: AbstractVecFun, 
-	expr_str :: Union{String, AbstractVecFun} = "", n_out = 0)
+	outer :: Union{String, AbstractVecFun} = ""; n_vars = 0, n_out = 0)
 	# add the function to the `functions` dict in `MOP`
 	nl_ind = _add_function!(mop, fun)
-	return _add_nl_ineq_constraint!(mop, nl_ind, expr_str, n_out)
+	return _add_nl_ineq_constraint!(mop, nl_ind, outer; n_vars, n_out)
 end 
 
 # linear constraints:
@@ -289,24 +288,29 @@ function _add_ineq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction
 	return ind 
 end
 
+function lazy_get!(dict, index, func, args...)
+	if haskey(dict, index)
+		return dict[index]
+	else
+		y = func(args...)
+		insert!(dict, index, y)
+		return y
+	end
+end
+
 # improve evaluation by reusing "inner" evaluations
 function _optimized_eval_at_unscaled_site(mop, func_index, tmp_res, x)
 	fun = _get(mop, func_index)
 	
 	if fun isa RefVecFun
-		return get!( tmp_res, fun.nl_index, eval_vfun(fun, x) )
+		#return get!( tmp_res, fun.nl_index, eval_vfun(fun, x) )
+		return lazy_get!( tmp_res, fun.nl_index, eval_vfun, fun, x )
 	end
 
 	if fun isa CompositeVecFun
-		gx = get!( tmp_res, fun.nl_index, eval_vfun(fun.inner_ref[], x))
-		return eval_vfun(fun.outer_ref[], gx)
-	end
-	
-	if fun isa ExprVecFun
-		if haskey(tmp_res, fun.nl_index)
-			tmp_val = tmp_res[fun.nl_index]
-			return fun.substitutor(x, tmp_val)
-		end
+		#gx = get!( tmp_res, fun.nl_index, eval_vfun(fun.inner_ref[], x))
+		gx = lazy_get!( tmp_res, fun.nl_index, eval_vfun, fun.inner_ref[], x)
+		return eval_vfun(fun.outer_ref[], [x; gx])
 	end
 	
 	return eval_vfun( fun, x )
@@ -338,7 +342,7 @@ end
 function _optimized_evaluate_at_unscaled_site( mop, x)
 	tmp_res = _eval_nl_functions_at_unscaled_site( mop, x )
 	return (
-        _eval_nl_functions_at_unscaled_site( mop, tmp_res, x ),
+        tmp_res,
         _eval_objectives_at_unscaled_site( mop, tmp_res, x ),
         _eval_nl_eq_constraints_at_unscaled_site( mop, tmp_res, x ),
         _eval_nl_ineq_constraints_at_unscaled_site( mop, tmp_res, x ),

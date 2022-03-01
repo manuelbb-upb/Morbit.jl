@@ -616,9 +616,9 @@ function update_model( mod :: Union{Nothing, LagrangeModel},
     return LagrangeModel(; 
         coeff, fully_linear = meta.fully_linear,
         basis = scaled_basis,
-        grads = [ differentiate( p, variables(p) ) for p in scaled_basis ]
-    ), meta,
-    num_outputs( func_indices )
+        grads = [ differentiate( p, variables(p) ) for p in scaled_basis ],
+        num_outputs = num_outputs(func_indices)
+    ), meta
 end
 
 function improve_model(
@@ -659,8 +659,8 @@ function get_jacobian( lm :: LagrangeModel, scal :: AbstractVarScaler, x_scaled 
     grad_evals = [ _eval_poly_vec(p,x_scaled) for p in lm.grads ]
     T = promote_type( eltype(lm.coeff[1]), eltype(x_scaled) )
     J = Matrix{T}(undef, length(indices), length(x_scaled))
-    for ℓ=indices
-        J[ℓ,:] = sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) )
+    for (i,ℓ)=enumerate(indices)
+        J[i,:] = sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) )
     end
     return J
     #return transpose( hcat( (sum( c[ℓ] * g for (c,g) in zip( lm.coeff, grad_evals) ) for ℓ = 1 : no_out)... ) )

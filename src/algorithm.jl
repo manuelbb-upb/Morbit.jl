@@ -262,7 +262,6 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	# initalize first objective vector, constraint vectors etc.
 	@logmsg loglevel2 "Evaluating at start site."
 	tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( smop, x )
-
 	# We check if the output dimensions for the inner functions are right
 	# this is not strictly necessary, but we can give verbose errors:
 	for (k,v) = pairs(tmp_dict)
@@ -343,15 +342,15 @@ function restoration(iter_data :: AbstractIterate, data_base,
 		ξ = x .+ r
 		c_e = eval_nl_eq_constraints_to_vec_at_unscaled_site(mop, ξ)
 		c_i = eval_nl_ineq_constraints_to_vec_at_unscaled_site(mop, ξ)
-		l_e = A_eq * ξ .+ b_eq
-		l_i = A_ineq * ξ .+ b_ineq 
+		l_e = A_eq * ξ .- b_eq
+		l_i = A_ineq * ξ .- b_ineq 
 		return compute_constraint_val( filter, l_e, l_i, c_e, c_i)
 	end
 
 	lb, ub = full_bounds(mop)
 	opt = NLopt.Opt(:LN_COBYLA, n_vars )
-	opt.lower_bounds = collect(lb)	# vectors needed (not tuples)
-	opt.upper_bounds = collect(ub)
+	opt.lower_bounds = collect(lb).-x	# vectors needed (not tuples)
+	opt.upper_bounds = collect(ub).+x
 	opt.min_objective = optim_objf
 	opt.ftol_rel = 1e-3
 	opt.stopval = _zero_for_constraints(θ_k)
@@ -781,7 +780,6 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	_iteration_classification = ACCEPTABLE
 	_radius_update = LEAVE_UNCHANGED
 	_SWITCH_accept_trial_point = true
-		
 	if _SWITCH_is_acceptable_for_filter
 		if _SWITCH_good_decrease
 			# the trial point is both acceptable for the filter
@@ -858,11 +856,12 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	)
 	stamp!( data_base, stamp_content )
 
-	if ( x_tol_rel_test( x, x_trial_unscaled, algo_config  ) || 
-			x_tol_abs_test( x, x_trial_unscaled, algo_config ) ||
-			f_tol_rel_test( fx, fx_trial, algo_config  ) ||
-			f_tol_abs_test( fx, fx_trial, algo_config ) 
-		)
+	if ( _SWITCH_accept_trial_point && (
+		x_tol_rel_test( x, x_trial_unscaled, algo_config  ) || 
+		x_tol_abs_test( x, x_trial_unscaled, algo_config ) ||
+		f_tol_rel_test( fx, fx_trial, algo_config  ) ||
+		f_tol_abs_test( fx, fx_trial, algo_config ) 
+	) )
 		return TOLERANCE, _iteration_classification, scal, next_iterate
 	end
 

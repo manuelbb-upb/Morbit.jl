@@ -44,6 +44,7 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
+        "Quick Start" => "quickstart.md",
         "Examples" => [
             "Two Parabolas" => "example_two_parabolas.md",
             "Constraints" => "constraints.md",

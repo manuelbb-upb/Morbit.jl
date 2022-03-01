@@ -72,13 +72,13 @@ modification (except possibly scaling).
 
 Internally, a `MOP` stores linear constraints as `MOI.VectorAffineFunction`s.
 They also can be added as such, using the internal `_add_eq_constraint!` or
-`_add_ineq_constraint!` method:
+`_add_ineq_constraint!` method.
 
 ````@example constraints
 const MOI = Morbit.MOI
 ````
 
-``x₂ ≤ 4 - x₁ \;  ⇔  \; x₁ + x₂ - 4 ≤ 0``
+Construct ``x₂ ≤ 4 - x₁ \;  ⇔  \; x₁ + x₂ - 4 ≤ 0`` :
 
 ````@example constraints
 x1_term = MOI.VectorAffineTerm(1, MOI.ScalarAffineTerm(1, vars[1]))
@@ -91,7 +91,7 @@ It is much easier to provide matrices, e.g., for
 ``x₂ ≤ x₁ + 3   ⇔  -x₁ + x₂ - 3 ≤ 0`` :
 
 ````@example constraints
-c2 = add_ineq_constraint!(mop, [-1 1], [-3])
+c2 = add_ineq_constraint!(mop, [-1 1], [3])
 ````
 
 ## Nonlinear Constraints
@@ -125,7 +125,7 @@ For scalar functions, there are also shorthands:
 * `add_exact_nl_eq_constraint!` and `add_exact_nl_ineq_constraint!`
 * `add_rbf_nl_eq_constraint!` and `add_rbf_nl_ineq_constraint!`
 * `add_lagrange_nl_eq_constraint!` and `add_lagrange_nl_ineq_constraint!`
-* `add_taylor_nl_eq_constraint!` and `add_taylor_nl_ineq_constraint!`.
+* `add_taylor_nl_eq_constraint!` and `add_taylor_nl_ineq_constraint!`
 
 Let's do it for ``x₁²+x₂²-10 ≤ 0``:
 
@@ -144,7 +144,6 @@ o2 = add_taylor_objective!(mop, x -> sum( (x .+ 1).^2 ) )
 
 Now, we can call `optimize` as usual.
 The initial vector `x0` must not necessarily be feasible for the nonlinear constraints.
-(ATM it must be feasible for the box constraints.)
 If it is not feasible, then the first iteration will enter
 the so called "restoration" procedure.
 At the moment, this procedure is very expensive, as the true constraints

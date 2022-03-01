@@ -59,7 +59,7 @@ descent_method( :: AbstractConfig ) :: Union{AbstractDescentConfig,Symbol} = :st
 
 # acceptance test parameters
 strict_acceptance_test( :: AbstractConfig ) :: Bool = true
-_nu_success( :: AbstractConfig ) = MIN_PRECISION(0.4f0)
+_nu_success( :: AbstractConfig ) = MIN_PRECISION(0.2f0)
 _nu_accept(::AbstractConfig) = MIN_PRECISION(0)
 
 _mu(::AbstractConfig) = MIN_PRECISION(2e3)

@@ -279,130 +279,17 @@ end
 function evaluate_to_vecs_at_scaled_site( mop, scal, x_scaled ) 
     return evaluate_to_vecs_at_unscaled_site( mop, untransform( scal, x_scaled) )
 end
-#=
-"""
-    eval_dict_mop_at_func_indices_at_unscaled_sites(mop, sites, func_indices)
-
-Return a Dict with keys `func_indices` and values that are Vector-of-Vectors 
-of the corresponding objectives of `mop` evaluated on all `sites`."
-"""
-function eval_dict_mop_at_func_indices_at_unscaled_sites( 
-        mop :: AbstractMOP, func_indices, X_unscaled :: VecVec
-    )
-    return Base.Dict( func_ind => eval_vfun.( _get(mop, func_ind), X_unscaled ) for func_ind=func_indices )
-end
-
-"""
-    eval_dict_mop_at_func_indices_at_unscaled_site(mop, x, func_indices)
-
-Return a Dict with keys `func_indices` and values that are Vectors 
-of the corresponding objectives of `mop` evaluated at `x`."
-"""
-function eval_dict_mop_at_func_indices_at_unscaled_site( 
-        mop :: AbstractMOP, func_indices, x_unscaled :: Vec
-    )
-    return Base.Dict( func_ind => eval_vfun( _get(mop, func_ind), x_unscaled ) for func_ind=func_indices )
-end
-
-function flatten_mop_dicts( eval_dicts, _func_indices = nothing )
-   N = length(first(values(eval_dicts)))
-   func_indices = isnothing(_func_indices) ? keys(eval_dicts) : _func_indices
-   return flatten_vecs.( [eval_dicts[find][j] for find=func_indices] for j=1:N )
-end
-
-function flatten_mop_dict( eval_dict :: Union{AbstractDict{K,V}, AbstractDictionary{K,V}}, _func_indices = nothing ) where{K,V}
-    func_indices = isnothing(_func_indices) ? keys(eval_dict) : _func_indices
-    if isempty( func_indices )
-        return eltype(V)[]
-    else
-        return flatten_vecs( [eval_dict[find] for find=func_indices] )
-    end
-end
-
-function eval_vec_mop_at_func_indices_at_unscaled_sites( 
-        mop :: AbstractMOP, func_indices, X_unscaled :: VecVec
-    )
-    return flatten_mop_dicts(
-        eval_dict_mop_at_func_indices_at_unscaled_sites(mop, func_indices, X_unscaled), 
-        func_indices
-    )
-end
-
-function eval_vec_mop_at_func_indices_at_unscaled_site( 
-        mop :: AbstractMOP, func_indices, X_unscaled :: Vec
-    )
-    return flatten_mop_dict(
-        eval_dict_mop_at_func_indices_at_unscaled_site(mop, func_indices, X_unscaled), 
-        func_indices
-    )
-end
-
-function eval_dict_mop_at_unscaled_site( mop :: AbstractMOP, x :: Vec )
-    all_func_inds = get_function_indices(mop)
-    return eval_dict_mop_at_func_indices_at_unscaled_site(mop, all_func_inds, x)
-end
-
-function eval_result_to_all_vectors( 
-        eval_dict :: Union{AbstractDict, AbstractDictionary},  mop :: Union{AbstractSurrogateContainer,AbstractMOP} 
-    )
-    return (
-        flatten_mop_dict( eval_dict, get_objective_indices(mop) ),
-        flatten_mop_dict( eval_dict, get_nl_eq_constraint_indices(mop) ),
-        flatten_mop_dict( eval_dict, get_nl_ineq_constraint_indices(mop) )
-    )
-end    
-
-for func_name = [:eval_dict_mop_at_func_indices, :eval_vec_mop_at_func_indices]
-    fn_scaled_sites = Symbol(func_name, "_at_scaled_sites")
-    fn_scaled_site = Symbol(func_name, "_at_scaled_site")
-    fn_unscaled_sites = Symbol(func_name, "_at_unscaled_sites")
-    fn_unscaled_site = Symbol(func_name, "_at_unscaled_site")
-    @eval begin 
-        function $(fn_scaled_sites)(mop :: AbstractMOP, func_indices, X_scaled :: VecVec, scal :: AbstractVarScaler )
-            X_unscaled = untransform.(X_scaled, scal)
-            return $(fn_unscaled_sites)( mop, func_indices, X_unscaled )
-        end
-
-        function $(fn_scaled_site)(mop :: AbstractMOP, func_indices, X_scaled :: Vec, scal :: AbstractVarScaler )
-            X_unscaled = untransform(X_scaled, scal)
-            return $(fn_unscaled_site)( mop, func_indices, X_unscaled )
-        end
-    end
-end
-=#
-
-#=
-# defined below:
-# eval_vec_mop_objectives_at_scaled_site(s)
-# eval_vec_mop_nl_eq_constraints_at_scaled_site(s)
-# eval_vec_mop_nl_ineq_constraints_at_scaled_site(s)
-for eval_type in [:objective, :nl_eq_constraint, :nl_ineq_constraint]
-    for suffix1 in [:scaled_site, :unscaled_site]
-        for suffix2 in ["", "s"]
-            getter = Symbol("get_$(eval_type)_indices")
-            base_fn = Symbol("eval_vec_mop_at_func_indices_at_",suffix1, suffix2)
-            fn_new = Symbol( "eval_vec_mop_", eval_type, "s_at_", suffix1, suffix2)
-            @eval begin
-                function $(fn_new)(mop, x, args...)
-                    func_indices = $(getter)(mop)
-                    return $(base_fn)(mop, func_indices, x, args...)
-                end
-            end
-        end
-    end
-end
-=#
 
 function eval_linear_constraints_at_unscaled_site( x, mop )
     #A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
     A_eq, b_eq = get_eq_matrix_and_vector( mop )
     A_ineq, b_ineq = get_ineq_matrix_and_vector( mop )
-    return (A_eq * x .+ b_eq, A_ineq * x + b_ineq)
+    return (A_eq * x .- b_eq, A_ineq * x - b_ineq)
 end
 
 function eval_linear_constraints_at_scaled_site( x_scaled, mop, scal )
     A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
-    return (A_eq * x_scaled .+ b_eq, A_ineq * x_scaled + b_ineq)
+    return (A_eq * x_scaled .- b_eq, A_ineq * x_scaled .- b_ineq)
 end
 
 # Helper functions …
@@ -435,7 +322,6 @@ function add_ineq_constraint!( mop :: AbstractMOP{true}, aff_func :: MOI.ScalarA
 end
 
 # for easier user input:
-
 function _matrix_to_vector_affine_function( A :: AbstractMatrix{F}, b :: AbstractVector{T}, vars :: AbstractVector{<:VarInd} ) where{F<:Number, T<:Number}
 	m, n = size(A)
 	@assert n == length(vars) "`A` must have the same number of columns as there are `vars`."
@@ -448,17 +334,31 @@ function _matrix_to_vector_affine_function( A :: AbstractMatrix{F}, b :: Abstrac
 	return MOI.VectorAffineFunction( terms, constants )
 end
 
+"""
+    add_ineq_constraint!(mop, A, b = [])
+
+Add linear inequality constraints ``Ax ≤ b`` to the problem `mop`.
+If `b` is empty, then ``Ax ≤ 0`` is added.
+Returns a `ConstraintIndex`.
+"""
 function add_ineq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector = [], vars :: Union{Nothing,AbstractVector{<:VarInd}} = nothing)
 	_vars = isnothing( vars ) ? var_indices(mop) : vars
-    _b = isempty( b ) ? zeros( Bool, size(A,1) ) : b
+    _b = isempty( b ) ? zeros( Bool, size(A,1) ) : -b
 	return _add_ineq_constraint!(mop, 
 		_matrix_to_vector_affine_function( A, _b, _vars )
 	)
 end
 
+"""
+    add_eq_constraint!(mop, A, b = [])
+
+Add linear equality constraints ``Ax = b`` to the problem `mop`.
+If `b` is empty, then ``Ax = 0`` is added.
+Returns a `ConstraintIndex`.
+"""
 function add_eq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector, vars :: Union{Nothing,AbstractVector{<:VarInd}} = nothing)
 	_vars = isnothing( vars ) ? var_indices(mop) : vars
-    _b = isempty( b ) ? zeros( Bool, size(A,1) ) : b
+    _b = isempty( b ) ? zeros( Bool, size(A,1) ) : -b
 	return _add_ineq_constraint!(mop, 
 		_matrix_to_vector_affine_function( A, _b, _vars )
 	)
@@ -497,7 +397,7 @@ function _construct_constraint_matrix_and_vector( vec_affine_funcs, vars )
             push!( vals, term.scalar_term.coefficient )
         end
 		offset += MOI.output_dimension(vaf)
-        push!(b_parts, vaf.constants ) 
+        push!(b_parts, - vaf.constants ) 
     end
 
     coeff_type = _num_type_of_any_array( vals )
@@ -534,9 +434,15 @@ end
 
 ## Scaled constraints 
 
+"Return the linear constraint matrices ``Aₛ, bₛ`` for the scaled domain,
+i.e., matrices such that ``Aₛ xₛ ≤ bₛ``."
 function _transform_linear_constraints( A, b, Tinv, offset )
+    # Let S:ℝⁿ → ℝⁿ be the affine scaling map: 
+    # xₛ = S(x) = Dx + o
+    # x = S⁻¹(xₛ) = D⁻¹(xₛ - o)
+    # ⇒ Ax - b ≤ 0 ⇔ AD⁻¹(xₛ - o) - b ≤ 0 ⇔ (AD⁻¹)xₛ - (b + D⁻1o) ≤ 0
     _A = A*Tinv
-    return _A, b - _A * offset  
+    return _A, b + _A * offset  
 end
 
 function transformed_linear_eq_constraints(scal, mop)
@@ -567,7 +473,7 @@ function _get_optim_handle( mat_row, offset )
         if !isempty(g)
             g[:] .= mat_row[:]
         end
-        return mat_row'x .+ offset
+        return mat_row'x .- offset
     end
     return opt_fun
 end

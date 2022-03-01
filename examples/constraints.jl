@@ -72,7 +72,7 @@ c1 = Morbit._add_ineq_constraint!(mop,lin_const)
 
 # It is much easier to provide matrices, e.g., for
 # ``x₂ ≤ x₁ + 3   ⇔  -x₁ + x₂ - 3 ≤ 0`` :
-c2 = add_ineq_constraint!(mop, [-1 1], [-3])
+c2 = add_ineq_constraint!(mop, [-1 1], [3])
 
 # ## Nonlinear Constraints 
 # Relaxable nonlinear constraints are supported via an algorithm 
