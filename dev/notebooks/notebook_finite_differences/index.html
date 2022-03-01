@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Finite Differences · Morbit.jl</title><script data-outdated-warner src="../../assets/warner.js"></script><link rel="canonical" href="https://manuelbb-upb.github.io/Morbit.jl/notebooks/notebook_finite_differences/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.039/juliamono-regular.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">Morbit.jl</a></span></div><form class="docs-search" action="../../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../../example_two_parabolas/">Two Parabolas</a></li><li><a class="tocitem" href="../../constraints/">Constraints</a></li><li><a class="tocitem" href="../../composites/">Composite Functions</a></li></ul></li><li><span class="tocitem">Models</span><ul><li><a class="tocitem" href="../../ExactModel/">ExactModels</a></li><li><a class="tocitem" href="../../RbfModel/">RbfModels</a></li><li><a class="tocitem" href="../../TaylorModel/">TaylorModels</a></li><li><a class="tocitem" href="../../LagrangeModel/">LagrangeModels</a></li></ul></li><li><span class="tocitem">Random Notebooks</span><ul><li class="is-active"><a class="tocitem" href>Finite Differences</a></li><li><a class="tocitem" href="../notebook_polynomial_interpolation/">Lagrange Interpolation</a></li></ul></li><li><a class="tocitem" href="../../custom_logging/">Pretty Printing</a></li><li><span class="tocitem">Developer</span><ul><li><a class="tocitem" href="../../dev_man/">DocStrings</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Random Notebooks</a></li><li class="is-active"><a href>Finite Differences</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Finite Differences</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/manuelbb-upb/Morbit.jl/blob/master/docs/src/notebooks/notebook_finite_differences.md#" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><style>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Finite Differences · Morbit.jl</title><script data-outdated-warner src="../../assets/warner.js"></script><link rel="canonical" href="https://manuelbb-upb.github.io/Morbit.jl/notebooks/notebook_finite_differences/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.039/juliamono-regular.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">Morbit.jl</a></span></div><form class="docs-search" action="../../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><a class="tocitem" href="../../quickstart/">Quick Start</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../../example_two_parabolas/">Two Parabolas</a></li><li><a class="tocitem" href="../../constraints/">Constraints</a></li><li><a class="tocitem" href="../../composites/">Composite Functions</a></li></ul></li><li><span class="tocitem">Models</span><ul><li><a class="tocitem" href="../../ExactModel/">ExactModels</a></li><li><a class="tocitem" href="../../RbfModel/">RbfModels</a></li><li><a class="tocitem" href="../../TaylorModel/">TaylorModels</a></li><li><a class="tocitem" href="../../LagrangeModel/">LagrangeModels</a></li></ul></li><li><span class="tocitem">Random Notebooks</span><ul><li class="is-active"><a class="tocitem" href>Finite Differences</a></li><li><a class="tocitem" href="../notebook_polynomial_interpolation/">Lagrange Interpolation</a></li></ul></li><li><a class="tocitem" href="../../custom_logging/">Pretty Printing</a></li><li><span class="tocitem">Developer</span><ul><li><a class="tocitem" href="../../dev_man/">DocStrings</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Random Notebooks</a></li><li class="is-active"><a href>Finite Differences</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Finite Differences</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/manuelbb-upb/Morbit.jl/blob/master/docs/src/notebooks/notebook_finite_differences.md#" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><style>
     table {
         display: table !important;
         margin: 2rem auto !important;
@@ -37,7 +37,7 @@ end</code></pre>
 	const RVec = AbstractVector{&lt;:Real}
 	const RVecOrR = Union{Real, RVec}
 end</code></pre>
-<pre id='var-RVecOrR' class='pre-class'><code class='code-output'>Union{Real, AbstractVector{var"#s285"} where var"#s285"<:Real}</code></pre>
+<pre id='var-RVecOrR' class='documenter-example-output'><code class='code-output'>Union{Real, AbstractVector{var"#s285"} where var"#s285"<:Real}</code></pre>
 
 
 <div class="markdown"><h3>Abstract</h3>
@@ -107,7 +107,7 @@ end</code></pre>
 	stepsize( x :: AbstractVector{F} ) where F&lt;:AbstractFloat = stepsize(F)
 	stepsize( x ) = stepsize(Float64)
 end</code></pre>
-<pre id='var-stepsize' class='pre-class'><code class='code-output'>stepsize (generic function with 4 methods)</code></pre>
+<pre id='var-stepsize' class='documenter-example-output'><code class='code-output'>stepsize (generic function with 4 methods)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>begin
 	struct CFDStamp{N, F &lt;: AbstractFloat} &lt;: FiniteDiffStamp
@@ -158,7 +158,7 @@ end</code></pre>
 	
 	
 end</code></pre>
-<pre id='var-_zi' class='pre-class'><code class='code-output'>CFDStamp</code></pre>
+<pre id='var-_zi' class='documenter-example-output'><code class='code-output'>CFDStamp</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>begin
 	struct FFDStamp{N, F &lt;: AbstractFloat} &lt;: FiniteDiffStamp
@@ -206,7 +206,7 @@ end</code></pre>
 	end
 	
 end</code></pre>
-<pre id='var-_zi' class='pre-class'><code class='code-output'>FFDStamp</code></pre>
+<pre id='var-_zi' class='documenter-example-output'><code class='code-output'>FFDStamp</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>begin 
 	struct BFDStamp{N, F &lt;: AbstractFloat} &lt;: FiniteDiffStamp
@@ -242,7 +242,7 @@ end</code></pre>
 	end
 
 end</code></pre>
-<pre id='var-_zi' class='pre-class'><code class='code-output'>BFDStamp</code></pre>
+<pre id='var-_zi' class='documenter-example-output'><code class='code-output'>BFDStamp</code></pre>
 
 
 <div class="markdown"><p>Does it work?</p>
@@ -256,7 +256,7 @@ end</code></pre>
 	# ∂₂Func = x[1]
 	dx( cfd, Func, [1,2], 1)
 end</code></pre>
-<pre id='var-Func' class='pre-class'><code class='code-output'>4.0</code></pre>
+<pre id='var-Func' class='documenter-example-output'><code class='code-output'>4.0</code></pre>
 
 
 <div class="markdown"><h2>Tree structure</h2>
@@ -286,7 +286,7 @@ end</code></pre>
 	vals :: T = nothing
 	cache :: C = nothing
 end</code></pre>
-<pre id='var-@pack_FDiffNode' class='pre-class'><code class='code-output'>FDiffNode</code></pre>
+<pre id='var-@pack_FDiffNode' class='documenter-example-output'><code class='code-output'>FDiffNode</code></pre>
 
 
 <div class="markdown"><p>We inherit from <code>Trees.Node</code> and define a <code>children</code> method&#96; so that some nice iterators are available.</p>
@@ -306,7 +306,7 @@ end</code></pre>
 	missing(T::Type{&lt;:AbstractFloat}) = T(NaN)
 	missing(T) = Float16(NaN)
 end</code></pre>
-<pre id='var-missing' class='pre-class'><code class='code-output'>missing (generic function with 2 methods)</code></pre>
+<pre id='var-missing' class='documenter-example-output'><code class='code-output'>missing (generic function with 2 methods)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function val( n :: FDiffNode{&lt;:AbstractVector{Y},X,C}, args...; output_index = 1) where {Y&lt;:Real,X,C}
 	if isempty(n.vals) 
@@ -315,7 +315,7 @@ end</code></pre>
 		n.vals[output_index]
 	end
 end</code></pre>
-<pre id='var-val' class='pre-class'><code class='code-output'>val (generic function with 2 methods)</code></pre>
+<pre id='var-val' class='documenter-example-output'><code class='code-output'>val (generic function with 2 methods)</code></pre>
 
 
 <div class="markdown"><p>Otherwise, we <em>recurse</em> and apply the finite difference rule <code>stamp</code> to compute the return values.</p>
@@ -326,7 +326,7 @@ end</code></pre>
 	h = _stepsize( stamp )
 	return stamp( val(sub_node, indices, stamp; output_index) for sub_node in subnode_list ) 
 end</code></pre>
-<pre id='var-val' class='pre-class'><code class='code-output'>val (generic function with 1 method)</code></pre>
+<pre id='var-val' class='documenter-example-output'><code class='code-output'>val (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function val( n :: FDiffNode{T,X,C}, indices, stamp; output_index = 1 ) where{T,X,C}
 	copied_indices = copy(indices)
@@ -346,7 +346,7 @@ end</code></pre>
 	n.cache[cache_key] = ret_val
 	return ret_val
 end</code></pre>
-<pre id='var-val' class='pre-class'><code class='code-output'>val (generic function with 3 methods)</code></pre>
+<pre id='var-val' class='documenter-example-output'><code class='code-output'>val (generic function with 3 methods)</code></pre>
 
 
 <div class="markdown"><p>The tree is build recursively from the top down by calling the <code>build_tree</code> function with a decreasing <code>order</code> value.</p>
@@ -382,7 +382,7 @@ end</code></pre>
 		return FDiffNode(; x_sym, x = x_type(), vals = sub_nodes, cache = cache_type() )
 	end
 end</code></pre>
-<pre id='var-build_tree' class='pre-class'><code class='code-output'>build_tree (generic function with 2 methods)</code></pre>
+<pre id='var-build_tree' class='documenter-example-output'><code class='code-output'>build_tree (generic function with 2 methods)</code></pre>
 
 
 <div class="markdown"><p><code>build_tree</code> is called in default the <code>DiffWrapper</code> constructor to store the <code>tree</code> &#40;out of <code>FDiffNode</code>s&#41; for the derivative <code>order</code> stored within the container.  A <code>DiffWrapper</code> also stores the base point <code>x0</code> and the finite difference rule <code>stamp</code>.</p>
@@ -396,13 +396,13 @@ end</code></pre>
 	
 	_get_vars( x :: AbstractVector ) = _get_vars(length(x))
 end</code></pre>
-<pre id='var-_get_vars' class='pre-class'><code class='code-output'>_get_vars (generic function with 2 methods)</code></pre>
+<pre id='var-_get_vars' class='documenter-example-output'><code class='code-output'>_get_vars (generic function with 2 methods)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>begin
 	vec_typex( x :: AbstractVector{Y}, stamp ) where Y = Vector{ Base.promote_op( +, Y, typeof(_stepsize(stamp))) }
 	vec_typef( fx :: AbstractVector{Y}, stamp ) where Y = Vector{ Base.promote_op( *, Y, typeof(_coeff(stamp)[1])) }
 end</code></pre>
-<pre id='var-vec_typef' class='pre-class'><code class='code-output'>vec_typef (generic function with 1 method)</code></pre>
+<pre id='var-vec_typef' class='documenter-example-output'><code class='code-output'>vec_typef (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>@with_kw struct DiffWrapper{X &lt;: RVec,Y &lt;: RVec,N,S,T,C}
 	x0 :: X
@@ -416,7 +416,7 @@ end</code></pre>
 	cache_type :: C = Dict{Vector{UInt8}, eltype(vec_typef(fx0, stamp))} 
 	tree :: T = build_tree( x0_sym, stamp, vars, order; x_type = vec_typex(x0,stamp), val_type = vec_typef(fx0, stamp), cache_type = cache_type )
 end</code></pre>
-<pre id='var-@pack_DiffWrapper' class='pre-class'><code class='code-output'>DiffWrapper</code></pre>
+<pre id='var-@pack_DiffWrapper' class='documenter-example-output'><code class='code-output'>DiffWrapper</code></pre>
 
 
 <div class="markdown"><div class="admonition note"><p class="admonition-title">Note</p><p>A <code>DiffWrapper</code> should be initialized with the right &#40;floating point&#41; vector types for <code>x0</code> and <code>fx0</code>. If <code>fx0</code> is not known, but the precision, use something like <code>fx0 &#61; Float32&#91;&#93;</code>.</p>
@@ -428,7 +428,7 @@ end</code></pre>
 </div>
 
 <pre class='language-julia'><code class='language-julia'>val( dw :: DiffWrapper, indices; output_index = 1 ) = val( dw.tree, indices, dw.stamp ; output_index)</code></pre>
-<pre id='var-val' class='pre-class'><code class='code-output'>val (generic function with 4 methods)</code></pre>
+<pre id='var-val' class='documenter-example-output'><code class='code-output'>val (generic function with 4 methods)</code></pre>
 
 
 <div class="markdown"><div class="admonition note"><p class="admonition-title">Note</p><p>The <code>tree</code> of a <code>DiffWrapper</code> needs to be initialized befor calling any derivative method.   That means, the <code>x</code> and <code>vals</code> fields have to be set for each leave node. This can be done in one go, by calling <code>prepare_tree&#33;&#40; dw, f &#41;</code>, or sequentially by calling first <code>substitute_leaves&#33;&#40;dw&#41;</code> and and <code>set_leave_values&#40;dw,f&#41;</code>.</p>
@@ -443,7 +443,7 @@ end</code></pre>
 	@assert 1 &lt;= dw.order &lt;= 2 "Gradient retrieval only implemented for DiffWrapper of order 1 and 2."
 	return gradient( dw :: DiffWrapper, Val(dw.order); output_index )
 end</code></pre>
-<pre id='var-gradient' class='pre-class'><code class='code-output'>gradient (generic function with 1 method)</code></pre>
+<pre id='var-gradient' class='documenter-example-output'><code class='code-output'>gradient (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function gradient( dw :: DiffWrapper, ::Val{1}; output_index = 1 )
 	n = length( dw.x0 )
@@ -453,7 +453,7 @@ end</code></pre>
 	end
 	return g
 end</code></pre>
-<pre id='var-gradient' class='pre-class'><code class='code-output'>gradient (generic function with 2 methods)</code></pre>
+<pre id='var-gradient' class='documenter-example-output'><code class='code-output'>gradient (generic function with 2 methods)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function gradient( dw :: DiffWrapper, ::Val{2}; output_index = 2 )
 	n = length( dw.x0 )
@@ -465,14 +465,14 @@ end</code></pre>
 	end
 	return g
 end</code></pre>
-<pre id='var-gradient' class='pre-class'><code class='code-output'>gradient (generic function with 3 methods)</code></pre>
+<pre id='var-gradient' class='documenter-example-output'><code class='code-output'>gradient (generic function with 3 methods)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function jacobian( dw :: DiffWrapper )
 	@assert 1 &lt;= dw.order &lt;= 2 "Gradient retrieval only implemented for DiffWrapper of order 1 and 2."
 	k = isempty( dw.fx0 ) ? length(first(Trees.Leaves(dw.tree)).vals) : length(dw.fx0)
 	return transpose( hcat( collect(gradient(dw; output_index = m) for m = 1 : k )...) )
 end</code></pre>
-<pre id='var-jacobian' class='pre-class'><code class='code-output'>jacobian (generic function with 1 method)</code></pre>
+<pre id='var-jacobian' class='documenter-example-output'><code class='code-output'>jacobian (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function hessian( dw :: DiffWrapper; output_index = 1)
 	@assert dw.order == 2 "Hessian only implemented for DiffWrapper of 2."
@@ -486,7 +486,7 @@ end</code></pre>
 	end
 	return H
 end</code></pre>
-<pre id='var-hessian' class='pre-class'><code class='code-output'>hessian (generic function with 1 method)</code></pre>
+<pre id='var-hessian' class='documenter-example-output'><code class='code-output'>hessian (generic function with 1 method)</code></pre>
 
 
 <div class="markdown"><p>Does it work?</p>
@@ -515,15 +515,15 @@ end</code></pre>
 	H = hessian(dw)
 	H, sum( ([ 4 0; 0 6 ] .- H).^2 )
 end</code></pre>
-<pre id='var-f' class='pre-class'><code class='code-output'>([4.000000002557513 8.881784197001252e-10; -1.1102230246251565e-9 5.999999997285954], 1.592837543398526e-17)</code></pre>
+<pre id='var-f' class='documenter-example-output'><code class='code-output'>([4.000000002557513 8.881784197001252e-10; -1.1102230246251565e-9 5.999999997285954], 1.592837543398526e-17)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>jacobian(dw)</code></pre>
-<pre id='var-hash106719' class='pre-class'><code class='code-output'>2×2 transpose(::Matrix{Float64}) with eltype Float64:
+<pre id='var-hash106719' class='documenter-example-output'><code class='code-output'>2×2 transpose(::Matrix{Float64}) with eltype Float64:
  4.0  3.0
  1.0  1.0</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>first(Trees.Leaves(dw.tree))</code></pre>
-<pre id='var-hash165135' class='pre-class'><code class='code-output'>FDiffNode{Vector{Float64}, Vector{Float64}, Nothing}
+<pre id='var-hash165135' class='documenter-example-output'><code class='code-output'>FDiffNode{Vector{Float64}, Vector{Float64}, Nothing}
   x_sym: Array{Num}((2,)) Symbolics.Num[x₁, x₂]
   x: Array{Float64}((2,)) [1.0, 1.0]
   vals: Array{Float64}((2,)) [3.0, 2.0]
@@ -543,52 +543,52 @@ end</code></pre>
 					h_var=&gt;h),
 	))))
 end</code></pre>
-<pre id='var-_substitute_symbols!' class='pre-class'><code class='code-output'>_substitute_symbols! (generic function with 2 methods)</code></pre>
+<pre id='var-_substitute_symbols!' class='documenter-example-output'><code class='code-output'>_substitute_symbols! (generic function with 2 methods)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function _substitute_symbols!(root_iterator, x0, h, vars)
 	for node in root_iterator
 		_substitute_symbols!(node, x0, h, vars)
 	end
 end</code></pre>
-<pre id='var-_substitute_symbols!' class='pre-class'><code class='code-output'>_substitute_symbols! (generic function with 1 method)</code></pre>
+<pre id='var-_substitute_symbols!' class='documenter-example-output'><code class='code-output'>_substitute_symbols! (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function substitute_symbols!(root :: FDiffNode, x0, h, vars )
 	_substitute_symbols!( Trees.PreOrderDFS( root ), x0, h, vars )
 end</code></pre>
-<pre id='var-substitute_symbols!' class='pre-class'><code class='code-output'>substitute_symbols! (generic function with 2 methods)</code></pre>
+<pre id='var-substitute_symbols!' class='documenter-example-output'><code class='code-output'>substitute_symbols! (generic function with 2 methods)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function substitute_leaves!(root :: FDiffNode, x0, h, vars )
 	_substitute_symbols!( Trees.Leaves(root), x0, h, vars )
 end</code></pre>
-<pre id='var-substitute_leaves!' class='pre-class'><code class='code-output'>substitute_leaves! (generic function with 2 methods)</code></pre>
+<pre id='var-substitute_leaves!' class='documenter-example-output'><code class='code-output'>substitute_leaves! (generic function with 2 methods)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function substitute_symbols!(dw :: DiffWrapper)
 	substitute_symbols!( dw.tree, dw.x0, _stepsize( dw.stamp ), dw.vars )
 end</code></pre>
-<pre id='var-substitute_symbols!' class='pre-class'><code class='code-output'>substitute_symbols! (generic function with 1 method)</code></pre>
+<pre id='var-substitute_symbols!' class='documenter-example-output'><code class='code-output'>substitute_symbols! (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function substitute_leaves!(dw :: DiffWrapper)
 	substitute_leaves!( dw.tree, dw.x0, _stepsize( dw.stamp ), dw.vars )
 end</code></pre>
-<pre id='var-substitute_leaves!' class='pre-class'><code class='code-output'>substitute_leaves! (generic function with 1 method)</code></pre>
+<pre id='var-substitute_leaves!' class='documenter-example-output'><code class='code-output'>substitute_leaves! (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function collect_leave_sites( dw :: DiffWrapper )
 	return [ node.x for node in Trees.Leaves( dw.tree ) ]
 end</code></pre>
-<pre id='var-collect_leave_sites' class='pre-class'><code class='code-output'>collect_leave_sites (generic function with 1 method)</code></pre>
+<pre id='var-collect_leave_sites' class='documenter-example-output'><code class='code-output'>collect_leave_sites (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function _set_node_values!( node, f :: Function )
 	empty!(node.vals)
 	append!(node.vals, f( node.x ))
 end</code></pre>
-<pre id='var-_set_node_values!' class='pre-class'><code class='code-output'>_set_node_values! (generic function with 1 method)</code></pre>
+<pre id='var-_set_node_values!' class='documenter-example-output'><code class='code-output'>_set_node_values! (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function set_leave_values!(dw :: DiffWrapper, f :: Function )
 	for node in Trees.Leaves(dw.tree)
 		_set_node_values!(node, f)
 	end
 end</code></pre>
-<pre id='var-set_leave_values!' class='pre-class'><code class='code-output'>set_leave_values! (generic function with 1 method)</code></pre>
+<pre id='var-set_leave_values!' class='documenter-example-output'><code class='code-output'>set_leave_values! (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>function set_leave_values!(dw :: DiffWrapper, leave_vals :: AbstractVector )
 	for (i,node) in enumerate(Trees.Leaves(dw.tree))
@@ -596,7 +596,7 @@ end</code></pre>
 		append!(node.vals, leave_vals[i] )
 	end
 end</code></pre>
-<pre id='var-set_leave_values!' class='pre-class'><code class='code-output'>set_leave_values! (generic function with 2 methods)</code></pre>
+<pre id='var-set_leave_values!' class='documenter-example-output'><code class='code-output'>set_leave_values! (generic function with 2 methods)</code></pre>
 
 
 <div class="markdown"><div class="admonition note"><p class="admonition-title">Note</p><p>The <code>set_leave_values&#33;</code> methods should also reset the cache. Not implemented in this notebook.</p>
@@ -613,7 +613,7 @@ end</code></pre>
 		_set_node_values!( node, f )
 	end
 end</code></pre>
-<pre id='var-prepare_tree!' class='pre-class'><code class='code-output'>prepare_tree! (generic function with 1 method)</code></pre>
+<pre id='var-prepare_tree!' class='documenter-example-output'><code class='code-output'>prepare_tree! (generic function with 1 method)</code></pre>
 
 
 <div class="markdown"><h3>Morbit Example</h3>
@@ -633,7 +633,7 @@ end</code></pre>
 	end
 	return unique_elems, indices
 end</code></pre>
-<pre id='var-unique_with_indices' class='pre-class'><code class='code-output'>unique_with_indices (generic function with 1 method)</code></pre>
+<pre id='var-unique_with_indices' class='documenter-example-output'><code class='code-output'>unique_with_indices (generic function with 1 method)</code></pre>
 
 <pre class='language-julia'><code class='language-julia'>begin
 	func = x -&gt; [ sum(x.^2); exp( sum( x ) ) ]
@@ -666,14 +666,14 @@ end</code></pre>
 	
 	hessian(diff_wrapper; output_index = 1), jacobian(diff_wrapper)
 end</code></pre>
-<pre id='var-diff_wrapper' class='pre-class'><code class='code-output'>(Float32[1.9999936 0.0 0.0; 0.0 1.9999936 0.0; 0.0 0.0 1.9999936], Float32[1.9999936 1.9999936 1.9999936; 20.086252 20.086252 20.086252])</code></pre>
+<pre id='var-diff_wrapper' class='documenter-example-output'><code class='code-output'>(Float32[1.9999936 0.0 0.0; 0.0 1.9999936 0.0; 0.0 0.0 1.9999936], Float32[1.9999936 1.9999936 1.9999936; 20.086252 20.086252 20.086252])</code></pre>
 
 
 <div class="markdown"><hr />
 </div>
 
 <pre class='language-julia'><code class='language-julia'>Trees = ingredients( joinpath(@__DIR__, "Trees.jl") ).Trees</code></pre>
-<pre id='var-Trees' class='pre-class'><code class='code-output'>Main.Trees.jl.Trees</code></pre>
+<pre id='var-Trees' class='documenter-example-output'><code class='code-output'>Main.Trees.jl.Trees</code></pre>
 
 
 <div class="markdown"><p><code>ingredients</code> thanks to <a href="https://github.com/fonsp/Pluto.jl/issues/115">fonsp</a></p>
@@ -692,6 +692,6 @@ end</code></pre>
              :(include($path))))
 	m
 end</code></pre>
-<pre id='var-ingredients' class='pre-class'><code class='code-output'>ingredients (generic function with 1 method)</code></pre>
+<pre id='var-ingredients' class='documenter-example-output'><code class='code-output'>ingredients (generic function with 1 method)</code></pre>
 
-<!-- PlutoStaticHTML.End --></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../LagrangeModel/">« LagrangeModels</a><a class="docs-footer-nextpage" href="../notebook_polynomial_interpolation/">Lagrange Interpolation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.13 on <span class="colophon-date" title="Friday 25 February 2022 12:52">Friday 25 February 2022</span>. Using Julia version 1.6.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+<!-- PlutoStaticHTML.End --></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../LagrangeModel/">« LagrangeModels</a><a class="docs-footer-nextpage" href="../notebook_polynomial_interpolation/">Lagrange Interpolation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.13 on <span class="colophon-date" title="Tuesday 1 March 2022 12:44">Tuesday 1 March 2022</span>. Using Julia version 1.6.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
