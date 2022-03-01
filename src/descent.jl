@@ -273,7 +273,7 @@ function compute_descent_step(desc_cfg :: SteepestDescentConfig, mop :: Abstract
             # A * (x_n + σd) - b ≦ 0
             _A_eq, _b_eq, _A_ineq, _b_ineq = transformed_linear_constraints(scal, mop)
             
-            σ_lin = _intersect_bounds(x_n, d, lb_eff, ub_eff, A_eq, b_eq, A_ineq, b_ineq; ret_mode = :pos)
+            # σ_lin = _intersect_bounds(x_n, d, lb_eff, ub_eff, A_eq, b_eq, A_ineq, b_ineq; ret_mode = :pos)
 
             # Variant 1 - paper variant
             # Dm(x)(n + σd) + m(x) ≤ 0
@@ -283,21 +283,31 @@ function compute_descent_step(desc_cfg :: SteepestDescentConfig, mop :: Abstract
             m_eq = - eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x)
             m_ineq = - eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x)           
             n = x_n .- x
+            #= 
             σ_nonlin = _intersect_bounds(
                 n, d, lb_eff .- x, ub_eff .-x , 
                 Dm_eq, m_eq, Dm_ineq, m_ineq; ret_mode = :pos
             )
+            =#
             #=
             # Variant 2 
             # `d` was calculated using the linearization of the constraints around `x_n`:
             # Dm(x_n)*d + m(x_n) = A d - b ≦ 0.
-            # Modifications to `_intersect_bounds` required # TODO
+            # x + n + σd ≤ ub ⇔ σd ≤ ub .- x .- n
             Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal, x_n)    # TODO these should be returned by `compute_normal_step` 
             Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal, x_n)    
             m_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x_n)
             m_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x_n)
+            σ_nonlin = _intersect_bounds(
+                zeros_like(x), d, lb_eff .- x_n, ub_eff .- xn, 
+                Dm_eq, m_eq, Dm_ineq, m_ineq; ret_mode = :pos
+            )
             =#
-            min( σ_lin, σ_nonlin )
+            _intersect_bounds( 
+                [x_n; n], [d;d], [lb_eff; lb_eff .- x], [ub_eff; ub_eff .- x],
+                cat( _A_eq, Dm_eq; dims = (1,2) ), [_b_eq; m_eq], cat( _A_ineq, Dm_ineq; dims = (1,2) ), [_b_ineq; m_ineq ];
+                ret_mode = :pos
+            )
         else
             1
         end
@@ -711,7 +721,7 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     JuMP.@variable(opt_problem, α >= 0 )
 
     if variable_radius
-        JuMP.@variable(opt_problem, 0 <= del <= get_delta_max(algo_config) )
+        JuMP.@variable(opt_problem, 0 <= del <= delta_max(algo_config) )
         JuMP.@objective( opt_problem, Min, del )
         
         # this must be fullfilled in order for `n` to be compatible

@@ -382,7 +382,7 @@ function find_compatible_radius( n, ac :: AbstractConfig )
     μ = filter_mu(ac)
     κ_μ = filter_kappa_mu(ac)
 
-    Δ_max = get_delta_max( ac )
+    Δ_max = delta_max( ac )
     norm_n = norm( n, Inf )
 
     # `κ_μ * Δ^μ` is monotonically increasing in `Δ`.

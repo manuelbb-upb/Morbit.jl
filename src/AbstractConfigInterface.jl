@@ -8,6 +8,7 @@
 
 Broadcast.broadcastable( ac :: AbstractConfig ) = Ref( ac )
 
+_config_precision(ac::AbstractConfig) = MIN_PRECISION
 # Criticality Test parameters 
 # # ω threshold
 _eps_crit( :: AbstractConfig ) = MIN_PRECISION(0.001f0)
@@ -24,10 +25,10 @@ use_db( :: AbstractConfig ) :: Bool = true
 #count_nonlinear_iterations( :: AbstractConfig ) :: Bool = true
 
 # initial box radius (for fully constrained problems this is relative to ``[0,1]^n```)
-get_delta_0(::AbstractConfig) = MIN_PRECISION(0.1f0)
+delta_0(::AbstractConfig) = MIN_PRECISION(0.1f0)
 
 # radius upper bound(s)
-get_delta_max(::AbstractConfig) = MIN_PRECISION(0.5f0)
+delta_max(::AbstractConfig) = MIN_PRECISION(0.5f0)
 
 # STOPPING 
 # restrict number of evaluations and iterations

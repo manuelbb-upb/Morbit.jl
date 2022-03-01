@@ -509,7 +509,7 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 
 	func_index_tuple = Tuple(func_indices)
 	Δ = get_delta(iter_data)
-	Δ_max = get_delta_max(algo_config)
+	Δ_max = delta_max(algo_config)
 	x = get_x_scaled(iter_data)
 	x_index = get_x_index(iter_data, func_index_tuple)
 

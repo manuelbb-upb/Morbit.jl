@@ -166,12 +166,12 @@ end
 
 "Grow radius according to `min( Δ_max, γ * Δ )`."
 function grow_radius( ::Val{:standard}, ac, Δ, steplength )
-	return min( get_delta_max(ac), _gamma_grow(ac) * Δ )
+	return min( delta_max(ac), _gamma_grow(ac) * Δ )
 end 
 
 "Grow radius according to `min( Δ_max, (γ + ||s||/Δ) * Δ )`"
 function grow_radius( ::Val{:steplength}, ac, Δ, steplength )
-	return min( get_delta_max(ac), ( _gamma_grow(ac) .+ steplength ./ Δ ) .* Δ )
+	return min( delta_max(ac), ( _gamma_grow(ac) .+ steplength ./ Δ ) .* Δ )
 end 
 
 function do_radius_update(iter_data, _radius_update, algo_config, steplength)
@@ -236,7 +236,6 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	@assert length(x0) == num_vars( mop ) "Number of variables in `mop` does not match length of `x0`."
 
 	ac = new_algo_config( algo_config; kwargs... )
-
 	# make problem static 
 	smop = MOPTyped(mop)
 
@@ -255,7 +254,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	# x and x_scaled need same precision, else it might to lead to 
     # inconsistencies when evaluating mop at scaled and unscaled sites;
 	# needs to be done before first evaluation
-	XT = Base.promote_eltype(x,x_scaled)
+	XT = Base.promote_type( _config_precision(ac), Base.promote_eltype(x,x_scaled) ) 
 	x = XT.(x)
 	x_scaled = XT.(x_scaled)	
 	
@@ -291,7 +290,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 
 	l_e, l_i = eval_linear_constraints_at_scaled_site( x_scaled, smop, scal )
 	fx, c_e, c_i = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
-	Δ_0 = eltype(x).(get_delta_0(ac))
+	Δ_0 = eltype(x).(delta_0(ac))
 	id = init_iterate( IterData, x, x_scaled, fx, l_e, l_i, c_e, c_i, Δ_0, x_index_mapping )
 	
 	# ToDo: Am I right to assume, that for linear constraints there is no need for a filter?
@@ -856,7 +855,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	)
 	stamp!( data_base, stamp_content )
 
-	if ( _SWITCH_accept_trial_point && (
+	if ( (_SWITCH_accept_trial_point) && (
 		x_tol_rel_test( x, x_trial_unscaled, algo_config  ) || 
 		x_tol_abs_test( x, x_trial_unscaled, algo_config ) ||
 		f_tol_rel_test( fx, fx_trial, algo_config  ) ||
@@ -886,7 +885,6 @@ function optimize( mop :: AbstractMOP, x0 :: Vec;
 		mop, iter_data, super_data_base, sc, ac, filter, scal = initialize_data(
 			mop, x0; algo_config, populated_db, kwargs...)
 		@logmsg loglevel1 _stop_info_str( ac, mop )
-
 		@logmsg loglevel1 "Entering main optimization loop."
 		
 		ret_code = CONTINUE

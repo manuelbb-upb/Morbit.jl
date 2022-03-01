@@ -25,8 +25,8 @@ use_db( ::DefaultConfig ) = ArrayDB
 
     #count_nonlinear_iterations :: Bool = count_nonlinear_iterations( default_config )
     
-    delta_0 :: R = get_delta_0(default_config)
-    delta_max :: R = get_delta_max(default_config)
+    delta_0 :: R = delta_0(default_config)
+    delta_max :: R = delta_max(default_config)
 
     max_evals :: Int = max_evals( default_config )
     max_iter :: Int = max_iter( default_config )
@@ -81,6 +81,7 @@ use_db( ::DefaultConfig ) = ArrayDB
     @assert var_scaler isa AbstractVarScaler || var_scaler in [:default, :none, :auto] "Invalid VarScaler. Try one of `:default, :none, :auto`."
 end
 
+_config_precision( :: AlgorithmConfig{R,<:Any,<:Any}) where R = R
 function Base.convert(::Type{<:Union{R, Vector{R}}}, x :: Number ) where R<:Number
     return convert(R, x)
 end
