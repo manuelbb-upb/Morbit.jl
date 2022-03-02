@@ -97,7 +97,7 @@ function get_output_indices( gs :: GroupedSurrogates, ind :: NLIndex )
 	return gs.index_outputs_dict[ind]
 end
 fully_linear(gs :: GroupedSurrogates ) = fully_linear(get_model(gs))
-
+set_fully_linear!(gs :: GroupedSurrogates, args...) = set_fully_linear!(get_model(gs), args...)
 struct SurrogateContainer{
 	T,D,
     ObjfType, NlEqType, NlIneqType
