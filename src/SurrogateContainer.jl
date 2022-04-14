@@ -139,7 +139,6 @@ a `RefSurrogate` or `CompositeSurrogate` from `gs`.
 function _surrogate_from_vec_function( vfun, scal, gs, x_scaled )
 	output_indices = get_output_indices(gs, vfun.nl_index)
 	model = get_model( gs )
-	cfg = get_cfg(gs)
 	if vfun isa RefVecFun
 		return RefSurrogate( model, output_indices, vfun.nl_index )
 	elseif vfun isa CompositeVecFun
@@ -198,7 +197,7 @@ get_function_indices(sc) = collect( Iterators.flatten([
 	get_nl_eq_constraint_indices(sc),
 	get_nl_ineq_constraint_indices(sc)
 ]))
-get_surrogates( sc :: SurrogateContainer, ind :: NLIndex) = sc.surrogates[ sc.surrogates_grouping_dict[ind] ]
+get_surrogates( sc :: SurrogateContainer, ind :: NLIndex) = get_model( sc.surrogates[ sc.surrogates_grouping_dict[ind] ] )
 get_surrogates( sc :: SurrogateContainer, ind :: ObjectiveIndex) = sc.objective_functions[ind]
 function get_surrogates( sc :: SurrogateContainer, ind :: ConstraintIndex) 
 	if ind.type == :nl_eq 

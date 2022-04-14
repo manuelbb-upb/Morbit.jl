@@ -45,6 +45,14 @@ function set_fully_linear!(rbf :: RbfModel, val :: Bool )
 	return nothing
 end
 
+const RbfKernels = [
+	:cubic,
+	:inv_multiquadric, 
+	:multiquadric,
+	:thin_plate_spline,
+	:gaussian,
+]
+
 # We offer a large range of configuration parameters in the `RBFConfig`, which implements 
 # a `AbstractSurrogateConfig`.
 """
@@ -94,7 +102,7 @@ $(FIELDS)
 	@assert θ_enlarge_1 * θ_pivot ≤ 1 "θ_pivot must be <= θ_enlarge_1^(-1)."
 
 	## @assert sampling_algorithm ∈ [:orthogonal, :monte_carlo] "Sampling algorithm must be either `:orthogonal` or `:monte_carlo`."
-	@assert kernel ∈ Symbol.(["gaussian", "inv_multiquadric", "multiquadric", "cubic", "thin_plate_spline"]) "Kernel '$kernel' not supported yet."
+	@assert kernel ∈ RbfKernels "`kernel` not supported. See `Morbit.RbfKernels` for available symbols."
 
 	## Some sanity checks for the shape parameters:
 	@assert kernel != :thin_plate_spline || ( isnan(shape_parameter) || shape_parameter % 1 == 0 && shape_parameter >= 1 ) "Invalid shape_parameter for :thin_plate_spline."
@@ -194,7 +202,7 @@ end
 # `Y` is a matrix whose columns consists of previously found sites translated by 
 # ``-x`` and the columns of `Z` are orthogonal to it: 
 
-function _find_suitable_points(db, lb, ub, x :: Vector{F}, x_index, piv_val;
+function _find_suitable_points(db, lb, ub, x :: AbstractVector{F}, x_index, piv_val;
 	already_inspected_indices = Int[], 
 	Y = Matrix{F}(undef, length(x), 0), 
 	Z = Matrix{F}(I(length(x))),
@@ -258,13 +266,12 @@ end
 
 # If there are still not enough data sites (``<n``), then we perform sampling 
 # along the improving directions from round 1 (i.e., the colums of `Z_1`):
-function _rbf_round3(db, lb_1, ub_1, Δ_1, x::Vector{F}, piv_val_1,
+function _rbf_round3(db, lb_1, ub_1, Δ_1, x::AbstractVector{F}, piv_val_1,
 	improving_directions, max_new, n_missing, ensure_fully_linear, force_rebuild
 ) where F
 	@logmsg loglevel3 "Round3: Still missing $(n_missing). Sampling in box of radius $(Δ_1)."
 	
-	n_new = min(n_missing, max_new)
-	
+	n_new = max( 0, min(n_missing, max_new) )
 	new_points = Vector{Vector{F}}(undef, n_new)
 	_fully_linear = n_new >= n_missing
 
@@ -277,7 +284,7 @@ function _rbf_round3(db, lb_1, ub_1, Δ_1, x::Vector{F}, piv_val_1,
 		if norm( offset, Inf ) <= piv_val_1
 			### the new point does not pass the thresholding test 
 			if ensure_fully_linear && !force_rebuild
-				### If we need a fully linear model, we dismiss the inidices gathered so far …
+				### If we need a fully linear model, we dismiss the indices gathered so far …
 				### … and call for a rebuild along the coordinate axis (in the caller method):
 				return nothing, nothing, nothing
 			else
@@ -296,7 +303,6 @@ function _rbf_round3(db, lb_1, ub_1, Δ_1, x::Vector{F}, piv_val_1,
 		new_id = new_result!( db, p, F[] )
 		new_indices[i] = new_id
 	end
-
 	return new_indices, _fully_linear, improving_directions[n_new+1:end]
 end
 
@@ -338,11 +344,16 @@ end
 # Round 4 is different from rounds 1-3 in that we now have sufficiently linearly independent
 # points and try to find additional points in the database, such that the model hessians stay bounded.
 # The procedure is described in [^wild_diss].
-function _rbf_round4(db, lb_2, ub_2, x::Vector{F}, Δ, indices_found_so_far, cfg,
+
+function vec_type( kernel :: RBF.ShiftedKernel{RT,CT} ) where{RT,CT}
+	return CT 
+end
+
+function _rbf_round4(db, lb_2, ub_2, x::AbstractVector{F}, Δ, indices_found_so_far, cfg,
 ) where F
 	n_vars = length(x)
 
-	max_points = cfg.max_model_points <= 0 ? ((n_vars + 1 ) * (n_vars + 2) / 2) : cfg.max_model_points
+	max_points = cfg.max_model_points <= 0 ? Int(((n_vars + 1 ) * (n_vars + 2)) / 2) : cfg.max_model_points
 
 	N = length(indices_found_so_far)
 	
@@ -355,23 +366,31 @@ function _rbf_round4(db, lb_2, ub_2, x::Vector{F}, Δ, indices_found_so_far, cfg
 
 	if N < max_points && ( !isempty(candidate_indices_4) || cfg.use_max_points )
 		@logmsg loglevel3 "Round4: Can we find $(max_points - N) additional sites?"
-
-		chol_pivot = cfg.θ_pivot_cholesky
+	
+		chol_pivot = cfg.θ_pivot_cholesky^2
 
 		centers = get_site.(db, indices_found_so_far)
 		φ = _get_radial_function( Δ, cfg )
-		Φ, Π, kernels, polys = RBF.get_matrices( φ, centers; 
+		Φᵀ, Πᵀ, kernels, polys = RBF.get_matrices( φ, centers; 
 			poly_deg = cfg.polynomial_degree )
+		Φ = transpose(Φᵀ)
+		## Πᵀ is the matrix with ``\dim Π_{n}`` rows and ``N`` columns.
+		CT = vec_type(kernels[1])
 		
-		## prepare matrices as by Wild, R has to be augmented by rows of zeros
-		Q, R = qr( transpose(Π) )
+		## prepare matrices as described by Wild
+		_Q, _R = qr( Matrix{F}(Πᵀ) )  # Matrix() because otherwise we cannot obtain full QR factors if Π isa StaticArray
+		### extract full Q factor		
+		dim_Q = size(_Q, 1)
+		Q = _Q * Matrix(LinearAlgebra.I, dim_Q, dim_Q)
+		## augment `_R`
 		R = [
-			R;
-			zeros( size(Q,1) - size(R,1), size(R,2) )
+			_R;
+			zeros( dim_Q - size(_R,1), size(_R,2) )
 		]
-		Z = Q[:, N + 1 : end ] ## columns of Z are orthogonal to Π
+		
+		Z = Q[:, N + 1 : end ] ## columns of Z are orthogonal to Πᵀ
 
-		## Note: usually, Z, ZΦZ and L should be empty (if N == n_vars + 1)
+		## Note: usually, Z, ZΦZ and L are empty (if `N == n_vars + 1`)
 		ZΦZ = Hermitian(Z'Φ*Z)	## make sure, it is really symmetric
 		L = cholesky( ZΦZ ).L   ## perform cholesky factorization
 		L⁻¹ = inv(L)			## most likely empty at this point
@@ -385,13 +404,13 @@ function _rbf_round4(db, lb_2, ub_2, x::Vector{F}, Δ, indices_found_so_far, cfg
 			if !isempty( candidate_indices_4 )
 				id = popfirst!( candidate_indices_4 )
 				### get candidate site ξ ∈ ℝⁿ
-				ξ = get_site( db, id )
+				ξ = CT(get_site( db, id ))
 			else
 				if cfg.use_max_points
 					### there are no more sites in the db, but we **want**
 					### to use as many as possible
 					id = -1
-					ξ = _rand_box_point( lb_2, ub_2, F)
+					ξ = CT(_rand_box_point( lb_2, ub_2, F))
 					num_tries += 1
 				else 
 					break 
@@ -403,31 +422,34 @@ function _rbf_round4(db, lb_2, ub_2, x::Vector{F}, Δ, indices_found_so_far, cfg
 		
 			### apply polynomial basis system and augment polynomial matrix
 			πξ = polys( ξ )
-			Rξ = [ R; πξ' ]
+			Rξ = [ 
+				R; 
+				πξ' 
+			]
 
 			### perform Givens rotations to turn last row in Rξ to zeros
-			row_index = size( Rξ, 1)
-			G = Matrix(I, row_index, row_index) # whole orthogonal matrix
-			for j = 1 : size(R,2) 
-				## in each column, take the diagonal as pivot to turn last elem to zero
-				g = givens( Rξ[j,j], Rξ[row_index, j], j, row_index )[1]
-				Rξ = g*Rξ;
-				G = g*G;
+			Rξ, G = nullify_last_row(Rξ) 
+
+			if N < binomial( n_vars + cfg.polynomial_degree, n_vars )
+				if norm( Rξ[end, :] ) <= eps(eltype(Rξ)) * 10 
+					# the rank of R is *not* augmented by adding ξ 
+					continue # hence, do not add it and try next point
+				end
 			end
 
 			### now, from G we can update the other matrices 
 			Gᵀ = transpose(G)
-			g̃ = Gᵀ[1 : end-1, end]
-			ĝ = Gᵀ[end, end]
+			g̃ = Gᵀ[1:(end-1), end]		# last column of transposed matrix
+			ĝ = G[end, end]
 
-			Qg = Q*g̃;
-			v_ξ = Z'*( Φ*Qg + φξ .* ĝ )
-			σ_ξ = Qg'*Φ*Qg + (2*ĝ) * φξ'*Qg + ĝ^2*φ₀
+			Qg̃ = Q*g̃;
+			v_ξ = Z'*( Φ*Qg̃ + φξ .* ĝ )
+			σ_ξ = Qg̃'*Φ*Qg̃ + (2*ĝ) * φξ'*Qg̃ + ĝ^2*φ₀
 
 			τ_ξ² = σ_ξ - norm( L⁻¹ * v_ξ, 2 )^2 
 			## τ_ξ (and hence τ_ξ^2) must be bounded away from zero 
 			## for the model to remain fully linear
-			if τ_ξ² > chol_pivot
+			if τ_ξ² > chol_pivot^2
 				
 				if id < 0
 					id = new_result!( db, ξ, F[] )
@@ -437,13 +459,10 @@ function _rbf_round4(db, lb_2, ub_2, x::Vector{F}, Δ, indices_found_so_far, cfg
 				τ_ξ = sqrt(τ_ξ²)
 
 				## zero-pad Q and multiply with Gᵗ
-				Q = [
-					Q 					zeros( size(Q,1), 1);
-					zeros(1, size(Q,2)) 1
-				] * Gᵀ
+				Q = cat(Q,1; dims=(1,2)) * Gᵀ
 
 				Z = [ 
-					Z  						Qg;
+					Z  						Qg̃;
 					zeros(1, size(Z,2)) 	ĝ 
 				]
 				
@@ -460,15 +479,17 @@ function _rbf_round4(db, lb_2, ub_2, x::Vector{F}, Δ, indices_found_so_far, cfg
 				R = Rξ
 
 				## finally, augment basis matrices and add new kernel for next iteration
-				Π = [ Π πξ ]
-
+				
 				Φ = [ 
 					Φ   φξ;
 					φξ' φ₀
 				]
 				push!( kernels, RBF.make_kernel(φ, ξ) )
+				
+				#Π = [ Π πξ ] #src
+				# ZΦZ = [	ZΦZ v_ξ; v_ξ' σ_ξ] #src
+				#@show all( diag( L * L⁻¹) .≈ 1 ) #src
 
-				## assert all( diag( L * L⁻¹) .≈ 1 )
 				N += 1
 			end#if 
 		end#for 
@@ -591,8 +612,10 @@ function prepare_update_model( mod :: Union{Nothing, RbfModel}, meta :: RbfMeta,
 		### Take into consideration the maximum number of evaluations allowed:
 		num_objf_evals = maximum( num_evals(_get(mop, ind)) for ind in func_indices ) 
 		num_unevaluated = length(_missing_ids(db))
-		max_new = min( max_evals(algo_config), max_evals(cfg) ) - 
-			1 - num_objf_evals - num_unevaluated;
+		max_new = max( 0, 
+			min( max_evals(algo_config), max_evals(cfg) ) - 
+				1 - num_objf_evals - num_unevaluated
+		);
 		
 		### Perform round 3:
 		new_indices, _fully_linear, improving_directions  = _rbf_round3(

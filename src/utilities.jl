@@ -123,6 +123,34 @@ function _project_into_box( z, lb, ub)
     return min.( max.( z, lb ), ub )
 end
 
+function _intersect_bound_vec( 
+    x :: AbstractVector{F}, b, dir, dir_nz = .!(iszero.(dir));
+    sense = :lb
+    ) where F
+    
+    isempty( b ) && return F[]
+
+    d = dir[dir_nz]
+    tmp = b[dir_nz] .- x[dir_nz]
+    tmp_z = iszero.(tmp)
+    tmp_nz = .!(tmp_z)
+    σ_intersect = tmp[tmp_nz] ./ d[tmp_nz]
+    
+    _d = d[tmp_z]
+    if isempty( _d )
+        return σ_intersect
+    end
+
+    finf = F(Inf)
+    fzero = F(0)
+    σ_onbound = if sense == :lb
+        F[ δ > 0 ? finf : fzero for δ = _d ] 
+    else
+        F[ δ < 0 ? finf : fzero for δ = _d ] 
+    end
+    return [σ_intersect; σ_onbound]
+end
+
 "Return the maximum or minimum stepsize ``σ`` such that ``x + σd`` 
 conforms to the linear constraints ``lb ≤ x+σd ≤ ub`` and ``A(x+σd) - b ≦ 0``."
 function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [], 
@@ -130,7 +158,7 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [],
         ret_mode = :pos, impossible_val = 0, _eps = 0 ) where R <: Real
 	
     # TODO can we pass precalculated `Ax` values for `A_eq` and `A_ineq`
-    
+    n_vars = length(x)
     T = Base.promote_type(R, MIN_PRECISION )
     EPS = _eps < 0 ? eps( T ) : T(_eps) # "safety buffer" for box constraints
 
@@ -148,41 +176,25 @@ function _intersect_bounds( x :: AbstractVector{R}, d, lb = [], ub = [],
 		d_nz = .!( d_zero_index )
 
 		# lb <= x + σd - ε  ⇒  σ_i = (lb[i] - x[i] + ε) / d[i]
-		σ_lb = if isempty(lb)
-			T[]
-		else
-			( lb[ d_nz ] .- x[ d_nz ] .+ EPS) ./ d[ d_nz ]
-		end
+		σ_lb = _intersect_bound_vec( x, lb, d, d_nz; sense = :lb)
 
 		# x + σ d + ε <= ub  ⇒  σ_i = (ub[i] - x[i] - ε) / d[i]
-		σ_ub = if isempty(ub)
-			T[]
-		else
-			( ub[ d_nz ] .- x[ d_nz ] .- EPS) ./ d[ d_nz ]
-		end
+		σ_ub = _intersect_bound_vec( x, ub, d, d_nz; sense = :ub)
 
 		# linear inequality constraint intersection
-		σ_ineq = if isempty( A_ineq)
-			T[] 
-		else
-             # A * (x + σd) - b .+ ε ꜝ= 0
-            # A σd = -Ax + b - ε = - (Ax -b + ε) ⇔ σ = -(Ax -b + ε)./Ad
-			denom_ineq = A_ineq * d
-			nz = .!( iszero.( denom_ineq ) )
-			if isempty(b_ineq)  # b = 0
-				- (A_ineq[nz, :] * x .+ EPS) ./ denom_ineq[ nz ]
-			else
-				- (A_ineq[nz, :] * x .- b_ineq[nz] .+ EPS) ./ denom_ineq[ nz ]
-			end
-		end
-
+        σ_ineq = if isempty(A_ineq)
+            T[] 
+        else
+            ineq_bound = isempty( b_ineq ) ? zeros( T, n_vars ) : b_ineq
+		    _intersect_bound_vec( A_ineq*x, ineq_bound, A_ineq*d; sense = :ub ) 
+        end
 		σ = [ σ_lb; σ_ub; σ_ineq ]
 
 		if isempty(σ)
 			return ret_mode == :neg ? typemin(T) : typemax(T)
 		else
 			σ_non_neg_index = σ .>= 0
-			σ_neg_index = .!(σ_non_neg_index)
+			σ_neg_index = .!σ_non_neg_index #σ .< 0
 
 			σ₊_array = σ[ σ_non_neg_index ]
 			σ₋_array = σ[ σ_neg_index ]
@@ -411,3 +423,26 @@ function find_compatible_radius( n, ac :: AbstractConfig )
     return -1
 end
 =#
+
+##########################################
+"""
+    nullify_last_row( R )
+
+Returns matrices ``B`` and ``G`` with ``G⋅R = B``.
+``G`` applies givens rotations to make ``R`` 
+upper triangular.
+``R`` is assumed to be an upper triangular matrix 
+augmented by a single row.
+"""
+function nullify_last_row( R )
+	m, n = size( R )
+	#@assert LinearAlgebra.istriu( R[1:m-1, :] ) "The first rows of `R` must be upper triangular."
+	G = Matrix(LinearAlgebra.I(m)) # orthogonal transformation matrix
+	for j = 1 : min(m-1, n)
+		## in each column, take the diagonal as pivot to turn last elem to zero
+		g = LinearAlgebra.givens( R[j,j], R[m, j], j, m )[1]
+		R = g*R
+		G = g*G
+	end
+	return R, G
+end
