@@ -27,7 +27,7 @@ import Combinatorics
 # The model itself is defined only by its vector of Lagrange basis polynomials
 # and the coefficients.
 
-@with_kw struct LagrangeModel{
+@with_kw mutable struct LagrangeModel{
         B <: AbstractArray{<:AbstractPolynomialLike},
         G <: AbstractArray{<:AbstractArray{<:AbstractPolynomialLike}},
         V <: AbstractVector{<:AbstractVector{<:AbstractFloat} } } <: AbstractSurrogate

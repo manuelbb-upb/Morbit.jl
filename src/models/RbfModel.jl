@@ -30,7 +30,7 @@ include("AffinelyIndependentPoints.jl")
 # ## Surrogate Interface Implementations
 
 # The model used in our algorithm simply wraps an interpolation model from the `RBF` package.
-@with_kw struct RbfModel{R} <: AbstractSurrogate
+@with_kw mutable struct RbfModel{R} <: AbstractSurrogate
 	model :: R
 
 	## indicator: is the model fully linear?
