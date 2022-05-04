@@ -41,7 +41,7 @@ end
 fully_linear( lm :: LagrangeModel ) = lm.fully_linear
 num_outputs( lm :: LagrangeModel ) = lm.num_outputs
 
-function set_fully_linear!(lm :: LagrangeModel, val :: Bool )
+function set_fully_linear!(lm :: LagrangeModel, val )
 	lm.fully_linear = val
 	return nothing
 end

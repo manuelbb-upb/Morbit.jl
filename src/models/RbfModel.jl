@@ -40,7 +40,7 @@ end
 fully_linear( rbf :: RbfModel ) :: Bool = rbf.fully_linear
 num_outputs( rbf :: RbfModel ) = rbf.model.num_outputs
 
-function set_fully_linear!(rbf :: RbfModel, val :: Bool )
+function set_fully_linear!(rbf :: RbfModel, val )
 	rbf.fully_linear = val
 	return nothing
 end

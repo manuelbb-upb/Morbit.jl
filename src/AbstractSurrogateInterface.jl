@@ -10,7 +10,7 @@ num_outputs( :: AbstractSurrogate ) :: Int = nothing
 
 fully_linear( :: AbstractSurrogate ) :: Bool = false
 
-set_fully_linear!( :: AbstractSurrogate, :: Bool ) = nothing
+set_fully_linear!( :: AbstractSurrogate, bool_val ) = nothing
 
 # can objective functions with same configuration types be combined 
 # to a new vector objective?
