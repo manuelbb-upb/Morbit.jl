@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/src/models/LagrangeModel.jl"
+EditURL = "<unknown>/../src/models/LagrangeModel.jl"
 ```
 
 # Lagrange Polynomial Models
@@ -32,7 +32,7 @@ The model itself is defined only by its vector of Lagrange basis polynomials
 and the coefficients.
 
 ````julia
-@with_kw struct LagrangeModel{
+@with_kw mutable struct LagrangeModel{
         B <: AbstractArray{<:AbstractPolynomialLike},
         G <: AbstractArray{<:AbstractArray{<:AbstractPolynomialLike}},
         V <: AbstractVector{<:AbstractVector{<:AbstractFloat} } } <: AbstractSurrogate
@@ -46,7 +46,7 @@ end
 fully_linear( lm :: LagrangeModel ) = lm.fully_linear
 num_outputs( lm :: LagrangeModel ) = lm.num_outputs
 
-function set_fully_linear!(lm :: LagrangeModel, val :: Bool )
+function set_fully_linear!(lm :: LagrangeModel, val )
 	lm.fully_linear = val
 	return nothing
 end

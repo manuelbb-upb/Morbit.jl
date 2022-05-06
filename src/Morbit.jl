@@ -30,6 +30,9 @@ const FD = FiniteDiff#erences
 import Zygote
 #import ForwardDiff
 const AD = Zygote.ForwardDiff
+using Preferences
+set_preferences!(AD, "nansafe_mode" => true)
+# see https://github.com/JuliaDiff/ForwardDiff.jl/issues/547
 
 import Logging: LogLevel, @logmsg
 import Logging

@@ -756,7 +756,11 @@ function update_model( mod::Union{Nothing,RbfModel}, meta :: RbfMeta, cfg :: Rbf
 	training_sites = get_site.( training_results )
 	training_values = get_value.( training_results )
 
-	inner_model = RBF.RBFInterpolationModel( training_sites, training_values, cfg.kernel, kernel_params; save_matrices = false )
+	inner_model = RBF.RBFInterpolationModel( 
+		training_sites, training_values, cfg.kernel, kernel_params, 
+		cfg.polynomial_degree;
+		save_matrices = false 
+	)
 	
 	@logmsg loglevel3 "The model is $(meta.fully_linear ? "" : "not ")fully linear."
 	return RbfModel( inner_model, meta.fully_linear ), meta 

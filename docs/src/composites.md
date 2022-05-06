@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/examples/composites.jl"
+EditURL = "<unknown>/../examples/composites.jl"
 ```
 
 # Composite Functions & Re-Used Functions
@@ -246,7 +246,7 @@ x, fx
 
 Now, the inner function ``g`` is Rastrigin's function and has ``11^k-1`` local
 optima, so we cannot expect that `x` belongs to the global Pareto Set with
-``\symbf x_M = 0``.
+``\symbf x_M = 0.5``.
 Rather, the problem was selected to demonstrate the modelling.
 
 ## Automatic Function Generation

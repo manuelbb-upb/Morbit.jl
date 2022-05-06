@@ -1,3 +1,6 @@
+[compat]
+CairoMakie = "0.7.4"
+
 [deps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
@@ -8,5 +11,5 @@ Morbit = "88936782-c8cd-4a0f-b259-ffb12bfd2869"
 MultiObjectiveProblems = "ad069600-9bf0-4bd3-b060-bd43ee6ba39c"
 PlutoStaticHTML = "359b1769-a58e-495b-9770-312e911026ad"
 
-[compat]
-CairoMakie = "0.7.4"
+[extras]
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"

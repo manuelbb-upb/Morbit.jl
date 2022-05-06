@@ -33,7 +33,7 @@ for num_vars ∈ [2,5,10]
 				# i) `max_evals` is respected and 
 				# ii) the models can be build with too few points
 				model_cfg = RbfConfig(;
-					kernel = :gaussian,
+					kernel = kernel,
 					polynomial_degree,
 					max_evals = 1,
 					max_model_points = 1, 	# avoid round 4 for now
@@ -60,7 +60,7 @@ for num_vars ∈ [2,5,10]
 
 				## now set the budget via algo_config
 				model_cfg = RbfConfig(;
-					kernel = :gaussian,
+					kernel,
 					polynomial_degree,
 				)
 
@@ -95,16 +95,24 @@ for num_vars ∈ [2,5,10]
 					@test Morbit.fully_linear( sc )
 				end
 
-				## are the derivatives correct?
+				## are the values and derivatives correct?
 				x = Morbit.get_x_scaled(id)
+				x_unscaled = Morbit.get_x(id)
 				mod = Morbit.get_surrogates( sc, nl_ind )
 				dm = Morbit.get_gradient( mod, scal, x, 1 )
+				
+				@test Morbit.eval_models( mod, scal, x )[end] ≈ f1(x_unscaled) 
 				@test begin 
 					dm == vec(Morbit.eval_container_jacobian_at_func_index_at_scaled_site(
 						sc, scal, x, nl_ind
 					))
 				end
-				@test dm ≈ Morbit.AD.gradient( ξ -> Morbit.eval_models(mod, scal, ξ)[end], x  )
+				try 
+					@test dm ≈ Morbit.AD.gradient( ξ -> Morbit.eval_models(mod, scal, ξ)[end], x  )
+				catch
+					@info num_vars, kernel, polynomial_degree, constrained
+					rethrow()
+				end
 			end
 		end 
 	end

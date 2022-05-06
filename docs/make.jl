@@ -10,23 +10,24 @@ using Documenter
 using PlutoStaticHTML
 
 const NOTEBOOK_DIR = joinpath(@__DIR__, "src", "notebooks")
+
 """
     build_notebooks()
 Run all Pluto notebooks (".jl" files) in `NOTEBOOK_DIR`.
 """
-function build_notebooks()
+function build_my_notebooks()
     println("Building notebooks")
     hopts = HTMLOptions(; append_build_context=false)
     output_format = documenter_output
     bopts = BuildOptions(NOTEBOOK_DIR; output_format, previous_dir = NOTEBOOK_DIR)
-    parallel_build(bopts, 
+    build_notebooks(bopts, 
         ["notebook_finite_differences.jl", "notebook_polynomial_interpolation.jl"], hopts
     )
     return nothing
 end
 
 if !("DISABLE_NOTEBOOK_BUILD" in keys(ENV))
-    build_notebooks()
+    build_my_notebooks()
 end
 
 DocMeta.setdocmeta!(Morbit, :DocTestSetup, :(using Morbit); recursive=true)
