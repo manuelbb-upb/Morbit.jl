@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "<unknown>/examples/constraints.jl"
+EditURL = "<unknown>/../examples/constraints.jl"
 ```
 
 # Constrained Optimization
