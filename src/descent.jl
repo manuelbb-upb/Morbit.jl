@@ -732,6 +732,9 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     JuMP.@constraint( opt_problem, -α .<= n)
     JuMP.@constraint( opt_problem, n .<= α)
 
+    lb, ub = full_bounds_internal( scal )
+    JuMP.@constraint( opt_problem, lb .<= x .+ n .<= ub )
+
     # A (x + n) - b ≦ 0 ⇔ An -b + Ax ≦ 0 ⇔ An - (b-Ax) ≦ 0 ⇔ An - (-l) ≦ 0
     JuMP.@constraint(opt_problem, linear_eq_const, A_eq * n .+ l_e .== 0)
     JuMP.@constraint(opt_problem, linear_ineq_const, A_ineq * n .+ l_i .<= 0)
@@ -746,6 +749,7 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     end
 
     _Δ = !variable_radius ? -1 : JuMP.value( del )
-    n = Xet.(JuMP.value.(n))
+    _n = JuMP.value.(n)
+    n = Xet.(_project_into_box( x .+ _n, lb, ub ) .- x)     # we _project_into_box because it might happen that there is some small constraint violation
     return n, Xet(_Δ)
 end
