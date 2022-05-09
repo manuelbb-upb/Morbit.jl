@@ -4,7 +4,6 @@
 [![Build Status](https://github.com/manuelbb-upb/Morbit.jl/workflows/CI/badge.svg)](https://github.com/manuelbb-upb/Morbit.jl/actions)
 [![Coverage](https://codecov.io/gh/manuelbb-upb/Morbit.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/manuelbb-upb/Morbit.jl)
 
-Stable docs [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://manuelbb-upb.github.io/Morbit.jl/stable) are currently outdated for this repository.
 
 The package `Morbit.jl` provides a local derivative-free solver for multiobjective optimization problems with possibly expensive objectives.
 It is meant to find a **single** Pareto-critical point.
@@ -13,19 +12,15 @@ It is meant to find a **single** Pareto-critical point.
 The name was chosen so as to pay honors to the single objective algorithm ORBIT by Wild et. al. 
 We have a [paper](https://www.mdpi.com/2297-8747/26/2/31) explaining the algorithm!
 
-This was my first project using Julia and there have been many messy rewrites.
-Nonetheless, the solver should now work sufficiently well to tackle most problems.
+This was my first project when I started using Julia and has since then undergone several rewrites.
 
 This project was founded by the European Region Development Fund.
 <img alt="EFRE Logo EU" src="https://www.efre.nrw.de/fileadmin/Logos/EU-Fo__rderhinweis__EFRE_/EFRE_Foerderhinweis_englisch_farbig.jpg" width=40% />
 <img alt="EFRE Logo NRW" src="https://www.efre.nrw.de/fileadmin/Logos/Programm_EFRE.NRW/Ziel2NRW_RGB_1809_jpg.jpg" width=40% />
 
-## Version 3.1
-Version 3.1+ signifies a big re-write of nearly everything.
-Most importantly, most types are no longer "weakly typed".
-Instead they now have type parameters which will hopefully benefit running performance.
+## New Features in Version 3.1+
 
-Moreover, constraint handling has been improved:
+Constraints :)
 * Box constraints are supported natively and respected during model construction.
 * Relaxable linear constraints are supported natively, i.e., propagated to the internal solver.
 * Relaxable nonlinear constraints are supported via a filter mechanism.
@@ -38,10 +33,6 @@ Pkg.add(; url = "https://github.com/manuelbb-upb/Morbit.jl.git")
 # or, using ssh:
 # Pkg.add(; url = "git@github.comm/manuelbb-upb/Morbit.jl.git" )
 ```
-**Use at least version 2.1.7.**
-In version 2.1.6 (and probably some minor releases prior) there is a bug 
-prohibiting early stopping.
-The version used for our paper was not affected.
 
 ## Quick Usage Example
 

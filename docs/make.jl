@@ -71,7 +71,7 @@ makedocs(;
 
 deploydocs(;
     repo="github.com/manuelbb-upb/Morbit.jl",
-    devbranch="nonlinear_structure" # TODO Make this "master" after merging
+    devbranch="main" #
 )
 	
 Pkg.activate(current_env)
