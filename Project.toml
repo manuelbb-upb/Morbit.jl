@@ -36,6 +36,7 @@ Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 [compat]
 DynamicPolynomials = "0.3.16"
 FiniteDiff = "2.7"
+Lazy = "0.15"
 MathOptInterface = "< 0.10"
 NLopt = "0.6"
 OSQP = "0.6"
