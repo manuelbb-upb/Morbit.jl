@@ -1,18 +1,7 @@
-authors = ["manuelbb <manuelbb@mail.uni-paderborn.de> and contributors"]
 name = "Morbit"
 uuid = "88936782-c8cd-4a0f-b259-ffb12bfd2869"
+authors = ["manuelbb <manuelbb@mail.uni-paderborn.de> and contributors"]
 version = "3.1.0-DEV"
-
-[compat]
-DynamicPolynomials = "0.3.16"
-FiniteDiff = "2.7"
-MathOptInterface = "< 0.10"
-NLopt = "0.6"
-OSQP = "0.6"
-Parameters = "0.12"
-RadialBasisFunctionModels = "0.3.4"
-ThreadSafeDicts = "0.0.2"
-julia = "1.5"
 
 [deps]
 Combinatorics = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
@@ -43,6 +32,17 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 ThreadSafeDicts = "4239201d-c60e-5e0a-9702-85d713665ba7"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
+[compat]
+DynamicPolynomials = "0.3.16"
+FiniteDiff = "2.7"
+MathOptInterface = "< 0.10"
+NLopt = "0.6"
+OSQP = "0.6"
+Parameters = "0.12"
+RadialBasisFunctionModels = "0.3.4"
+ThreadSafeDicts = "0.0.2, 0.1"
+julia = "1.5"
 
 [extras]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
