@@ -77,6 +77,56 @@ function ω_abs_test( ω :: Real, ac :: AbstractConfig )
     ret
 end
 
+function stop_val_test( ac :: AbstractConfig, mop, tmp_dict, objf_dict, eq_dict, ineq_dict, θ, l_e, l_i )
+	stop_val_keys = has_stop_val( ac )
+
+	isnothing(stop_val_keys) && return false
+	(stop_val_only_if_feasible(ac) && θ > 0) && return false
+
+	ret_val = true
+	for ind in stop_val_keys
+		bounds = stop_val( ac, ind )
+		_dict = if ind isa NLIndex 
+			tmp_dict 
+		elseif ind isa ObjectiveIndex
+			objf_dict
+		elseif ind isa ConstraintIndex
+			if ind.type == :nl_eq 
+				eq_dict
+			elseif ind.type == :nl_ineq
+				ineq_dict
+			else
+				nothing
+			end
+		else
+			return false
+		end
+	
+		if isnothing(_dict) 
+			output_indices = linear_constraint_outputs( mop, ind )
+			isnothing(output_indices) && continue
+
+			if ind.type == :eq
+				vals = l_e[output_indices]
+			else
+				vals = l_i[output_indices]
+			end
+		else			
+			vals = getindex( _dict, ind )
+		end
+	
+		if stop_val_sense(ac, ind) == :upper_bound 
+			ret_val *= all( vals .<= bounds )
+		else
+			ret_val *= all( vals .>= bounds )
+		end
+		if ret_val == false
+			break
+		end
+	end
+	return ret_val
+end
+
 function _stop_info_str( ac :: AbstractConfig, mop :: Union{AbstractMOP,Nothing} = nothing )
     ret_str = "Stopping Criteria:\n"
     if isnothing(mop)
@@ -308,10 +358,17 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	)
 	sdb = SuperDB(; sub_dbs, iter_data = [init_stamp_content,] ) #, get_saveable_type(IterSaveable, id)[] )
 
-	# initialize surrogate models
-	sc = init_surrogates(smop, scal, id, ac, groupings, groupings_dict, sdb )
-
-	return (smop, id, sdb, sc, ac, filter, scal)
+	early_stop = stop_val_test(ac, smop, tmp_dict, objf_dict, eq_dict, ineq_dict, compute_constraint_val( filter, id), l_e, l_i )
+	if !early_stop
+		# NOTE we could check earlier, but this way, `optimize` can return 
+		# sdb, id, and filter.
+		
+		## initialize surrogate models:
+		sc = init_surrogates(smop, scal, id, ac, groupings, groupings_dict, sdb )
+		return (smop, id, sdb, sc, ac, filter, scal, CONTINUE)
+	else
+		return (smop, id, sdb, nothing, ac, filter, scal, STOP_VAL)
+	end
 end
 
 function restoration(iter_data :: AbstractIterate, data_base,
@@ -398,7 +455,6 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 		set_delta!( iter_data, _Δ )
 		set_fully_linear!( sc, false )
 	end
-
 	# we now have to check if `n` is a *compatible* normal step
 	# if that is the case, we can proceed in `iterate!`
 	# if not, we have to perform an restoration iteration 
@@ -413,7 +469,7 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 	
 	r_guess = zeros_like( x )	 # initial guess for restoration step
 
-	_not_isnan_n = any(isnan.(n))
+	_not_isnan_n = !any(isnan.(n))
 	if !is_compatible(n, get_delta(iter_data), algo_config )
 		if _SWITCH_last_iter_restoration
 			# last iteration already tried to restore feasibility 
@@ -434,7 +490,6 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 			end
 		end
 	end
-
 	if _SWITCH_perform_restoration
 		@logmsg loglevel2 "Performing restoration for feasibility."
 		add_entry!( filter, x, (θ_k, compute_objective_val(filter,fx)) )
@@ -751,74 +806,82 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	#========================
 	Acceptance Tests
 	========================#	
-	_SWITCH_is_acceptable_for_filter = is_acceptable(
-		(θ_trial, fx_trial_filter_val), 
-		filter, 
-		(θ_k, compute_objective_val(filter,fx))
-	)
-
-	# we only need to compute ρ and ω(x) - ω(x₊) ≥ κ_ψ θ^ψ IF 
-	# the trial point is acceptable for F ∪ {x}
-	if _SWITCH_is_acceptable_for_filter
-		if strict_acceptance_test( algo_config )
-			model_denom = (mx .- mx_trial)
-			_ρ = minimum( (fx .- fx_trial) ./ model_denom )
-		else
-			model_denom = (maximum(mx) - maximum(mx_trial))
-			_ρ = (maximum(fx) - maximum( fx_trial ))/ model_denom
-		end
-		_SWITCH_good_decrease = all( 
-			model_denom .>= filter_kappa_psi(algo_config) * θ_k^filter_psi(algo_config) 
-		)
+	_SWITCH_stop_val = stop_val_test(algo_config, mop, tmp_dict, objf_dict, eq_dict, ineq_dict, θ_trial, l_e_trial, l_i_trial)
+	if _SWITCH_stop_val
+		_SWITCH_accept_trial_point = true
+		_iteration_classification = EARLY_EXIT
+		_radius_update = LEAVE_UNCHANGED
+		ρ = -Inf
 	else
-		_ρ = NaN16
-		_SWITCH_good_decrease = false
-	end
-	ρ = isnan(_ρ) ? -Inf : _ρ
-	
-	_iteration_classification = ACCEPTABLE
-	_radius_update = LEAVE_UNCHANGED
-	_SWITCH_accept_trial_point = true
-	if _SWITCH_is_acceptable_for_filter
-		if _SWITCH_good_decrease
-			# the trial point is both acceptable for the filter
-			# and the model decrease is large compared with the constraint violation
-			# From here we can follow the logic for the UNCONSTRAINED TRM algorithm
-			if ρ >= ν_success
-				_SWITCH_accept_trial_point = true 
-				_iteration_classification = SUCCESSFULL
-				if get_delta(iter_data) < β * ω	
-					_radius_update = GROW
-				end
-			else # ρ < ν_success
-				if fully_linear( sc )
-					if ρ >= ν_accept
-						_SWITCH_accept_trial_point = true
-						_iteration_classification = ACCEPTABLE
-						_radius_update = SHRINK
-					else
-						_SWITCH_accept_trial_point = false 
-						_iteration_classification = INACCEPTABLE
-						_radius_update = SHRINK_MUCH
+		_SWITCH_is_acceptable_for_filter = is_acceptable(
+			(θ_trial, fx_trial_filter_val), 
+			filter, 
+			(θ_k, compute_objective_val(filter,fx))
+		)
+
+		# we only need to compute ρ and ω(x) - ω(x₊) ≥ κ_ψ θ^ψ IF 
+		# the trial point is acceptable for F ∪ {x}
+		if _SWITCH_is_acceptable_for_filter
+			if strict_acceptance_test( algo_config )
+				model_denom = (mx .- mx_trial)
+				_ρ = minimum( (fx .- fx_trial) ./ model_denom )
+			else
+				model_denom = (maximum(mx) - maximum(mx_trial))
+				_ρ = (maximum(fx) - maximum( fx_trial ))/ model_denom
+			end
+			_SWITCH_good_decrease = all( 
+				model_denom .>= filter_kappa_psi(algo_config) * θ_k^filter_psi(algo_config) 
+			)
+		else
+			_ρ = NaN16
+			_SWITCH_good_decrease = false
+		end
+		ρ = isnan(_ρ) ? -Inf : _ρ
+		
+		_iteration_classification = ACCEPTABLE
+		_radius_update = LEAVE_UNCHANGED
+		_SWITCH_accept_trial_point = true
+		if _SWITCH_is_acceptable_for_filter
+			if _SWITCH_good_decrease
+				# the trial point is both acceptable for the filter
+				# and the model decrease is large compared with the constraint violation
+				# From here we can follow the logic for the UNCONSTRAINED TRM algorithm
+				if ρ >= ν_success
+					_SWITCH_accept_trial_point = true 
+					_iteration_classification = SUCCESSFULL
+					if get_delta(iter_data) < β * ω	
+						_radius_update = GROW
 					end
-				else
-					# ρ < ν_success AND models not fully linear
-					_SWITCH_accept_trial_point = false
-					_iteration_classification = MODELIMPROVING
-					_radius_update = LEAVE_UNCHANGED
+				else # ρ < ν_success
+					if fully_linear( sc )
+						if ρ >= ν_accept
+							_SWITCH_accept_trial_point = true
+							_iteration_classification = ACCEPTABLE
+							_radius_update = SHRINK
+						else
+							_SWITCH_accept_trial_point = false 
+							_iteration_classification = INACCEPTABLE
+							_radius_update = SHRINK_MUCH
+						end
+					else
+						# ρ < ν_success AND models not fully linear
+						_SWITCH_accept_trial_point = false
+						_iteration_classification = MODELIMPROVING
+						_radius_update = LEAVE_UNCHANGED
+					end
 				end
+			else
+				# if the model decrease is small compared to constraint violation 
+				_SWITCH_accept_trial_point = true
+				_iteration_classification = FILTER_ADD
+				_radius_update = ρ >= ν_success ? GROW : LEAVE_UNCHANGED
 			end
 		else
-			# if the model decrease is small compared to constraint violation 
-			_SWITCH_accept_trial_point = true
-			_iteration_classification = FILTER_ADD
-			_radius_update = ρ >= ν_success ? GROW : LEAVE_UNCHANGED
+			# trial point not acceptable for filter
+			_SWITCH_accept_trial_point = false
+			_iteration_classification = FILTER_FAIL
+			_radius_update = SHRINK_MUCH
 		end
-	else
-		# trial point not acceptable for filter
-		_SWITCH_accept_trial_point = false
-		_iteration_classification = FILTER_FAIL
-		_radius_update = SHRINK_MUCH
 	end
 
 	#========================
@@ -855,6 +918,10 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	)
 	stamp!( data_base, stamp_content )
 
+	if _SWITCH_stop_val
+		return STOP_VAL, _iteration_classification, scal, next_iterate
+	end 
+
 	if ( (_SWITCH_accept_trial_point) && (
 		x_tol_rel_test( x, x_trial_unscaled, algo_config  ) || 
 		x_tol_abs_test( x, x_trial_unscaled, algo_config ) ||
@@ -882,12 +949,11 @@ function optimize( mop :: AbstractMOP, x0 :: Vec;
 
 	Logging.with_logger( logger ) do 
 		
-		mop, iter_data, super_data_base, sc, ac, filter, scal = initialize_data(
+		mop, iter_data, super_data_base, sc, ac, filter, scal, ret_code = initialize_data(
 			mop, x0; algo_config, populated_db, kwargs...)
 		@logmsg loglevel1 _stop_info_str( ac, mop )
 		@logmsg loglevel1 "Entering main optimization loop."
 		
-		ret_code = CONTINUE
 		iter_counter = 1
 		it_stat = ACCEPTABLE
 		while ret_code == CONTINUE

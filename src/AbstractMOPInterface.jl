@@ -467,6 +467,20 @@ end
     return (transformed_linear_eq_constraints(scal, mop)..., transformed_linear_ineq_constraints(scal,mop)...)
 end
 
+# TODO use a dict instead
+@memoize ThreadSafeDict function linear_constraint_outputs( mop, ci :: ConstraintIndex )
+    indices = ci.type == :eq ? get_eq_constraint_indices(mop) : get_ineq_constraint_indices(mop)
+    offset = 1
+	for ind = indices
+		ind_out = num_outputs(ind)
+        if ind == ci
+		    return offset : (offset + ind_out - 1)
+        end
+		offset += ind_out
+    end
+    return nothing
+end
+
 # Function handles for NLopt
 function _get_optim_handle( mat_row, offset )
     opt_fun = function( x, g )

@@ -47,13 +47,18 @@ x_tol_abs( :: AbstractConfig ) = MIN_PRECISION(-1)
 
 # stop if ω ≤ omega_tol_rel && Δ .≤ Δ_tol_rel
 omega_tol_rel( ac :: AbstractConfig ) = 10 * f_tol_rel( ac )[end]
-delta_tol_rel( ac :: AbstractConfig )= x_tol_rel( ac )[end]
+delta_tol_rel( ac :: AbstractConfig ) = x_tol_rel( ac )[end]
 
 # stop if ω <= omega_tol_abs 
 omega_tol_abs(:: AbstractConfig ) = MIN_PRECISION(-Inf) #sqrt(eps(MIN_PRECISION))
 
 # stop if Δ .<= Δ_tol_abs 
 delta_tol_abs(ac :: AbstractConfig ) = f_tol_rel( ac )
+
+has_stop_val( ac :: AbstractConfig ) = nothing
+stop_val( ac :: AbstractConfig, ind :: AnyIndex ) = -Inf
+stop_val_sense( ac :: AbstractConfig, ind :: AnyIndex ) = :upper_bound
+stop_val_only_if_feasible( ac :: AbstractConfig ) = false
 
 # what method to use for the subproblems
 descent_method( :: AbstractConfig ) :: Union{AbstractDescentConfig,Symbol} = :steepest_descent

@@ -79,7 +79,7 @@ function init_grouped_surrogates(
 		offset = 1
 		for ind = indices
 			ind_out = num_outputs(ind)
-			insert!(d, ind, collect( offset : offset + num_outputs(ind) - 1 ) )
+			insert!(d, ind, collect( offset : offset + ind_out - 1 ) )
 			offset += ind_out
 		end
 	else 

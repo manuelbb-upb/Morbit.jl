@@ -120,6 +120,7 @@ end
     CRITICAL = 4
     TOLERANCE = 5 
     INFEASIBLE = 6
+    STOP_VAL = 7
 end
 
 @enum RADIUS_UPDATE begin 

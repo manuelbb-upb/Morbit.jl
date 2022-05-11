@@ -11,7 +11,7 @@ use_db( ::DefaultConfig ) = ArrayDB
 ############################################
 # `AlgorithmConfig` is a struct with fields defining the method outputs.
 @with_kw struct AlgorithmConfig{
-        R,
+        R <: AbstractFloat,
         D <: Union{Symbol,AbstractDescentConfig},
         VS <: Union{Symbol, AbstractVarScaler},
         FilterType, 
@@ -50,6 +50,10 @@ use_db( ::DefaultConfig ) = ArrayDB
 
     # stop if Δ .<= Δ_tol_abs 
     delta_tol_abs :: Union{R, Vector{R}} = delta_tol_abs(default_config)
+
+    stop_value_dict :: Union{Nothing,Dict{AnyIndex,Union{R, Vector{R}}}} = nothing
+    stop_value_sense_dict :: Union{Nothing, Dict{AnyIndex, Symbol}} = nothing
+    stop_val_only_if_feasible :: Bool = false
  
     descent_method :: D = descent_method( default_config )
 
@@ -95,9 +99,19 @@ function AlgorithmConfig{R}(;
 end
 
 for fn in fieldnames(AlgorithmConfig)
-    if fn ∉ [ :use_db, ]
+    if fn ∉ [ :use_db, :stop_value_dict, :stop_value_sense_dict ]
         @eval $fn( ac :: AlgorithmConfig ) = getfield( ac, Symbol($fn) )
     end
+end
+
+function has_stop_val( ac :: AlgorithmConfig )
+    isnothing(ac.stop_value_dict) && return nothing
+    return keys(ac.stop_value_dict)
+end
+stop_val( ac :: AlgorithmConfig, ind :: AnyIndex ) = get(ac.stop_value_dict, ind, -Inf)
+function stop_val_sense( ac :: AlgorithmConfig, ind :: AnyIndex )
+    isnothing( ac.stop_value_sense_dict ) && return :upper_bound 
+    return get( ac.stop_value_sense_dict, ind, :upper_bound )
 end
 
 use_db( ac :: AlgorithmConfig ) = ac.db

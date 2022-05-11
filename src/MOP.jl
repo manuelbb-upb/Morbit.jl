@@ -5,7 +5,6 @@
 # I am now using Dictionaries.jl which should also preserve the order :)
 
 # depends on `VecFun.jl` (implementing `VecFun`, `CompositeVecFun` and `RefVecFun`)
-
 @with_kw struct MOP <: AbstractMOP{true}
 	variables :: Vector{VarInd} = []
 
@@ -22,6 +21,28 @@
 	ineq_constraints :: Dictionary{ConstraintIndex, MOI.VectorAffineFunction} = Dictionary()
 
 	optimized_evaluation :: Bool = true
+end
+
+# custom hash and == function for memoization
+# else, empty matrices could be constructed for MOPTyped
+# if the original mop is changed in-between iterations
+_hash(x, h, ::Val{0}) = h
+
+function _hash(x, h, ::Val{i}) where i
+    _hash(x, hash(getfield(x, i), h), Val(i-1))
+end
+
+function Base.hash(mop :: MOP, h::UInt)
+	_hash(mop, hash(MOP, h), Val(fieldcount(MOP)))
+end
+
+function Base.:(==)( a :: MOP, b :: MOP )
+	r_val = true
+	for fn in fieldnames(MOP)
+		r_val *= getfield(a, fn) == getfield(b, fn)
+		r_val == false && break
+	end
+	return r_val
 end
 
 struct MOPTyped{
@@ -50,6 +71,9 @@ struct MOPTyped{
 	eq_vec :: EqVecType
 	ineq_vec :: IneqVecType
 
+	eq_constraint_indices :: Vector{ConstraintIndex}
+	ineq_constraint_indices :: Vector{ConstraintIndex}
+
 	optimized_evaluation :: Bool
 end
 
@@ -77,6 +101,8 @@ function MOPTyped( mop :: AbstractMOP )
 		nl_eq_constraints,
 		nl_ineq_constraints,
 		eq_mat, ineq_mat, eq_vec, ineq_vec,
+		collect(get_eq_constraint_indices(mop)),
+		collect(get_ineq_constraint_indices(mop)),
 		mop.optimized_evaluation
 	)
 end
@@ -117,8 +143,10 @@ get_objective_indices( mop :: BothMOP ) = keys( mop.objective_functions )
 get_nl_function_indices(mop :: BothMOP) = keys(mop.functions)
 get_nl_eq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_eq_constraints )
 get_eq_constraint_indices( mop :: MOP ) = keys( mop.eq_constraints )
+get_eq_constraint_indices( mop :: MOPTyped ) = mop.eq_constraint_indices
 get_nl_ineq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_ineq_constraints )
 get_ineq_constraint_indices( mop :: MOP ) = keys( mop.ineq_constraints )
+get_ineq_constraint_indices( mop :: MOPTyped ) = mop.ineq_constraint_indices
 
 get_eq_matrix_and_vector( mop :: MOPTyped ) = (mop.eq_mat, mop.eq_vec)
 get_ineq_matrix_and_vector( mop :: MOPTyped ) = (mop.ineq_mat, mop.ineq_vec)
@@ -299,9 +327,22 @@ function lazy_get!(dict, index, func, args...)
 end
 
 # improve evaluation by reusing "inner" evaluations
-function _optimized_eval_at_unscaled_site(mop, func_index, tmp_res, x)
-	fun = _get(mop, func_index)
-	
+function _optimized_eval_at_unscaled_site(mop, fun, tmp_res, x, ind = nothing)
+
+	if fun isa VecFun
+		return lazy_get!( tmp_res, ind, eval_vfun, fun, x )
+	else
+		inner_fun = fun.inner_ref[]
+		gx = _optimized_eval_at_unscaled_site(
+			mop, inner_fun, tmp_res, x, fun.nl_index
+		)
+		if fun isa RefVecFun
+			return gx
+		else			
+			return eval_vfun( fun.outer_ref[], [x; gx])
+		end
+	end
+	#=
 	if fun isa RefVecFun
 		#return get!( tmp_res, fun.nl_index, eval_vfun(fun, x) )
 		return lazy_get!( tmp_res, fun.nl_index, eval_vfun, fun, x )
@@ -314,12 +355,14 @@ function _optimized_eval_at_unscaled_site(mop, func_index, tmp_res, x)
 	end
 	
 	return eval_vfun( fun, x )
+	=#
 end
 
 function _eval_at_indices_at_unscaled_site( mop :: BothMOP, indices, tmp_res, x )
     return Dictionary(
         indices,
-        _optimized_eval_at_unscaled_site(mop, ind, tmp_res, x) for ind = indices 
+        _optimized_eval_at_unscaled_site(mop, _get(mop, ind), tmp_res, x) 
+			for ind = indices 
     )
 end
 
