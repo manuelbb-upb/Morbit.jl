@@ -393,7 +393,8 @@ function _construct_constraint_matrix_and_vector( vec_affine_funcs, vars )
     for vaf in vec_affine_funcs
         for term in vaf.terms
             push!( row_inds, term.output_index + offset )
-            push!( col_inds, var_pos_dict[ term.scalar_term.variable_index ] )
+            #push!( col_inds, var_pos_dict[ term.scalar_term.variable_index ] )
+            push!( col_inds, var_pos_dict[ term.scalar_term.variable ] )
             push!( vals, term.scalar_term.coefficient )
         end
 		offset += MOI.output_dimension(vaf)
