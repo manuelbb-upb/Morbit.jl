@@ -328,11 +328,17 @@ function restoration(iter_data :: AbstractIterate, data_base,
 	x = get_x( iter_data )
 	Xet = eltype(x)
 	n_vars = length(x)	
-	r0 = if isnothing( r_guess_scaled ) 
+	
+	_lb, _ub = full_bounds(mop)
+	lb = collect(_lb) .- x 
+	ub = collect(_ub) .- x
+	
+	_r0 = if isnothing( r_guess_scaled ) 
 		zeros_like(x)
 	else
 		x - untransform( get_x_scaled(iter_data) .+ r_guess_scaled, scal )
 	end
+	r0 = _project_into_box(_r0, lb, ub )
 	
 	A_eq, b_eq = get_eq_matrix_and_vector( mop )
 	A_ineq, b_ineq = get_ineq_matrix_and_vector( mop )
@@ -346,10 +352,9 @@ function restoration(iter_data :: AbstractIterate, data_base,
 		return compute_constraint_val( filter, l_e, l_i, c_e, c_i)
 	end
 
-	lb, ub = full_bounds(mop)
 	opt = NLopt.Opt(:LN_COBYLA, n_vars )
-	opt.lower_bounds = collect(lb).-x	# vectors needed (not tuples)
-	opt.upper_bounds = collect(ub).+x
+	opt.lower_bounds = lb
+	opt.upper_bounds = ub
 	opt.min_objective = optim_objf
 	opt.ftol_rel = 1e-3
 	opt.stopval = _zero_for_constraints(θ_k)
