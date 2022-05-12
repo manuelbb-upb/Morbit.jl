@@ -26,15 +26,14 @@ struct ObjectiveIndex
     ObjectiveIndex( val :: Int, num_out :: Int = 1 ) = new(val, num_out)
 end
 
-struct ConstraintIndex
-    value :: Int
-    num_out :: Int
-    
-    type :: Symbol
-    
-    function ConstraintIndex( val :: Int, num_out :: Int = 1, type :: Symbol = :eq )
-        @assert type in [:eq, :ineq, :nl_eq, :nl_ineq]
-        new(val, num_out, type)
+for tn = [:NLConstraintIndexEq, :NLConstraintIndexIneq, :ConstraintIndexEq, :ConstraintIndexIneq]
+    @eval struct $(tn)
+        value :: Int
+        num_out :: Int
+        
+        function $(tn)( val :: Int, num_out :: Int = 1 )
+            new(val, num_out, type)
+        end
     end
 end
 
@@ -43,6 +42,12 @@ struct NLIndex
     num_out :: Int
 end 
 
+const ConstraintIndex = Union{
+    NLConstraintIndexEq,
+    NLConstraintIndexIneq,
+    ConstraintIndexEq,
+    ConstraintIndexIneq,
+}
 const FunctionIndex = Union{ObjectiveIndex, ConstraintIndex}
 const AnyIndex = Union{FunctionIndex, NLIndex}
 

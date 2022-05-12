@@ -170,9 +170,18 @@ function _create_dict(mop, gs_array, groupings_dict, indices, scal, x_scaled, in
 end
 
 function init_surrogate_container( grouped_surrogate_array, groupings_dict, mop :: AbstractMOP, scal :: AbstractVarScaler, x_scaled )
-	objective_functions = _create_dict( mop, grouped_surrogate_array, groupings_dict, get_objective_indices(mop), scal, x_scaled, ObjectiveIndex)
-	nl_eq_constraints = _create_dict( mop, grouped_surrogate_array, groupings_dict, get_nl_eq_constraint_indices(mop), scal, x_scaled, ConstraintIndex)
-	nl_ineq_constraints = _create_dict( mop, grouped_surrogate_array, groupings_dict, get_nl_ineq_constraint_indices(mop), scal, x_scaled, ConstraintIndex)
+	objective_functions = _create_dict( mop, 
+		grouped_surrogate_array, groupings_dict, 
+		get_objective_indices(mop), scal, x_scaled, ObjectiveIndex
+	)
+	nl_eq_constraints = _create_dict( mop, 
+		grouped_surrogate_array, groupings_dict, 
+		get_nl_eq_constraint_indices(mop), scal, x_scaled, NLConstraintIndexEq
+	)
+	nl_ineq_constraints = _create_dict( mop, 
+		grouped_surrogate_array, groupings_dict, 
+		get_nl_ineq_constraint_indices(mop), scal, x_scaled, NLConstraintIndexIneq
+	)
 	return SurrogateContainer( 
 		grouped_surrogate_array,
 		groupings_dict,
@@ -199,13 +208,8 @@ get_function_indices(sc) = collect( Iterators.flatten([
 ]))
 get_surrogates( sc :: SurrogateContainer, ind :: NLIndex) = get_model( sc.surrogates[ sc.surrogates_grouping_dict[ind] ] )
 get_surrogates( sc :: SurrogateContainer, ind :: ObjectiveIndex) = sc.objective_functions[ind]
-function get_surrogates( sc :: SurrogateContainer, ind :: ConstraintIndex) 
-	if ind.type == :nl_eq 
-		return sc.nl_eq_constraints[ind]
-	else ind.type == :nl_ineq
-		return sc.nl_ineq_constraints[ind]
-	end
-end
+get_surrogates( sc :: SurrogateContainer, ind :: NLConstraintIndexEq) = sc.nl_eq_constraints[ind]
+get_surrogates( sc :: SurrogateContainer, ind :: NLConstraintIndexIneq) = sc.nl_ineq_constraints[ind]
 
 function fully_linear(sc :: SurrogateContainer)
 	return all( fully_linear( get_surrogates(sc, ind) ) for ind = _get_all_indices(sc) )

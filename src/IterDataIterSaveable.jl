@@ -10,21 +10,42 @@
 Base.broadcastable( id :: AbstractIterate ) = Ref( id )
 
 mutable struct IterData{ 
-        XT <: VecF, YT <: VecF, XS <: VecF,
-        E <: VecF, I <: VecF,
-        ET <: VecF, IT <: VecF, DT <: NumOrVecF, 
+        XT <: AbstractDictionary, 
+        XS <: AbstractDictionary, 
+        YT <: AbstractDictionary, 
+        E <: AbstractDictionary, 
+        I <: AbstractDictionary,
+        ET <: AbstractDictionary, 
+        IT <: AbstractDictionary, 
+        DT, 
         XIndType, 
     } <: AbstractIterate
     
+    "dict mapping `i::VarInd` to variable value x[i]."
     x :: XT 
+    
+    "dict mapping `i::VarInd` to scaled variable value x[i]."
     x_scaled :: XS
+
+    "dict mapping `ℓ::ObjectiveIndex` to vector of evaluations."
     fx :: YT
+
+    "dict mapping `ConstraintIndexEq` to vector of evaluations."
     l_e :: E 
+
+    "dict mapping `ConstraintIndexIneq` to vector of evaluations."
     l_i :: I 
+    
+    "dict mapping `NLConstraintIndexEq` to vector of nl-evaluations."
     c_e :: ET 
+    
+    "dict mapping `NLConstraintIndexIneq` to vector of nl-evaluations."
     c_i :: IT 
+    
+    "trust region radius, either number or dict"
     Δ :: DT 
     
+    "func index tuple to int for super data base"
     x_indices :: XIndType
 end
 
@@ -43,8 +64,9 @@ Return an `AbstractIterate` of type `T`. The arguments
 `x_index_mapping` is a `Dict` mapping `FunctionIndexTuple`s 
 to the index of `x` in the current (sub)database.
 """
-function _init_iterate( ::Type{<:IterData}, x :: VecF, 
-    x_scaled :: VecF, fx :: VecF,
+function _init_iterate( ::Type{<:IterData}, 
+    x_dict, x_scaled_dict, 
+    fx_dict,
     l_e :: VecF, l_i :: VecF, 
     c_e :: VecF, c_i :: VecF, Δ :: NumOrVecF, x_index_mapping )
     return IterData(x, x_scaled, fx, l_e, l_i, c_e, c_i, Δ, x_index_mapping)
@@ -61,6 +83,13 @@ get_x_scaled( id :: IterData ) = id.x_scaled
 
 "Return current value vector ``f(xᵗ)``."
 get_fx( id :: IterData ) = id.fx
+
+"Return only the parts of f(x) that are relevant for `func_indices`."
+function get_vals( id :: AbstractIterate, sdb, func_indices )
+    x_index = get_x_index( id, func_indices )
+    sub_db = get_sub_db( sdb, func_indices )
+    return get_value( sub_db, x_index )
+end
 
 "Return value vector of linear equality constraints."
 get_eq_const( id :: IterData ) = id.l_e
@@ -130,18 +159,20 @@ correct type parameters for `x`, `fx` and `Δ`.
 `x` and `fx` should be vectors of floats and `Δ` can either be a float or 
 a vector of floats.
 """
-function init_iterate( T :: Type{<:AbstractIterate}, x :: Vec, x_scaled :: Vec, fx :: Vec, 
+function init_iterate( T :: Type{<:AbstractIterate}, 
+    x :: AbstractDictionary{VarInd, R}, 
+    x_scaled :: AbstractDictionary{VarInd, F}, 
+    fx :: Vec, 
     l_e :: Vec, l_i :: Vec, c_e :: Vec, c_i :: Vec, Δ :: NumOrVec,
-    x_index_mapping )
+    x_index_mapping 
+) where {R,F}
     base_type = @eval $(_typename(T))    # strip any type parameters from T
     # x and x_scaled need same precision, else it might to lead to 
     # inconsistencies when evaluating mop at scaled and unscaled sites
-    _x = ensure_precision(x)
-    _x_scaled = ensure_precision(x_scaled)
-    XT = Base.promote_eltype(_x, _x_scaled)
+    XT = promote_type( R, F, MIN_PRECISION )
 	return _init_iterate( base_type,
-        XT.(x),
-        XT.(x_scaled),
+        Dictionary{VarInd, XT}(x),
+        Dictionary{VarInd, XT}(x_scaled),
         ensure_precision(fx),
         ensure_precision(l_e), ensure_precision(l_i), 
         ensure_precision(c_e), ensure_precision(c_i), 
@@ -149,12 +180,6 @@ function init_iterate( T :: Type{<:AbstractIterate}, x :: Vec, x_scaled :: Vec, 
     )
 end
 
-"Return only the parts of f(x) that are relevant for `func_indices`."
-function get_vals( id :: AbstractIterate, sdb, func_indices )
-    x_index = get_x_index( id, func_indices )
-    sub_db = get_sub_db( sdb, func_indices )
-    return get_value( sub_db, x_index )
-end
 
 # # `AbstractIterSaveable`
 

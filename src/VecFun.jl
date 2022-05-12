@@ -14,6 +14,7 @@ A `VecFun` also provides a unified differentiation API.
     SC <: AbstractSurrogateConfig,
     D <: Union{Nothing,DiffFn},
     F <: CountedFunc,
+    DI <: Union{Nothing,DiffFn}
 } <: AbstractVecFun
 
     n_out :: Int = 0
@@ -23,6 +24,13 @@ A `VecFun` also provides a unified differentiation API.
     function_handle :: F 
 
     diff_wrapper :: D = nothing
+    
+    # only for *outer* functions of 
+    # `CompositeVecFun`s functions g = g(x,y)
+    # jacobian with respect to y:
+    diff_wrapper_inner :: DI = nothing
+
+    vars :: Union{Nothing, Tuple{Vararg{<:VarInd}}} = nothing
 end
 
 """
@@ -112,7 +120,12 @@ function make_vec_fun( fn :: CountedFunc;
         gradients :: Union{Nothing,Function,AbstractVector{<:Function}} = nothing, 
         jacobian :: Union{Nothing,Function} = nothing, 
         hessians :: Union{Nothing,AbstractVector{<:Function}} = nothing,
-        diff_method :: Union{Type{<:DiffFn}, Nothing} = FiniteDiffWrapper
+        diff_method :: Union{Type{<:DiffFn}, Nothing} = FiniteDiffWrapper,
+        # these are optinal and only used for outer functions of `CompositeVecFun`s
+        gradients_2 :: Union{Nothing,Function,AbstractVector{<:Function}} = nothing, 
+        jacobian_2 :: Union{Nothing,Function} = nothing, 
+        hessians_2 :: Union{Nothing,AbstractVector{<:Function}} = nothing,
+        diff_method_2 :: Union{Type{<:DiffFn}, Nothing} = FiniteDiffWrapper,
     )
       
     if needs_gradients( model_cfg )
@@ -233,15 +246,23 @@ model_cfg( vfun :: VecFun ) = vfun.model_config
 model_cfg( vfun :: RefVecFun ) = model_cfg(vfun.inner_ref[])
 model_cfg( vfun :: CompositeVecFun ) = model_cfg(vfun.inner_ref[])
 
-function eval_vfun( vfun :: VecFun, x :: Vec )
-    return vfun.function_handle(x)
+function eval_vfun( vfun :: VecFun, x)
+    return vfun.function_handle(x), args...
 end
-eval_vfun( vfun :: RefVecFun, x ) = eval_vfun( vfun.inner_ref[], x)
+
+function eval_vfun( vfun :: VecFun, x, args...)
+    return vfun.function_handle(x, args...)
+end
+
+function eval_vfun( vfun :: RefVecFun, x, args... ) 
+    return eval_vfun( vfun.inner_ref[], x, args... )
+end
 
 function eval_vfun( vfun :: CompositeVecFun, x )
     return eval_vfun( 
-        vfun.outer_ref[], 
-        [x; eval_vfun( vfun.inner_ref[], x)] 
+        vfun.outer_ref[],
+        x, 
+        eval_vfun(vfun.inner_ref[], x)
     )
 end
 

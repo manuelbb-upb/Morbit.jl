@@ -18,16 +18,16 @@ get_objective_indices( :: AbstractMOP ) = ObjectiveIndex[]
 
 # nonlinear constraints
 "Return the vector or tuple of the indices of nonlinear equality constraints used in the model."
-get_nl_eq_constraint_indices( :: AbstractMOP ) = ConstraintIndex[]
+get_nl_eq_constraint_indices( :: AbstractMOP ) = NLConstraintIndexEq[]
 "Return the vector or tuple of the indices of nonlinear inequality constraints used in the model."
-get_nl_ineq_constraint_indices( :: AbstractMOP ) = ConstraintIndex[]
+get_nl_ineq_constraint_indices( :: AbstractMOP ) = NLConstraintIndexIneq[]
 
 # linear constraints (optional - either define these or 
 # `get_eq_matrix_and_vector` as well as `get_ineq_matrix_and_vector`)
 "Return the vector or tuple of the indices of *linear* equality constraints used in the model."
-get_eq_constraint_indices( :: AbstractMOP ) = ConstraintIndex[]
+get_eq_constraint_indices( :: AbstractMOP ) = ConstraintIndexEq[]
 "Return the vector or tuple of the indices of *linear* inequality constraints used in the model."
-get_ineq_constraint_indices( :: AbstractMOP ) = ConstraintIndex[]
+get_ineq_constraint_indices( :: AbstractMOP ) = ConstraintIndexIneq[]
 
 # for objectives and nl_constraints (and linear constraints if the "getter"s are defined)
 _get( :: AbstractMOP, :: FunctionIndex ) :: AbstractVecFun = nothing
@@ -47,14 +47,14 @@ del_upper_bound!(mop :: AbstractMOP{true}, vi :: VarInd ) = nothing
 _add_objective!(::AbstractMOP{true}, ::AbstractVecFun) :: ObjectiveIndex = nothing
 
 "Add a nonlinear equality constraint function to the model."
-_add_nl_eq_constraint!(::AbstractMOP{true}, ::AbstractVecFun) :: ConstraintIndex = nothing
+_add_nl_eq_constraint!(::AbstractMOP{true}, ::AbstractVecFun) :: NLConstraintIndexEq = nothing
 "Add a nonlinear inequality constraint function to the model."
-_add_nl_ineq_constraint!(::AbstractMOP{true}, ::AbstractVecFun) :: ConstraintIndex = nothing
+_add_nl_ineq_constraint!(::AbstractMOP{true}, ::AbstractVecFun) :: NLConstraintIndexIneq = nothing
 
 "Add a linear equality constraint function to the model."
-_add_eq_constraint!(::AbstractMOP{true}, :: MOI.VectorAffineFunction) :: ConstraintIndex = nothing
+_add_eq_constraint!(::AbstractMOP{true}, :: MOI.VectorAffineFunction) :: ConstraintIndexEq = nothing
 "Add a linear inequality constraint function to the model."
-_add_ineq_constraint!(::AbstractMOP{true}, :: MOI.VectorAffineFunction) :: ConstraintIndex = nothing
+_add_ineq_constraint!(::AbstractMOP{true}, :: MOI.VectorAffineFunction) :: ConstraintIndexIneq = nothing
 
 
 # not used anywhere yet
@@ -190,7 +190,7 @@ for func_name in [:add_objective!, :add_nl_eq_constraint!, :add_nl_ineq_constrai
     end
 end
 
-# `eval_vfun` respects custom batching
+# NOTE `eval_vfun` respects custom batching
 
 # ## Evaluation of an AbstractMOP,
 # should be improved in implementations
@@ -280,14 +280,33 @@ function evaluate_to_vecs_at_scaled_site( mop, scal, x_scaled )
     return evaluate_to_vecs_at_unscaled_site( mop, untransform( scal, x_scaled) )
 end
 
-function eval_linear_constraints_at_unscaled_site( x, mop )
-    #A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
+# evaluation of linear constraints
+function _eval_vaf( 
+    vaf :: MOI.VectorAffineFunction{T}, 
+    var_dict :: Union{AbstractDict{VarInd,R},AbstractDictionary{VarInd, R}}
+) where {T,R}
+	num_out = MOI.output_dimension(vaf)
+	F = Base.promote_op( *, T, R )
+	ret = convert( MVector{num_out, F}, vaf.constants )
+	for vaf_term in vaf.terms
+		ret[ vaf_term.output_index ] += vaf_term.scalar_term.coefficient * var_dict[ vaf_term.scalar_term.variable ]
+	end
+	return ret
+end
+
+function _eval_at_index_at_unscaled_site(
+    mop, ind :: Union{ConstraintIndexEq, ConstraintIndexIneq}, x_dict
+)
+    return _eval_vaf( _get(mop, ind), x_dict ) 
+end
+
+function eval_vec_linear_constraints_at_unscaled_site( x, mop )
     A_eq, b_eq = get_eq_matrix_and_vector( mop )
     A_ineq, b_ineq = get_ineq_matrix_and_vector( mop )
     return (A_eq * x .- b_eq, A_ineq * x - b_ineq)
 end
 
-function eval_linear_constraints_at_scaled_site( x_scaled, mop, scal )
+function eval_vec_linear_constraints_at_scaled_site( x_scaled, mop, scal )
     A_eq, b_eq, A_ineq, b_ineq = transformed_linear_constraints( scal, mop )
     return (A_eq * x_scaled .- b_eq, A_ineq * x_scaled .- b_ineq)
 end
@@ -339,7 +358,7 @@ end
 
 Add linear inequality constraints ``Ax ≤ b`` to the problem `mop`.
 If `b` is empty, then ``Ax ≤ 0`` is added.
-Returns a `ConstraintIndex`.
+Returns a `ConstraintIndexIneq`.
 """
 function add_ineq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector = [], vars :: Union{Nothing,AbstractVector{<:VarInd}} = nothing)
 	_vars = isnothing( vars ) ? var_indices(mop) : vars
@@ -354,7 +373,7 @@ end
 
 Add linear equality constraints ``Ax = b`` to the problem `mop`.
 If `b` is empty, then ``Ax = 0`` is added.
-Returns a `ConstraintIndex`.
+Returns a `ConstraintIndexEq`.
 """
 function add_eq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector, vars :: Union{Nothing,AbstractVector{<:VarInd}} = nothing)
 	_vars = isnothing( vars ) ? var_indices(mop) : vars
@@ -465,12 +484,16 @@ function transformed_linear_ineq_constraints(scal, mop)
 end
 
 @memoize ThreadSafeDict function transformed_linear_constraints( scal, mop )
-    return (transformed_linear_eq_constraints(scal, mop)..., transformed_linear_ineq_constraints(scal,mop)...)
+    return (
+        transformed_linear_eq_constraints(scal, mop)..., 
+        transformed_linear_ineq_constraints(scal,mop)...    
+    )
 end
 
 # TODO use a dict instead
-@memoize ThreadSafeDict function linear_constraint_outputs( mop, ci :: ConstraintIndex )
-    indices = ci.type == :eq ? get_eq_constraint_indices(mop) : get_ineq_constraint_indices(mop)
+# TODO 11.05.22 remove this once we are done with restructuring iter data
+@memoize ThreadSafeDict function linear_constraint_outputs( mop, ci :: C ) where {C<:Union{ConstraintIndexEq, ConstraintIndexIneq}}
+    indices = C <: ConstraintIndexEq ? get_eq_constraint_indices(mop) : get_ineq_constraint_indices(mop)
     offset = 1
 	for ind = indices
 		ind_out = num_outputs(ind)

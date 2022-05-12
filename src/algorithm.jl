@@ -90,18 +90,14 @@ function stop_val_test( ac :: AbstractConfig, mop, tmp_dict, objf_dict, eq_dict,
 			tmp_dict 
 		elseif ind isa ObjectiveIndex
 			objf_dict
-		elseif ind isa ConstraintIndex
-			if ind.type == :nl_eq 
-				eq_dict
-			elseif ind.type == :nl_ineq
-				ineq_dict
-			else
-				nothing
-			end
+		elseif ind isa NLConstraintIndexEq
+			eq_dict
+		elseif ind isa NLConstraintIndexIneq
+			ineq_dict
 		else
-			return false
+			nothing
 		end
-	
+		
 		if isnothing(_dict) 
 			output_indices = linear_constraint_outputs( mop, ind )
 			isnothing(output_indices) && continue
@@ -338,7 +334,7 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 		sub_dbs = sdb.sub_dbs
 	end
 
-	l_e, l_i = eval_linear_constraints_at_scaled_site( x_scaled, smop, scal )
+	l_e, l_i = eval_vec_linear_constraints_at_scaled_site( x_scaled, smop, scal )
 	fx, c_e, c_i = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
 	Δ_0 = eltype(x).(delta_0(ac))
 	id = init_iterate( IterData, x, x_scaled, fx, l_e, l_i, c_e, c_i, Δ_0, x_index_mapping )
@@ -420,7 +416,7 @@ function restoration(iter_data :: AbstractIterate, data_base,
 
 		tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( mop, x_r )
 		fx_r, c_e_r, c_i_r = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
-		l_e_r, l_i_r = eval_linear_constraints_at_unscaled_site( x_r, mop )
+		l_e_r, l_i_r = eval_vec_linear_constraints_at_unscaled_site( x_r, mop )
 		
 		x_indices_r = put_eval_result_into_db!( data_base, tmp_dict, x_r_scaled )
 
@@ -529,7 +525,7 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 	# update all values and constraint_violations
 	tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( mop, x_n_unscaled )
 	fx_n, c_e_n, c_i_n = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
-	l_e_n, l_i_n = eval_linear_constraints_at_unscaled_site( x_n_unscaled, mop )
+	l_e_n, l_i_n = eval_vec_linear_constraints_at_unscaled_site( x_n_unscaled, mop )
 	
 	x_indices_n = put_eval_result_into_db!( data_base, tmp_dict, x_n_scaled )
 
@@ -781,7 +777,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	# … and evaluation of Objective and Surrogates:
 	tmp_dict, objf_dict, eq_dict, ineq_dict = evaluate_at_unscaled_site( mop, x_trial_unscaled )
 	fx_trial, c_e_trial, c_i_trial = _flatten_mop_dicts( objf_dict, eq_dict, ineq_dict )
-	l_e_trial, l_i_trial = eval_linear_constraints_at_scaled_site( x_trial_scaled, mop, scal )
+	l_e_trial, l_i_trial = eval_vec_linear_constraints_at_scaled_site( x_trial_scaled, mop, scal )
 	# (put new values in data base)
 	new_x_indices = put_eval_result_into_db!( data_base, tmp_dict, x_trial_scaled )
 	

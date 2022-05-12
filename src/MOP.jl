@@ -14,11 +14,11 @@
 	functions :: Dictionary{NLIndex, AbstractVecFun} = Dictionary()
 
 	objective_functions :: Dictionary{ObjectiveIndex, AbstractVecFun} = Dictionary()
-	nl_eq_constraints :: Dictionary{ConstraintIndex, AbstractVecFun} = Dictionary()
-	nl_ineq_constraints :: Dictionary{ConstraintIndex, AbstractVecFun} = Dictionary()
+	nl_eq_constraints :: Dictionary{NLConstraintIndexEq, AbstractVecFun} = Dictionary()
+	nl_ineq_constraints :: Dictionary{NLConstraintIndexIneq, AbstractVecFun} = Dictionary()
 
-	eq_constraints :: Dictionary{ConstraintIndex, MOI.VectorAffineFunction} = Dictionary()
-	ineq_constraints :: Dictionary{ConstraintIndex, MOI.VectorAffineFunction} = Dictionary()
+	eq_constraints :: Dictionary{ConstraintIndexEq, MOI.VectorAffineFunction} = Dictionary()
+	ineq_constraints :: Dictionary{ConstraintIndexIneq, MOI.VectorAffineFunction} = Dictionary()
 
 	optimized_evaluation :: Bool = true
 end
@@ -53,7 +53,9 @@ struct MOPTyped{
 		ObjfType <: Union{AbstractDict, AbstractDictionary},
 		NlEqType <: Union{AbstractDict, AbstractDictionary}, 
 		NlIneqType <: Union{AbstractDict, AbstractDictionary},
-		EqMatType, IneqMatType, EqVecType, IneqVecType
+		EqMatType, IneqMatType, EqVecType, IneqVecType,
+		EqType <: Union{AbstractDict, AbstractDictionary},
+		IneqType <: Union{AbstractDict, AbstractDictionary},
 	} <: AbstractMOP{false}
 
 	variables :: VarType
@@ -71,8 +73,9 @@ struct MOPTyped{
 	eq_vec :: EqVecType
 	ineq_vec :: IneqVecType
 
-	eq_constraint_indices :: Vector{ConstraintIndex}
-	ineq_constraint_indices :: Vector{ConstraintIndex}
+	# TODO 11.05.2022 use full constraint expressions (Dictionary instead of vectors)
+	eq_constraints :: EqType 
+	ineq_constraints :: IneqType
 
 	optimized_evaluation :: Bool
 end
@@ -85,9 +88,19 @@ function MOPTyped( mop :: AbstractMOP )
 
 	functions = _create_dict(mop, get_nl_function_indices(mop), NLIndex )
 
-	objective_functions = _create_dict(mop, get_objective_indices(mop), ObjectiveIndex ) 
-	nl_eq_constraints = _create_dict(mop, get_nl_eq_constraint_indices(mop), ConstraintIndex )
-	nl_ineq_constraints = _create_dict(mop, get_nl_ineq_constraint_indices(mop), ConstraintIndex ) 
+	objective_functions = _create_dict(mop, 
+		get_objective_indices(mop), ObjectiveIndex ) 
+	nl_eq_constraints = _create_dict(mop, 
+		get_nl_eq_constraint_indices(mop), NLConstraintIndexEq )
+	nl_ineq_constraints = _create_dict(mop, 
+		get_nl_ineq_constraint_indices(mop), NLConstraintIndexIneq ) 
+
+	eq_constraints = _create_dict( mop, 
+		get_eq_constraint_indices(mop), ConstraintIndexEq
+	)
+	ineq_constraints = _create_dict( mop, 
+		get_ineq_constraint_indices(mop), ConstraintIndexIneq
+	)
 
 	eq_mat, eq_vec = get_eq_matrix_and_vector( mop )
 	ineq_mat, ineq_vec = get_ineq_matrix_and_vector( mop )
@@ -101,8 +114,8 @@ function MOPTyped( mop :: AbstractMOP )
 		nl_eq_constraints,
 		nl_ineq_constraints,
 		eq_mat, ineq_mat, eq_vec, ineq_vec,
-		collect(get_eq_constraint_indices(mop)),
-		collect(get_ineq_constraint_indices(mop)),
+		eq_constraints,
+		ineq_constraints,
 		mop.optimized_evaluation
 	)
 end
@@ -142,11 +155,9 @@ num_vars( mop :: BothMOP ) = length( mop.variables )
 get_objective_indices( mop :: BothMOP ) = keys( mop.objective_functions )
 get_nl_function_indices(mop :: BothMOP) = keys(mop.functions)
 get_nl_eq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_eq_constraints )
-get_eq_constraint_indices( mop :: MOP ) = keys( mop.eq_constraints )
-get_eq_constraint_indices( mop :: MOPTyped ) = mop.eq_constraint_indices
+get_eq_constraint_indices( mop :: BothMOP ) = keys( mop.eq_constraints )
 get_nl_ineq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_ineq_constraints )
-get_ineq_constraint_indices( mop :: MOP ) = keys( mop.ineq_constraints )
-get_ineq_constraint_indices( mop :: MOPTyped ) = mop.ineq_constraint_indices
+get_ineq_constraint_indices( mop :: BothMOP ) = keys( mop.ineq_constraints )
 
 get_eq_matrix_and_vector( mop :: MOPTyped ) = (mop.eq_mat, mop.eq_vec)
 get_ineq_matrix_and_vector( mop :: MOPTyped ) = (mop.ineq_mat, mop.ineq_vec)
@@ -155,17 +166,10 @@ _get( mop :: BothMOP, ind :: NLIndex ) = mop.functions[ind]
 
 _get( mop :: BothMOP, ind::ObjectiveIndex ) = mop.objective_functions[ind]
 
-function _get( mop :: BothMOP, ind :: ConstraintIndex )
-	if ind.type == :nl_eq 
-		return mop.nl_eq_constraints[ind]
-	elseif ind.type == :nl_ineq 
-		return mop.nl_ineq_constraints[ind]
-	elseif ind.type == :eq
-		return mop.eq_constraints[ind]
-	elseif ind.type == :ineq 
-		return mop.ineq_constraints[ind]
-	end
-end
+_get( mop :: BothMOP, ind :: NLConstraintIndexEq ) = mop.nl_eq_constraints[ind]
+_get( mop :: BothMOP, ind :: NLConstraintIndexIneq ) = mop.nl_ineq_constraints[ind]
+_get( mop :: BothMOP, ind :: ConstraintIndexEq ) = mop.eq_constraints[ind]
+_get( mop :: BothMOP, ind :: ConstraintIndexIneq ) = mop.eq_constraints[ind]
 
 _next_val( indices ) = isempty(indices) ? 1 : maximum( ind.value for ind in indices ) + 1 
 _next_val( dict :: Union{AbstractDict, AbstractDictionary} ) = _next_val( collect(keys(dict) ))
@@ -259,10 +263,9 @@ end
 function _add_nl_eq_constraint!(mop :: MOP, nl_ind :: NLIndex,
 	outer :: Union{String, AbstractVecFun} = ""; n_out = 0, n_vars = 0 )
 	_fun = _get_composite_vec_fun(mop, nl_ind, outer, n_vars,n_out)
-	ind = ConstraintIndex( 
+	ind = NLConstraintIndexEq( 
 		_next_val( mop.nl_eq_constraints ),
 		num_outputs( _fun ),
-		:nl_eq
 	)
 	insert!(mop.nl_eq_constraints, ind, _fun)
 	return ind
@@ -279,10 +282,9 @@ end
 function _add_nl_ineq_constraint!(mop :: MOP, nl_ind :: NLIndex, 
 	outer :: Union{String, AbstractVecFun} = ""; n_vars = 0, n_out = 0)
 	_fun = _get_composite_vec_fun(mop, nl_ind, outer, n_vars, n_out)
-	ind = ConstraintIndex( 
+	ind = NLConstraintIndexIneq( 
 		_next_val( mop.nl_ineq_constraints ),
 		num_outputs( _fun ),
-		:nl_ineq
 	)
 	insert!(mop.nl_ineq_constraints, ind, _fun)
 	return ind
@@ -297,20 +299,18 @@ end
 
 # linear constraints:
 function _add_eq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction )
-	ind = ConstraintIndex(
+	ind = ConstraintIndexEq(
 		_next_val( mop.eq_constraints ),
 		MOI.output_dimension( aff_func ),
-		:eq
 	)
 	insert!( mop.eq_constraints, ind, aff_func )
 	return ind 
 end
 
 function _add_ineq_constraint!( mop :: MOP, aff_func :: MOI.VectorAffineFunction )
-	ind = ConstraintIndex(
+	ind = ConstraintIndexIneq(
 		_next_val( mop.ineq_constraints ),
 		MOI.output_dimension( aff_func ),
-		:ineq
 	)
 	insert!(mop.ineq_constraints,ind, aff_func )
 	return ind 

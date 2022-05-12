@@ -124,7 +124,7 @@ x, fx, ret, sdb, id, filter = optimize(mop, x0; max_iter = 10, verbosity = 0);
 
 # Constraint values can be either be calculated …
 ## linear eq, linear ineq constraint values:
-Morbit.eval_linear_constraints_at_unscaled_site( x, mop )
+Morbit.eval_vec_linear_constraints_at_unscaled_site( x, mop )
 ## nonlinear ineq constraint values
 Morbit.eval_nl_ineq_constraints_to_vec_at_unscaled_site( mop, x )
 # … or extracted from the final `AbstractIterate` object `id`:
