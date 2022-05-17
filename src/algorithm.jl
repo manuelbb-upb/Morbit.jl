@@ -358,7 +358,7 @@ function restoration(iter_data :: AbstractIterate, data_base,
 	opt.min_objective = optim_objf
 	opt.ftol_rel = 1e-3
 	opt.stopval = _zero_for_constraints(θ_k)
-	opt.maxeval = 500 * n_vars
+	opt.maxeval = min( 500 * n_vars, max_evals( algo_config ) - num_evals( mop ) )
 	minθ, _rfin, ret = NLopt.optimize( opt, r0 )
 	if ret in NLOPT_SUCCESS_CODES && !any(isnan.(_rfin))
 		rfin = Xet.(_rfin)
