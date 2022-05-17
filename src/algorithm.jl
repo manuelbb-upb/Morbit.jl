@@ -333,7 +333,7 @@ function restoration(iter_data :: AbstractIterate, data_base,
 	lb = collect(_lb) .- x 
 	ub = collect(_ub) .- x
 	
-	_r0 = if isnothing( r_guess_scaled ) 
+	_r0 = if isnothing( r_guess_scaled ) || any(isnan.( r_guess_scaled ))
 		zeros_like(x)
 	else
 		x - untransform( get_x_scaled(iter_data) .+ r_guess_scaled, scal )
@@ -360,7 +360,7 @@ function restoration(iter_data :: AbstractIterate, data_base,
 	opt.stopval = _zero_for_constraints(θ_k)
 	opt.maxeval = 500 * n_vars
 	minθ, _rfin, ret = NLopt.optimize( opt, r0 )
-	if ret in NLOPT_SUCCESS_CODES
+	if ret in NLOPT_SUCCESS_CODES && !any(isnan.(_rfin))
 		rfin = Xet.(_rfin)
 
 		x_r = x .+ rfin
@@ -451,6 +451,7 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 
 		if !isnothing(restoration_results)
 			θ_r, x_r, x_r_scaled, fx_r, c_e_r, c_i_r, l_e_r, l_i_r, x_indices_r = restoration_results
+			
 			if is_acceptable( (θ_r, fx_r), filter )
 				@logmsg loglevel2 "Found an acceptable restoration step with θ_r = $(θ_r). Next iteration."
 				iter_data_r = init_iterate( I, x_r, x_r_scaled,
