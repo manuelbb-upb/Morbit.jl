@@ -360,16 +360,22 @@ function restoration(iter_data :: AbstractIterate, data_base,
 	opt.stopval = _zero_for_constraints(θ_k)
 
 	_algo_max = max_evals(algo_config)
+	_restore_max = max_restoration_evals(algo_config)
 	_ind1 = collect(get_nl_eq_constraint_indices(mop))
 	_ind2 = collect(get_nl_ineq_constraint_indices(mop))
-	opt.maxeval = min( 500 * n_vars, 
-		(let c_vfun = _get(mop, ind), n_evals = num_evals(c_vfun );
-		min( _algo_max - n_evals, max_evals( c_vfun ) - n_evals )
-		end
-		for ind in vcat(_ind1, _ind2))...
-	)
-
+	opt.maxeval = if _restore_max > 0
+		dont_count!(mop)
+		_restore_max
+	else
+		min( 500 * n_vars, 
+			(let c_vfun = _get(mop, ind), n_evals = num_evals(c_vfun );
+			min( _algo_max - n_evals, max_evals( c_vfun ) - n_evals )
+			end
+			for ind in vcat(_ind1, _ind2))...
+		)
+	end
 	minθ, _rfin, ret = NLopt.optimize( opt, r0 )
+	_restore_max > 0 && do_count!(mop)
 	
 	if ret in NLOPT_SUCCESS_CODES && !any(isnan.(_rfin))
 		rfin = Xet.(_rfin)
@@ -392,7 +398,7 @@ end
 function find_normal_step(iter_data :: I, data_base :: SuperDB, 
 	mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
 	filter :: AbstractFilter, scal :: AbstractVarScaler;
-	iter_counter, last_it_stat :: ITER_TYPE, θ_k
+	iter_counter, last_it_stat :: ITER_TYPE, θ_k,
 ) :: Tuple{Symbol, I} where I<:AbstractIterate
 	
 	@logmsg loglevel2 "Trying to find a normal step."
@@ -400,7 +406,7 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 	fx = get_fx(iter_data)
 
 	_SWITCH_last_iter_restoration = (last_it_stat == RESTORATION)
-	
+
 	if _SWITCH_last_iter_restoration
 		# if we performed a restoration step last, 
 		# we allow for the radius to be increased, if necessary
@@ -408,13 +414,7 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 	else
 		n, _Δ = compute_normal_step( mop, scal, iter_data, data_base, sc, algo_config; variable_radius = false )
 	end
-	if _Δ > get_delta( iter_data )
-		# if the radius has to be increased for a compatible normal step,
-		# the surrogates will no longer be considered fully linear
-		set_delta!( iter_data, _Δ )
-		set_fully_linear!( sc, false )
-	end
-
+	
 	# we now have to check if `n` is a *compatible* normal step
 	# if that is the case, we can proceed in `iterate!`
 	# if not, we have to perform an restoration iteration 
@@ -430,7 +430,7 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 	r_guess = zeros_like( x )	 # initial guess for restoration step
 
 	_not_isnan_n = any(isnan.(n))
-	if !is_compatible(n, get_delta(iter_data), algo_config )
+	if !is_compatible(n, _Δ, algo_config )
 		if _SWITCH_last_iter_restoration
 			# last iteration already tried to restore feasibility 
 			# but we still cannot find a suitable normal step ⇒ exit 
@@ -448,6 +448,13 @@ function find_normal_step(iter_data :: I, data_base :: SuperDB,
 				_SWITCH_perform_restoration = true
 				if _not_isnan_n r_guess = n end 
 			end
+		end
+	else
+		if _Δ != get_delta( iter_data )
+			# if the radius has to be increased for a compatible normal step,
+			# the surrogates will no longer be considered fully linear
+			set_delta!( iter_data, _Δ )
+			set_fully_linear!( sc, false )
 		end
 	end
 
@@ -597,10 +604,10 @@ function criticality_routine(
 end
 
 function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB, 
-		mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
-		filter :: AbstractFilter = DummyFilter(), _scal :: AbstractVarScaler = nothing;
-		iter_counter :: Int = 1, last_it_stat :: ITER_TYPE = ACCEPTABLE, logger = Logging.current_logger(), 
-	)
+	mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
+	filter :: AbstractFilter = DummyFilter(), _scal :: AbstractVarScaler = nothing;
+	iter_counter :: Int = 1, last_it_stat :: ITER_TYPE = ACCEPTABLE, logger = Logging.current_logger(), 
+)
 	
 	Logging.with_logger( logger ) do 
 
@@ -679,7 +686,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 		# if necessary, compute normal step:
 		status, iter_data_n = find_normal_step(
 			iter_data, data_base, mop, sc, algo_config, filter, scal; 
-			iter_counter, last_it_stat, θ_k
+			iter_counter, last_it_stat, θ_k, 
 		)
 		if status == :exit
 			return INFEASIBLE, EARLY_EXIT, scal, iter_data

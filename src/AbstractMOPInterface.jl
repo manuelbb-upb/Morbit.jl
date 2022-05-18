@@ -297,6 +297,16 @@ function num_evals( mop :: AbstractMOP ) :: Vector{Int}
     [ num_evals(objf) for objf ∈ list_of_functions(mop) ]
 end
 
+function dont_count!( mop :: AbstractMOP )
+    dont_count!.(list_of_functions(mop))
+    nothing
+end
+
+function do_count!( mop :: AbstractMOP )
+    do_count!.(list_of_functions(mop))
+    nothing
+end
+
 @doc "Set evaluation counter to 0 for each VecFun in `m.vector_of_objectives`."
 function reset_evals!(mop :: AbstractMOP) :: Nothing
     for vfun ∈ list_of_functions( mop )

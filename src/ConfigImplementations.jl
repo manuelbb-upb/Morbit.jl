@@ -31,6 +31,8 @@ use_db( ::DefaultConfig ) = ArrayDB
     max_evals :: Int = max_evals( default_config )
     max_iter :: Int = max_iter( default_config )
 
+    max_restoration_evals :: Int = max_restoration_evals( default_config )
+    
     # relative stopping 
     # stop if ||Δf|| ≤ ε ||f||
     f_tol_rel :: Union{R, Vector{R}} = f_tol_rel( default_config )

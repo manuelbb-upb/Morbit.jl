@@ -35,6 +35,8 @@ delta_max(::AbstractConfig) = MIN_PRECISION(0.5f0)
 max_evals( :: AbstractConfig ) :: Int = typemax(Int)
 max_iter( :: AbstractConfig ) :: Int = 50
 
+max_restoration_evals( :: AbstractConfig ) :: Int = -1
+
 # relative stopping 
 # stop if ||Δf|| ≤ ε ||f|| (or |Δf_ℓ| .≤ ε |f_ℓ| )
 f_tol_rel( :: AbstractConfig ) = sqrt(eps(MIN_PRECISION))

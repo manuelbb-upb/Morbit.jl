@@ -75,8 +75,10 @@ struct CountedFunc{T,F} <: Function
     func :: F
     counter :: Base.RefValue{Int64}
     
+    counting_flag :: Base.RefValue{Bool}
+    
     function CountedFunc( func :: F; can_batch = false ) where F
-        return new{can_batch, F}( func, Ref(0))
+        return new{can_batch, F}( func, Ref(0), Ref(true))
     end
 end
 
@@ -84,15 +86,29 @@ _can_batch( fn :: CountedFunc{T,F} ) where{T,F} = T
 
 # evaluation of a BatchObjectiveFunction
 function (F::CountedFunc)(x :: Vec)
-    F.counter[] += 1
+    if F.counting_flag[] 
+        F.counter[] += 1
+    end
     return _ensure_vec(F.func(x))
 end
 
 # overload broadcasting for BatchObjectiveFunction's
 # that are assumed to handle arrays themselves
 function Broadcast.broadcasted( F :: CountedFunc{true,<:Function}, X :: VecVec)
-    F.counter[] += length(X)
+    if F.counting_flag[] 
+        F.counter[] += length(X)
+    end
     return _ensure_vec.(F.func( X ))
+end
+
+function dont_count!(F::CountedFunc)
+    F.counting_flag[] = false
+    return nothing
+end
+
+function do_count!(F::CountedFunc)
+    F.counting_flag[] = true
+    return nothing
 end
 
 # ### Enums

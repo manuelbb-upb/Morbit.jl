@@ -328,6 +328,20 @@ end
 num_evals( vfun :: VecFun ) = getfield( vfun.function_handle, :counter )[]
 num_evals( vfun :: RefVecFun ) = num_evals(vfun.inner_ref[])
 num_evals( vfun :: CompositeVecFun ) = num_evals(vfun.inner_ref[])
+dont_count!( vfun :: VecFun ) = dont_count!( vfun.function_handle )
+dont_count!( vfun :: RefVecFun ) = dont_count!( vfun.inner_ref[] )
+dont_count!( vfun :: CompositeVecFun ) = begin 
+    dont_count!( vfun.inner_ref[] )
+    dont_count!( vfun.outer_ref[] )
+end
+
+do_count!( vfun :: VecFun ) = do_count!( vfun.function_handle )
+do_count!( vfun :: RefVecFun ) = do_count!( vfun.inner_ref[] )
+do_count!( vfun :: CompositeVecFun ) = begin 
+    do_count!( vfun.inner_ref[] )
+    do_count!( vfun.outer_ref[] )
+end
+
 #num_evals( vfun :: CompositeVecFun ) = max( num_evals(vfun.inner_ref[]), num_evals(vfun.outer_ref[]) )
 
 "(Soft) upper bound on the number of function calls. "

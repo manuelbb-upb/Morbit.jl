@@ -748,7 +748,7 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
         return fill(MIN_PRECISION(NaN64), n_vars), -MIN_PRECISION(Inf)  # this should happen anyways and triggers restoration
     end
 
-    _Δ = !variable_radius ? -1 : JuMP.value( del )
+    _Δ = !variable_radius ? get_delta(x_it) : JuMP.value( del )
     _n = JuMP.value.(n)
     n = Xet.(_project_into_box( x .+ _n, lb, ub ) .- x)     # we _project_into_box because it might happen that there is some small constraint violation
     return n, Xet(_Δ)
