@@ -775,7 +775,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	@logmsg loglevel2 """
 	Testing step of length $steplength with trial point 
 	x₊ = $(_prettify( x_trial_unscaled, 10)) ⇒
-	`x₊ is$(_SWITCH_is_acceptable_for_filter ? "" : " not") acceptable for the filter.`
+	x₊ is$(_SWITCH_is_acceptable_for_filter ? "" : " not") acceptable for the filter.
 	| f(x)  | $(_prettify(fx))
 	| f(x₊) | $(_prettify(fx_trial))
 	| m(x)  | $(_prettify(mx))
