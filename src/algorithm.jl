@@ -762,15 +762,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	
 	#steplength = norm(untransform( x_scaled .- x_trial_scaled, scal ), Inf ) 
 	steplength = norm( x_scaled .- x_trial_scaled, Inf ) 	# TODO transformed steplength????
-	@logmsg loglevel2 """
-	Testing step of length $steplength with trial point 
-	x₊ = $(_prettify( x_trial_unscaled, 10)) ⇒
-	| f(x)  | $(_prettify(fx))
-	| f(x₊) | $(_prettify(fx_trial))
-	| m(x)  | $(_prettify(mx))
-	| m(x₊) | $(_prettify(mx_trial))
-	The error betwenn f(x) and m(x) is $(sum(abs.(fx .- mx))).
-	$(strict_acceptance_test(algo_config) ? "All" : "One") of the components must decrease."""
+	
 
 	#========================
 	Acceptance Tests
@@ -780,13 +772,30 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 		filter, 
 		(θ_k, compute_objective_val(filter,fx))
 	)
+	@logmsg loglevel2 """
+	Testing step of length $steplength with trial point 
+	x₊ = $(_prettify( x_trial_unscaled, 10)) ⇒
+	`x₊ is$(_SWITCH_is_acceptable_for_filter ? "" : " not") acceptable for the filter.`
+	| f(x)  | $(_prettify(fx))
+	| f(x₊) | $(_prettify(fx_trial))
+	| m(x)  | $(_prettify(mx))
+	| m(x₊) | $(_prettify(mx_trial))
+	The error betwenn f(x) and m(x) is $(sum(abs.(fx .- mx))).
+	$(strict_acceptance_test(algo_config) ? "All" : "One") of the components must decrease."""
 
 	# we only need to compute ρ and ω(x) - ω(x₊) ≥ κ_ψ θ^ψ IF 
 	# the trial point is acceptable for F ∪ {x}
 	if _SWITCH_is_acceptable_for_filter
 		if strict_acceptance_test( algo_config )
 			model_denom = (mx .- mx_trial)
-			_ρ = minimum( (fx .- fx_trial) ./ model_denom )
+			_z_indices = iszero.(model_denom)
+			any(_z_indices) && @warn "!? The model eval difference has zero entries at $(findall(_z_indices))."
+			_ρ = if all( _z_indices )
+				NaN16 
+			else
+				_nz_indices = .!(_z_indices);
+				minimum( (fx[_nz_indices] .- fx_trial[_nz_indices]) ./ model_denom[_nz_indices] )
+			end
 		else
 			model_denom = (maximum(mx) - maximum(mx_trial))
 			_ρ = (maximum(fx) - maximum( fx_trial ))/ model_denom

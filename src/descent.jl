@@ -127,12 +127,12 @@ function _steepest_descent_direction(
     end
 end
 
-function _armijo_condition( strict :: Val{true}, Fx, Fx₊, step_size, ω, const_rhs  )
-    return all( (Fx .- Fx₊) .>= step_size * const_rhs * ω )
+function _armijo_condition( strict :: Val{true}, Mx, Mx₊, step_size, ω, const_rhs  )
+    return all( (Mx .- Mx₊) .>= step_size * const_rhs * ω )
 end
 
-function _armijo_condition( strict :: Val{false}, Fx, Fx₊, step_size, ω, const_rhs  )
-    return maximum(Fx) - maximum(Fx₊) >= step_size * const_rhs * ω 
+function _armijo_condition( strict :: Val{false}, Mx, Mx₊, step_size, ω, const_rhs  )
+    return maximum(Mx) - maximum(Mx₊) >= step_size * const_rhs * ω 
 end
 
 @doc """
