@@ -57,6 +57,9 @@ omega_tol_abs(:: AbstractConfig ) = MIN_PRECISION(-Inf) #sqrt(eps(MIN_PRECISION)
 # stop if Δ .<= Δ_tol_abs 
 delta_tol_abs(ac :: AbstractConfig ) = f_tol_rel( ac )
 
+# stop if iteration is not acceptable and \|d\|_∞ <= stepnorm_tol_abs
+stepnorm_tol_abs( ac :: AbstractConfig ) = 0.0
+
 # what method to use for the subproblems
 descent_method( :: AbstractConfig ) :: Union{AbstractDescentConfig,Symbol} = :steepest_descent
 

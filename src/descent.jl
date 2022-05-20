@@ -58,10 +58,17 @@ end
     armijo_const_rhs :: Float64 = 1e-6
     armijo_const_shrink :: Float64 = .75 
 
-    max_loops :: Int = 30
-    min_stepsize :: Float64 = 1e-15
+    min_stepsize :: Float64 = 10 * eps(Float64)
+    max_loops :: Int = if min_stepsize > 0
+            floor(Int, log(min_stepsize)/log(armijo_const_shrink)) 
+        else
+            floor(Int, log(eps(Float64))/log(armijo_const_shrink))
+        end
 
     normalize :: Bool = true
+
+    @assert armijo_const_rhs > 0
+    @assert armijo_const_shrink > 0
 end
 
 raw"""
@@ -154,7 +161,10 @@ function _backtrack( x :: AbstractVector{F}, dir, step_size, ω, sc, cfg, scal )
     x₊ = x .+ step_size .* dir
     mx₊ = eval_container_objectives_at_scaled_site(sc, scal, x₊ )
 
-    for i = 1 : MAX_LOOPS 
+    @logmsg loglevel4 "Starting backtracking with stepsize = $(step_size)."
+
+    i=0
+    while i < MAX_LOOPS 
         if _armijo_condition( Val(strict_backtracking), mx, mx₊, step_size, ω, c )
             break
         end
@@ -165,7 +175,10 @@ function _backtrack( x :: AbstractVector{F}, dir, step_size, ω, sc, cfg, scal )
         step_size *= α
         x₊ = x .+ step_size .* dir
         mx₊ .= eval_container_objectives_at_scaled_site( sc, scal, x₊ )
+        i += 1
     end
+
+    @logmsg loglevel4 "Finished backtracking after loop $(i) with stepsize = $(step_size)."
 
     step = step_size .* dir
     return x₊, mx₊, step
@@ -266,41 +279,31 @@ function compute_descent_step(desc_cfg :: SteepestDescentConfig, mop :: Abstract
             # A * (x_n + σd) - b ≦ 0
             _A_eq, _b_eq, _A_ineq, _b_ineq = transformed_linear_constraints(scal, mop)
             
-            # σ_lin = _intersect_bounds(x_n, d, lb_eff, ub_eff, A_eq, b_eq, A_ineq, b_ineq; ret_mode = :pos)
-
             # Variant 1 - paper variant
             # Dm(x)(n + σd) + m(x) ≤ 0
             # x + n + σ d ≤ ub ⇔ n + σd ≤ ub .- x
-            Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal, x)
+            Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal,x)
             Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal, x)    
             m_eq = - eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x)
             m_ineq = - eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x)           
             n = x_n .- x
-            #= 
-            σ_nonlin = _intersect_bounds(
-                n, d, lb_eff .- x, ub_eff .-x , 
-                Dm_eq, m_eq, Dm_ineq, m_ineq; ret_mode = :pos
-            )
-            =#
+            _intersect_bounds( 
+                [x_n; n], [d;d], [lb_eff; lb_eff .- x], [ub_eff; ub_eff .- x],
+                cat( _A_eq, Dm_eq; dims = (1,2) ), [_b_eq; m_eq], 
+                cat( _A_ineq, Dm_ineq; dims = (1,2) ), [_b_ineq; m_ineq ];
+                ret_mode = :pos
+            )           
             #=
             # Variant 2 
             # `d` was calculated using the linearization of the constraints around `x_n`:
-            # Dm(x_n)*d + m(x_n) = A d - b ≦ 0.
+            # Dm(x_n)*d + m(x_n) = Dm(x_n)(0 .+ d) - (-m(x_n)) ≦ 0.
             # x + n + σd ≤ ub ⇔ σd ≤ ub .- x .- n
             Dm_eq = eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc,scal, x_n)    # TODO these should be returned by `compute_normal_step` 
             Dm_ineq = eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc,scal, x_n)    
             m_eq = eval_container_nl_eq_constraints_at_scaled_site(sc,scal,x_n)
             m_ineq = eval_container_nl_ineq_constraints_at_scaled_site(sc,scal,x_n)
-            σ_nonlin = _intersect_bounds(
-                zeros_like(x), d, lb_eff .- x_n, ub_eff .- xn, 
-                Dm_eq, m_eq, Dm_ineq, m_ineq; ret_mode = :pos
-            )
+            
             =#
-            _intersect_bounds( 
-                [x_n; n], [d;d], [lb_eff; lb_eff .- x], [ub_eff; ub_eff .- x],
-                cat( _A_eq, Dm_eq; dims = (1,2) ), [_b_eq; m_eq], cat( _A_ineq, Dm_ineq; dims = (1,2) ), [_b_ineq; m_ineq ];
-                ret_mode = :pos
-            )
         else
             1
         end

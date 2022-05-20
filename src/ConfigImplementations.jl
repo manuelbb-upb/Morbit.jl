@@ -52,6 +52,7 @@ use_db( ::DefaultConfig ) = ArrayDB
 
     # stop if Δ .<= Δ_tol_abs 
     delta_tol_abs :: Union{R, Vector{R}} = delta_tol_abs(default_config)
+    stepnorm_tol_abs :: R = stepnorm_tol_abs( default_config )
  
     descent_method :: D = descent_method( default_config )
 

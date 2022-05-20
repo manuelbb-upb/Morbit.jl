@@ -77,6 +77,14 @@ function ω_abs_test( ω :: Real, ac :: AbstractConfig )
     ret
 end
 
+function abs_stepnorm_test( d_norm, ac :: AbstractConfig )
+	if d_norm <= stepnorm_tol_abs( ac )
+		@logmsg loglevel1 "Absolute step-norm criticality stopping criterion fulfilled." 
+		return true
+	end
+	return false
+end
+
 function _stop_info_str( ac :: AbstractConfig, mop :: Union{AbstractMOP,Nothing} = nothing )
     ret_str = "Stopping Criteria:\n"
     if isnothing(mop)
@@ -526,7 +534,7 @@ function criticality_routine(
 	@logmsg loglevel1 "Entered Criticallity Test."
 	_SWITCH_do_loops = true
 	if !_fully_linear_sc
-		@logmsg loglevel1 "Ensuring that all models are fully linear."
+		@logmsg loglevel1 "(Criticality Test) Ensuring that all models are fully linear."
 
 		update_surrogates!( sc, mop, scal, iter_data, data_base, algo_config; 
 			ensure_fully_linear = true )
@@ -535,7 +543,7 @@ function criticality_routine(
 		ω, ω_data = get_criticality(mop, scal, iter_data, iter_data, data_base, sc, algo_config)
 		
 		_SWITCH_do_loops = if !fully_linear(sc)
-			@logmsg loglevel2 "Could not make all models fully linear. Trying one last descent step."
+			@logmsg loglevel2 "(Criticality Test) Could not make all models fully linear. \nTrying one last descent step."
 			false
 		else 
 			all( get_delta( iter_data ) .> μ * ω)
@@ -550,16 +558,16 @@ function criticality_routine(
 		Δ_0 = Δ
 
 		while all(Δ .> μ * ω )
-			@logmsg loglevel2 "Criticality loop $(num_critical_loops + 1)." 
+			@logmsg loglevel2 "(Criticality Test) Criticality loop $(num_critical_loops + 1)." 
 			
 			# check criticality loop stopping criteria
 			if num_critical_loops >= max_critical_loops(algo_config)
-				@logmsg loglevel1 "Maximum number ($(max_critical_loops(algo_config))) of critical loops reached. Exiting..."
+				@logmsg loglevel1 "(Criticality Test) Maximum number ($(max_critical_loops(algo_config))) of critical loops reached. Exiting..."
 				_SWITCH_exit_critical = true 
 				break
 			end
 			if !_budget_okay(mop, algo_config)
-				@logmsg loglevel1 "Computational budget exhausted. Exiting … "
+				@logmsg loglevel1 "(Criticality Test) Computational budget exhausted. Exiting … "
 				_SWITCH_exit_critical = true # returning with CRITICAL here only because I'm lazy 
 				break
 			end
@@ -576,11 +584,12 @@ function criticality_routine(
 
 			if Δ_abs_test( Δ, algo_config ) || 
 				ω_Δ_rel_test(ω, Δ, algo_config) || ω_abs_test( ω, algo_config )
+				@logmsg loglevel2 "(Criticality Test) Tolerances reached."
 				_SWITCH_exit_critical = true
 				break
 			end
 			if !fully_linear(sc)
-				@logmsg loglevel2 "Could not make all models fully linear."
+				@logmsg loglevel2 "(Criticality Test) Could not make all models fully linear."
 				_SWITCH_exit_critical = true 
 				break
 			end
@@ -590,7 +599,7 @@ function criticality_routine(
 		# enter the criticality test again if we were to restart the iteration
 		
 		@logmsg loglevel1 """
-			Exiting after $(num_critical_loops) loops with 
+			(Criticality Test) Exiting after $(num_critical_loops) loops with 
 			ω = $(ω) and Δ = $(Δ))."""
 
 		set_delta!(iter_data, min( Δ_0, max( β * ω, Δ) ) )	
@@ -789,12 +798,11 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 		if strict_acceptance_test( algo_config )
 			model_denom = (mx .- mx_trial)
 			_z_indices = iszero.(model_denom)
-			any(_z_indices) && @warn "!? The model eval difference has zero entries at $(findall(_z_indices))."
-			_ρ = if all( _z_indices )
+			_ρ = if any(_z_indices) 
+				@warn "!? The model eval difference has zero entries at $(findall(_z_indices))."
 				NaN16 
 			else
-				_nz_indices = .!(_z_indices);
-				minimum( (fx[_nz_indices] .- fx_trial[_nz_indices]) ./ model_denom[_nz_indices] )
+				minimum( (fx .- fx_trial) ./ model_denom )
 			end
 		else
 			model_denom = (maximum(mx) - maximum(mx_trial))
@@ -857,6 +865,12 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 	#========================
 	Updates
 	========================#	
+	if !_SWITCH_accept_trial_point
+		if abs_stepnorm_test( steplength, algo_config )
+			return TOLERANCE, _iteration_classification, scal, iter_data
+		end
+	end
+
 
 	if _iteration_classification == FILTER_ADD
 		add_entry!( filter, x_trial_unscaled, (θ_trial, fx_trial_filter_val) )
