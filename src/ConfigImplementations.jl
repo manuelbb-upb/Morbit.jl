@@ -13,7 +13,7 @@ use_db( ::DefaultConfig ) = ArrayDB
 @with_kw struct AlgorithmConfig{
         R <: AbstractFloat,
         D <: Union{Symbol,AbstractDescentConfig},
-        VS <: Union{Symbol, AbstractVarScaler},
+        VS <: Union{Symbol, AbstractAffineScaler},
         FilterType, 
     } <: AbstractConfig
 
@@ -70,6 +70,8 @@ use_db( ::DefaultConfig ) = ArrayDB
     gamma_shrink_much :: R = _gamma_shrink_much(default_config)
 
     combine_models :: Bool = _combine_models_by_type( default_config )
+
+    save_no_model_meta_data :: Bool = save_no_model_meta_data( default_config )
     
     @assert descent_method isa AbstractDescentConfig ||
         ( descent_method isa Symbol && descent_method ∈ 
@@ -82,7 +84,7 @@ use_db( ::DefaultConfig ) = ArrayDB
 
     filter_type :: FilterType = filter_type(default_config)
 
-    @assert var_scaler isa AbstractVarScaler || var_scaler in [:default, :none, :auto] "Invalid VarScaler. Try one of `:default, :none, :auto`."
+    @assert var_scaler isa AbstractAffineScaler || var_scaler in [:default, :none, :auto] "Invalid VarScaler. Try one of `:default, :none, :auto`."
 end
 
 _config_precision( :: AlgorithmConfig{R,<:Any,<:Any}) where R = R

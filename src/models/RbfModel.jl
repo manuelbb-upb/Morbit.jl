@@ -780,22 +780,22 @@ end
 # All the work is done by the inner model :)
 
 "Evaluate `mod::RbfModel` at scaled site `x̂`."
-function eval_models( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec)
+function eval_models( mod :: RbfModel, scal :: AbstractAffineScaler, x̂ :: Vec)
 	return mod.model( x̂ )
 end
 
 "Evaluate output `ℓ` of `mod::RbfModel` at scaled site `x̂`."
-function eval_models( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ)
+function eval_models( mod :: RbfModel, scal :: AbstractAffineScaler, x̂ :: Vec, ℓ)
 	return mod.model( x̂, ℓ)
 end
 
 @doc "Gradient vector of output `ℓ` of `mod` at scaled site `x̂`."
-function get_gradient( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ)
+function get_gradient( mod :: RbfModel, scal :: AbstractAffineScaler, x̂ :: Vec, ℓ)
     return RBF.grad( mod.model, x̂, ℓ )
 end
 
 @doc "Jacobian Matrix of ExactModel `em` at scaled site `x̂`."
-function get_jacobian( mod :: RbfModel, scal :: AbstractVarScaler, x̂ :: Vec, rows = nothing )
+function get_jacobian( mod :: RbfModel, scal :: AbstractAffineScaler, x̂ :: Vec, rows = nothing )
     return RBF.jac( mod.model, x̂, rows )
 end
 

@@ -40,21 +40,8 @@ abstract type AbstractMOP{T} end
 # For internal data management we make some effort to keep everything 
 # structured.
 
-# `AbstractIterate` stores the current site and value vectors as well as the 
-# trust region radius for meta models.
-"Abstract super type for a container that stores the site and value vectors."
-abstract type AbstractIterate end
-
-"Abstract super type for some saveable iteration information."
-abstract type AbstractIterSaveable end 
-
 # A shorthand for everything that is either nothing or an `AbstractSurrogateMeta`:
 const NothingOrMeta = Union{Nothing, AbstractSurrogateMeta}
-
-# Everything is kept in databases:
-abstract type AbstractResult end
-"Abstract database super type. Implemented by `ArrayDB` and `MockDB`."
-abstract type AbstractDB{R <: AbstractResult, S<:NothingOrMeta} end
 
 # ### Algorithm configuration.
 
@@ -71,6 +58,6 @@ abstract type AbstractSurrogateContainer end
 
 abstract type AbstractFilter end
 
-abstract type AbstractVarScaler end
+abstract type AbstractAffineScaler end
 
 abstract type DiffFn end

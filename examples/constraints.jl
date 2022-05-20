@@ -48,7 +48,7 @@ Morbit.add_upper_bound!(mop, vars[2], 4.0)
 
 # To delete the bound on a variable, use `del_lower_bound!(mop, var_index)`
 # or `del_upper_bound!(mop, var_index)`. \
-# The bound vectors can be inspected with `full_lower_bounds` and `full_upper_bounds`.
+# The bound vectors can be inspected with `_lower_bounds_vector` and `_upper_bounds_vector`.
 
 # ## Linear Constraints 
 # Linear constraints are supported, but treated as "relaxable", that is, 
@@ -127,7 +127,7 @@ x, fx, ret, sdb, id, filter = optimize(mop, x0; max_iter = 10, verbosity = 0);
 Morbit.eval_vec_linear_constraints_at_unscaled_site( x, mop )
 ## nonlinear ineq constraint values
 Morbit.eval_nl_ineq_constraints_to_vec_at_unscaled_site( mop, x )
-# … or extracted from the final `AbstractIterate` object `id`:
+# … or extracted from the final `IterData` object `id`:
 ## linear inequality constraint values & nonlinear inequality values:
 id.l_i, id.c_i
 

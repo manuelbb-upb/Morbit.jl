@@ -14,37 +14,33 @@ A `VecFun` also provides a unified differentiation API.
     SC <: AbstractSurrogateConfig,
     D <: Union{Nothing,DiffFn},
     F <: CountedFunc,
-    DI <: Union{Nothing,DiffFn}
+    V <: Union{Nothing, AbstractVector{<:VarInd}},
 } <: AbstractVecFun
 
     n_out :: Int = 0
 
     model_config :: SC
 
-    function_handle :: F 
+    function_handle :: F
 
     diff_wrapper :: D = nothing
-    
-    # only for *outer* functions of 
-    # `CompositeVecFun`s functions g = g(x,y)
-    # jacobian with respect to y:
-    diff_wrapper_inner :: DI = nothing
 
-    vars :: Union{Nothing, Tuple{Vararg{<:VarInd}}} = nothing
+    variables :: V = nothing 
+    # stored as an information bit, but not used in `eval_vfun` to avoid "double filtering"
 end
 
 """
-    RefVecFun( inner_ref, nl_index = nothing )
+    RefVecFun( inner_ref, inner_index = nothing )
 
 A `RefVecFun` simply stores a reference to a `VecFun` object.
 Evaluation methods are delegated to this object.
-`nl_index` is an optional information field used by `MOP`.
+`inner_index` is an optional information field used by `MOP`.
 
 [`VecFun`](@ref), [`MOP`](@ref)
 """
 struct RefVecFun{R} <: AbstractVecFun
 	inner_ref :: R 
-	nl_index :: Union{Nothing, NLIndex}
+	inner_index :: Union{Nothing, InnerIndex}
 
 	function RefVecFun( fr :: R, i = nothing ) where R
 		return new{R}(fr, i)
@@ -52,11 +48,11 @@ struct RefVecFun{R} <: AbstractVecFun
 	#TODO use own eval counter like in expr vec fun?
 end
 
-RefVecFun( F :: AbstractVecFun, nl_index = nothing ) = RefVecFun( Ref(F), nl_index )
+RefVecFun( F :: AbstractVecFun, inner_index = nothing ) = RefVecFun( Ref(F), inner_index )
 
 """
     CompositeVecFun(; inner_ref, outer_ref,
-        inner_nl_index = nothing, outer_nl_index = nothing,
+        inner_inner_index = nothing, outer_inner_index = nothing,
         num_outputs = num_outputs( outer_ref ) 
     )
 
@@ -85,6 +81,7 @@ D(Dφ_ℓ(g(x)) \\cdot Dg(x))
 @with_kw struct CompositeVecFun{
     O <: Base.RefValue{<:AbstractVecFun},
     I <: Base.RefValue{<:AbstractVecFun},
+    V <: Union{Nothing, AbstractVector{<:VarInd}},
 } <: AbstractVecFun
 
     outer_ref :: O
@@ -92,16 +89,18 @@ D(Dφ_ℓ(g(x)) \\cdot Dg(x))
 
     num_outputs :: Int = num_outputs(outer_ref[])
 
-    nl_index :: Union{Nothing,NLIndex} = nothing
+    inner_index :: Union{Nothing,InnerIndex} = nothing
+
+    variables :: V = nothing
 end
 
 function CompositeVecFun( 
     outer :: AbstractVecFun, inner :: AbstractVecFun, 
-    nl_index = nothing 
+    inner_index = nothing 
 )
     return CompositeVecFun(;
         outer_ref = Ref(outer), inner_ref = Ref(inner), 
-        nl_index,
+        inner_index,
     )
 end
 
@@ -116,17 +115,14 @@ Pack the function `fn::CountedFunc` into a `VecFun` and ensure that
 appropriate derivative information can be queried, as needed by `model_cfg`.
 """
 function make_vec_fun( fn :: CountedFunc; 
-        model_cfg::AbstractSurrogateConfig, n_out :: Int,
-        gradients :: Union{Nothing,Function,AbstractVector{<:Function}} = nothing, 
-        jacobian :: Union{Nothing,Function} = nothing, 
-        hessians :: Union{Nothing,AbstractVector{<:Function}} = nothing,
-        diff_method :: Union{Type{<:DiffFn}, Nothing} = FiniteDiffWrapper,
-        # these are optinal and only used for outer functions of `CompositeVecFun`s
-        gradients_2 :: Union{Nothing,Function,AbstractVector{<:Function}} = nothing, 
-        jacobian_2 :: Union{Nothing,Function} = nothing, 
-        hessians_2 :: Union{Nothing,AbstractVector{<:Function}} = nothing,
-        diff_method_2 :: Union{Type{<:DiffFn}, Nothing} = FiniteDiffWrapper,
-    )
+    model_cfg::AbstractSurrogateConfig, 
+    variables::Union{Nothing, AbstractVector{<:VarInd}} = nothing,
+    n_out :: Int,
+    gradients :: Union{Nothing,Function,AbstractVector{<:Function}} = nothing, 
+    jacobian :: Union{Nothing,Function} = nothing, 
+    hessians :: Union{Nothing,AbstractVector{<:Function}} = nothing,
+    diff_method :: Union{Type{<:DiffFn}, Nothing} = FiniteDiffWrapper,
+)
       
     if needs_gradients( model_cfg )
         if ( isnothing(gradients) && isnothing(jacobian) )
@@ -158,8 +154,11 @@ function make_vec_fun( fn :: CountedFunc;
             end
         end
     end
-
-    diff_wrapper = if (needs_gradients(model_cfg) || needs_hessians(model_cfg)) && !isnothing(diff_method)
+    
+    diff_wrapper = if (
+        (needs_gradients(model_cfg) || needs_hessians(model_cfg)) &&
+        !isnothing(diff_method)
+    )
         diff_method(;
             objf = fn,
             gradients = gradients,
@@ -171,6 +170,7 @@ function make_vec_fun( fn :: CountedFunc;
     end
     
     return VecFun(;
+        variables,
         n_out = n_out,
         function_handle = fn, 
         model_config = model_cfg,
@@ -194,6 +194,7 @@ function make_vec_fun( fn :: Function;
     return make_vec_fun(wrapped_fn; kwargs...)
 end
 
+
 """
     make_outer_fun( func :: Function; n_vars, n_out, kwargs...)
 
@@ -202,25 +203,90 @@ two vector valued arguments: First, the argument vector ``x``
 of length `n_vars` and second, the value of an inner function evaluated at ``x``.
 """
 function make_outer_fun( fn;
-    n_vars :: Int,
-    jacobian_1 :: Union{Function, Nothing} = nothing, 
-    jacobian_2 :: Union{Function, Nothing} = nothing,
+    tuple_input :: Bool = true,
+    model_cfg::AbstractSurrogateConfig = ExactConfig(),
+    n_out :: Int = -1,
+    can_batch = false,
+    gradients :: Union{Nothing,Function,AbstractVector{<:Function}} = nothing, 
+    jacobian :: Union{Nothing,Function} = nothing, 
+    hessians :: Union{Nothing,AbstractVector{<:Function}} = nothing,
     kwargs...
 )
-    @assert n_vars > 0 "The number of variables `n_vars` must be positive."
+    @assert n_out > 0 "The number of variables `n_vars` must be positive."
     
-    # ξ = [x;y]; 
-    # we have to use this concatenation because VecFuns were initially designed 
-    # for univariate vector input
-    func = ξ -> fn( ξ[1:n_vars], ξ[n_vars+1:end] )
-    jacobian = if !(isnothing(jacobian_1) || isnothing(jacobian_2))
-        ξ -> hcat( jacobian_1(ξ), jacobian_2(ξ) )
+    _fn, _gradients, _jacobian, _hessians = if tuple_input
+        tup2vec_input_funcs(fn, gradients, jacobian, hessians; n_out, can_batch)
+    else
+        fn, gradients, jacobian, hessians
+    end
+
+    return make_vec_fun( _fn; 
+        n_out, can_batch, model_cfg,
+        jacobian = _jacobian,
+        gradients = _gradients,
+        hessians = _hessians,
+        kwargs...
+    )
+end
+
+# TODO this feels like a job for a macro :D
+function vectorize_input_of_func( fn, vec_splitter; can_batch )
+    vec_input_fun = function( ξ :: Vec )
+        (x,y) = vec_splitter(ξ)
+        return fn(x,y)
+    end
+
+    if can_batch
+        @eval function Broadcast.broadcasted( 
+            :: typeof($(vec_input_fun)), ξ :: VecVec)
+            input_tuples = $(vec_splitter).(ξ)
+            return $(fn).(input_tuples)
+        end
+    end
+    return vec_input_fun
+end
+
+function tup2vec_input_funcs(
+    fn, gradients, jacobian, hessians; n_out, can_batch
+)
+    # split a vcat`ed vector ξ back into tuple (x,y)
+    # this is a dirty hack for the automatic `DiffFn`s that 
+    # might not support tuple input.
+    # It also makes tuple_input functions easier to work with 
+    # as I don't have to change `CountedFunc` for example.
+    # TODO is a smarter way?
+    function vec_splitter(ξ)
+        _s = length(ξ)
+        _i = _s - n_out
+        return ξ[ 1:_i ], ξ[ _i+1 : _s ] 
+    end
+        
+    _fn = vectorize_input_of_func(fn, vec_splitter; can_batch)
+    
+    _gradients = if !isnothing(gradients)
+        if gradients isa Function
+            _vectorize_func( gradients )
+        else
+            _vectorize_func.( gradients )
+        end
+    else
+        gradients
+    end
+
+    _jacobian = if !isnothing(jacobian)
+        _vectorize_func( jacobian )
     else
         nothing
     end
-    return make_vec_fun( func; jacobian, model_cfg = ExactConfig(), kwargs...)
-end
 
+    _hessians = if !isnothing(hessians)
+        _vectorize_func.( hessians )
+    else
+        nothing 
+    end
+
+    return _fn, _gradients, _jacobian, _hessians 
+end
 
 """
     make_outer_fun( expr_str :: String; n_vars, kwargs...)
@@ -228,15 +294,20 @@ end
 Helper function to build a `VecFun` from a an expression string.
 """
 function make_outer_fun( expr_str :: AbstractString;
+    tuple_input :: Bool = true,
     kwargs...
 )
     fn = outer_fn_from_expr(expr_str)
-    return make_outer_fun(fn; kwargs...)
+    return make_outer_fun(fn; tuple_input, kwargs...)
 end   
 
 # ## Information retrieval methods:
 
-num_outputs( objf :: VecFun ) = objf.n_out
+_variables( vfun :: VecFun ) = vfun.variables
+_variables( vfun :: RefVecFun ) = _variables( vfun.inner_ref[] )
+_variables( vfun :: CompositeVecFun ) = vfun.variables
+
+num_outputs( vfun :: VecFun ) = vfun.n_out
 num_outputs( r :: RefVecFun ) = num_outputs( r.inner_ref[] )
 num_outputs( e :: CompositeVecFun ) = e.num_outputs
 
@@ -282,57 +353,74 @@ end
 # Note also, that in practice, the functions `get_gradient`, `_get_jacobian` 
 # and `_get_hessian` are called only for `VecFun`, because we only allows those 
 # to be added to an MOP for modelling
-function _get_gradient( objf :: VecFun{<:Any, <:DiffFn, <:Any}, x :: Vec, ℓ )
+function _get_gradient( objf :: VecFun{<:Any, <:DiffFn, <:Any, <:Any}, x :: Vec, ℓ )
     return get_gradient( objf.diff_wrapper, x, ℓ )
 end
-#=
+
 _get_gradient( r :: RefVecFun, x :: Vec, args ...) = _get_gradient( r.inner_ref[], x, args...)
 
 using LRUCache
-@memoize LRU(maxsize=1) function _eval_inner( s :: CompositeVecFun, x :: Vec )
+@memoize LRU(maxsize=1) function _eval_inner( s :: CompositeVecFun, x )
     return eval_vfun( s.inner_ref[], x )
 end
+
 # TODO the above caching is really improvised 
 # it should not really matter in practice, as it is only used 
 # for `get_jacobian` of an `ExactModel` or during the construction 
 # of an `TaylorCallbackConfig` model.
 function _get_gradient( s :: CompositeVecFun, x :: Vec, ℓ )
+    ## see 
+    ## https://en.wikipedia.org/wiki/Total_derivative#Example:_Differentiation_with_direct_dependencies
     gx = _eval_inner(s, x)
-    ∇φ = _get_gradient( s.outer_ref[], gx, ℓ )
-    Jg = _get_jacobian( s.inner_ref[], x )
+    γ = vcat( x, gx )
+    ∇φ = _get_gradient( s.outer_ref[], γ, ℓ )
+    Jg = cat( I(length(x)), _get_jacobian( s.inner_ref[], x ); dims = (1,2) )
     return vec( ∇φ'Jg )
 end 
-=#
 
-function _get_jacobian( objf :: VecFun{<:Any, <:DiffFn, <:Any}, x :: Vec, args... )
+function _get_jacobian( objf :: VecFun{<:Any, <:DiffFn, <:Any, <:Any}, x :: Vec, args... )
     return get_jacobian( objf.diff_wrapper, x, args... )
 end
-#=
 _get_jacobian( r :: RefVecFun, x :: Vec, args ...) = _get_jacobian( r.inner_ref[], x, args...)
+
 function _get_jacobian( s :: CompositeVecFun, x :: Vec, rows )
+    ## see
+    ## https://en.wikipedia.org/wiki/Total_derivative#Example:_Differentiation_with_direct_dependencies
     gx = _eval_inner(s, x)
-    Jφ = _get_jacobian( s.outer_ref[], gx, rows )
-    Jg = _get_jacobian( s.inner_ref[], x )
+    γ = vcat( x, gx )
+    Jφ = _get_jacobian( s.outer_ref[], γ, rows )
+    Jg = cat( I(length(x)), _get_jacobian( s.inner_ref[], x ); dims = (1,2) )
     return Jφ*Jg
 end
-=#
 
-function _get_hessian( objf :: VecFun{<:Any, <:DiffFn, <:Any}, x :: Vec, args... )
+function _get_hessian( objf :: VecFun{<:Any, <:DiffFn, <:Any, <:Any}, x :: Vec, args... )
     return get_hessian( objf.diff_wrapper, x, args... )
 end
-#=
+
 _get_hessian( r :: RefVecFun, x :: Vec, args ...) = _get_hessian( r.inner_ref[], x, args...)
 
 function _get_hessian( s :: CompositeVecFun, x :: Vec, ℓ)
-    # (Hφ_ℓ(g(x)) \\ Dg(x))\\cdot Dg(x) + Dφ_ℓ(g(x)) \\cdot Hg(x)
+    # Consider the ℓ-th output of s as 
+    # φ(x) = f( x, g(x) ) = ( f ∘ γ ) (x), γ(x) = (x, g(x))
+    # We want to compute Hφ(x).
+    # The formula is 
+    # (Hf(γ(x)) ⋅ Dγ(x)) ⋅ Dγ(x) + Σ [∇f(γ(x))]_i ⋅ Hγᵢ (x)
     gx = _eval_inner(s,x)
-    Hφ = _get_hessian(s.outer_ref[], gx, ℓ)
-    Jg = _get_jacobian(s.inner_ref[], x)
-    Jφ = _get_jacobian(s.outer_ref[], gx, [ℓ,])
-    Hg = _get_hessian(s.inner_ref[], x)
-    return (Hφ * Jg)*Jg + Jφ * Hg
+    γ = vcat(x, gx)
+    Hf = _get_hessian( s.outer_ref[], γ, ℓ )
+
+    # The first `n` hessians of γ(x) = (x,g(x)) are zero
+    # we thus only need the last n+1:n+n_out-1 factors 
+    # from the gradient of f 
+    n_vars = length(x)
+    Df_gx = _get_gradient( s.outer_ref[], γ, ℓ )[ n_vars+1 : end ]
+    
+    Dγ = cat( I(length(x)), _get_jacobian( s.inner_ref[], x ); dims = (1,2) )
+    
+    Hg = [ _get_hessian(s.inner_ref[], x, ℓ ) for ℓ = eachindex(gx) ]
+
+    return Dγ'Hf*Dγ + sum( d*h for (d,h) = zip( Df_gx, Hg)  )
 end
-=#
 
 # this is used as a stopping criterion in algorithm and needs to be defined for any 
 # `AbstractVecFun`
@@ -373,7 +461,8 @@ combinable( objf :: VecFun ) = combinable( model_cfg(objf) );
 function combinable( objf1 :: T, objf2 :: F ) where {T<:VecFun, F<:VecFun}
     return ( 
         combinable( objf1 ) && combinable( objf2 ) && 
-        isequal(model_cfg( objf1 ), model_cfg( objf2 ))
+        isequal(model_cfg( objf1 ), model_cfg( objf2 )) &&
+        _variables( objf1 ) == _variables( objf2 )
     )
 end
 

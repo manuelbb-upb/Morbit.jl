@@ -86,7 +86,7 @@ function stop_val_test( ac :: AbstractConfig, mop, tmp_dict, objf_dict, eq_dict,
 	ret_val = true
 	for ind in stop_val_keys
 		bounds = stop_val( ac, ind )
-		_dict = if ind isa NLIndex 
+		_dict = if ind isa InnerIndex 
 			tmp_dict 
 		elseif ind isa ObjectiveIndex
 			objf_dict
@@ -149,7 +149,7 @@ function get_return_values(iter_data)
     return ret_x, ret_fx 
 end
 
-function _fin_info_str(iter_data :: AbstractIterate, 
+function _fin_info_str(iter_data, 
         mop = nothing, stopcode = nothing, num_iterations = -1 )
     ret_x, ret_fx = get_return_values( iter_data )
     return """\n
@@ -258,7 +258,61 @@ function new_algo_config( ac :: AlgorithmConfig; kwargs... )
 	return AlgorithmConfig(; new_kw...)
 end
 
-function initialize_data( mop :: AbstractMOP, x0 :: Vec; 
+function initialize_data( 
+	mop :: AbstractMOP, 
+	x0 :: Union{
+		AbstractDictionary{VarInd,<:Number}, 
+		AbstractDict{VarInd,<:Number},
+		AbstractVector{<:Number}
+	};
+	algo_config	:: Union{AbstractConfig, Nothing} = nothing,
+	database :: Union{Nothing, DataBase} = nothing,
+	kwargs...
+)
+	
+	# sanity checks 
+	## for mop:
+	@assert num_objectives(mop) > 0 "Problem `mop` has no objectives."
+	@assert num_vars(mop) > "There are no variables in the problem `mop`."
+	## for x0	
+	@assert !isempty( x0 ) "Please provide a non-empty starting point `x0`."
+	@assert length(x0) == num_vars( mop ) "Number of variables in `mop` does not match length of `x0`."
+	if x0 isa Dictionary || x0 isa Dict
+		@assert isempty( setdiff(_variables(mop), keys(x0)) ) "Some variables in `mop` don't have a value in `x0`."
+	end
+
+	_database = if _is_scaled(database)
+		@warn "Database appears to be scaled and will be ignored."
+		nothing
+	else
+		database
+	end
+
+	@logmsg loglevel1 """\n
+    |--------------------------------------------
+    | Initialization
+    |--------------------------------------------"""	
+	
+	@logmsg loglevel1 "The evaluation counter of `mop` is reset."
+	reset_evals!( mop )
+	
+	_algo_config = new_algo_config( algo_config, kwargs ...)
+	
+	# create first input dict and ensure minimum precision
+	x = Dictionary( 
+		Dict( vi => _ensure_precision(getindex(x0, vi)) for vi = _variables(mop) )
+	)
+
+	# check variable bounds
+	if !check_variable_bounds( mop, x )
+		@warn "`x0` violates the box constraints. Projecting into global box domain."
+		project_into_bounds!( x, mop )
+	end
+
+	scal = get_val_scaler(x, )
+end
+
+function _initialize_data( mop :: AbstractMOP, x0 :: Vec; 
     algo_config :: Union{AbstractConfig, Nothing} = nothing, 
     populated_db :: Union{SuperDB, Nothing} = nothing, kwargs... )
     
@@ -279,7 +333,6 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	# for backwards-compatibility with unconstrained problems:
 	@assert num_vars(mop) > 0 "There are no variables associated with the mop."
 		
-	@assert length(x0) == num_vars( mop ) "Number of variables in `mop` does not match length of `x0`."
 
 	ac = new_algo_config( algo_config; kwargs... )
 	# make problem static 
@@ -288,13 +341,13 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	# scale bound vars and ensure at least single-precision
 	x = ensure_precision( x0 )
 	# check box feasibility (unrelaxble)
-	lb, ub = full_bounds(mop)
+	lb, ub = _bound_vectors(mop)
 	if any( lb .> x ) || any( ub .< x )
 		@warn "`x0` violates the box constraints. Projecting into global box domain."
 		x = _project_into_box(x, lb, ub)
 	end
 
-	scal = get_var_scaler(x, mop :: AbstractMOP, ac :: AbstractConfig )
+	scal = initialize_var_scaler(x, mop :: AbstractMOP, ac :: AbstractConfig )
 	x_scaled = transform(x, scal)
 	
 	# x and x_scaled need same precision, else it might to lead to 
@@ -317,14 +370,14 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 		end
 	end
 
-	# build SuperDB `sdb` for functions with `NLIndex`
+	# build SuperDB `sdb` for functions with `InnerIndex`
 	groupings, groupings_dict = do_groupings( smop, ac )
 	if isnothing( populated_db ) 
 		sub_dbs, x_index_mapping = build_super_db( groupings, x_scaled, tmp_dict )
 	else
 		sdb = populated_db 
 		transform!( sdb, scal )
-		x_index_mapping = Dict{NLIndexTuple, Int}()
+		x_index_mapping = Dict{InnerIndexTuple, Int}()
 		for func_indices in all_sub_db_indices( sdb )
 			db = get_sub_db( sdb, func_indices )
 			vals = _flatten_mop_dict( tmp_dict, func_indices )
@@ -367,9 +420,9 @@ function initialize_data( mop :: AbstractMOP, x0 :: Vec;
 	end
 end
 
-function restoration(iter_data :: AbstractIterate, data_base,
+function restoration(iter_data, data_base,
 		mop :: AbstractMOP, algo_config :: AbstractConfig, 
-		filter :: AbstractFilter, scal :: AbstractVarScaler;
+		filter :: AbstractFilter, scal :: AbstractAffineScaler;
 		r_guess_scaled = nothing, θ_k 
 	)
 	
@@ -381,11 +434,17 @@ function restoration(iter_data :: AbstractIterate, data_base,
 	x = get_x( iter_data )
 	Xet = eltype(x)
 	n_vars = length(x)	
-	r0 = if isnothing( r_guess_scaled ) 
+	
+	_lb, _ub = _bound_vectors(mop)
+	lb = collect(_lb) .- x 
+	ub = collect(_ub) .- x
+	
+	_r0 = if isnothing( r_guess_scaled ) || any(isnan.( r_guess_scaled ))
 		zeros_like(x)
 	else
 		x - untransform( get_x_scaled(iter_data) .+ r_guess_scaled, scal )
 	end
+	r0 = _project_into_box(_r0, lb, ub )
 	
 	A_eq, b_eq = get_eq_matrix_and_vector( mop )
 	A_ineq, b_ineq = get_ineq_matrix_and_vector( mop )
@@ -399,16 +458,15 @@ function restoration(iter_data :: AbstractIterate, data_base,
 		return compute_constraint_val( filter, l_e, l_i, c_e, c_i)
 	end
 
-	lb, ub = full_bounds(mop)
 	opt = NLopt.Opt(:LN_COBYLA, n_vars )
-	opt.lower_bounds = collect(lb).-x	# vectors needed (not tuples)
-	opt.upper_bounds = collect(ub).+x
+	opt.lower_bounds = lb
+	opt.upper_bounds = ub
 	opt.min_objective = optim_objf
 	opt.ftol_rel = 1e-3
 	opt.stopval = _zero_for_constraints(θ_k)
-	opt.maxeval = 500 * n_vars
+	opt.maxeval = min( 500 * n_vars, max_evals( algo_config ) - num_evals( mop ) )
 	minθ, _rfin, ret = NLopt.optimize( opt, r0 )
-	if ret in NLOPT_SUCCESS_CODES
+	if ret in NLOPT_SUCCESS_CODES && !any(isnan.(_rfin))
 		rfin = Xet.(_rfin)
 
 		x_r = x .+ rfin
@@ -428,9 +486,9 @@ end
 
 function find_normal_step(iter_data :: I, data_base :: SuperDB, 
 	mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
-	filter :: AbstractFilter, scal :: AbstractVarScaler;
+	filter :: AbstractFilter, scal :: AbstractAffineScaler;
 	iter_counter, last_it_stat :: ITER_TYPE, θ_k
-) :: Tuple{Symbol, I} where I<:AbstractIterate
+) :: Tuple{Symbol, I} where I
 	
 	@logmsg loglevel2 "Trying to find a normal step."
 	x = get_x(iter_data)
@@ -542,9 +600,9 @@ end
 function criticality_routine(
 	iter_data :: I, data_base :: SuperDB, 
 	mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
-	filter :: AbstractFilter, scal :: AbstractVarScaler;
+	filter :: AbstractFilter, scal :: AbstractAffineScaler;
 	iter_counter, last_it_stat :: ITER_TYPE, _fully_linear_sc, ω
-) where I<:AbstractIterate
+) where I
 
 	μ = _mu( algo_config )
 	γ_c = _gamma_crit( algo_config )
@@ -630,9 +688,9 @@ function criticality_routine(
 	return :continue, iter_data, ω, ω_data
 end
 
-function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB, 
+function iterate!( iter_data :: IterData, data_base :: SuperDB, 
 		mop :: AbstractMOP, sc :: SurrogateContainer, algo_config :: AbstractConfig, 
-		filter :: AbstractFilter = DummyFilter(), _scal :: AbstractVarScaler = nothing;
+		filter :: AbstractFilter = DummyFilter(), _scal :: AbstractAffineScaler = nothing;
 		iter_counter :: Int = 1, last_it_stat :: ITER_TYPE = ACCEPTABLE, logger = Logging.current_logger(), 
 	)
 	
@@ -676,9 +734,11 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
         |  Values are $(_prettify(fx))
         |--------------------------------------------"""
 	
-	# obtain current variable scaler and transform data
-	scal = new_var_scaler( get_x_scaled(iter_data), _scal, mop, sc, algo_config, iter_counter <= 1 ) 
-		
+	# NOTE Here was a pitiful attempt at dynamic variable scaling 
+	# I have removed it for now, so:
+	scal = _scal
+	
+	#=
 	if _scal != scal
 		@logmsg loglevel2 "Applying new scaling to database."
 		if !isnothing(_scal)
@@ -695,6 +755,7 @@ function iterate!( iter_data :: AbstractIterate, data_base :: SuperDB,
 			get_x_index_dict(iter_data)
 		)
 	end
+	=#
 
     # update surrogate models
     if iter_counter > 1

@@ -19,6 +19,7 @@ combinable( :: AbstractSurrogateConfig ) :: Bool = false
 needs_gradients( :: AbstractSurrogateConfig ) :: Bool = false
 needs_hessians( :: AbstractSurrogateConfig ) :: Bool = false 
 
+_variables( :: AbstractSurrogate ) :: Union{Nothing, AbstractVector{<:VarInd} } = nothing
 # TODO make combinable bi-variate to check for to concrete configs if they are combinable
 
 ## TODO: make `prepare_init_model` and `_init_model` have a `ensure_fully_linear` kwarg too
@@ -34,26 +35,26 @@ function update_model( mod, meta, model_cfg, func_indices, mop, scal, x_it, sdb,
     mod, meta 
 end
 
-eval_models( :: AbstractSurrogate, :: AbstractVarScaler, ::Vec ) ::Vec = nothing 
+eval_models( :: AbstractSurrogate, :: AbstractAffineScaler, ::Vec ) ::Vec = nothing 
 
 # (Partially) Derived 
 
 # either `get_gradient` or `get_jacobian` has to be implemented
 # the other is derived 
-function get_gradient( mod :: AbstractSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec, ℓ )
+function get_gradient( mod :: AbstractSurrogate, scal :: AbstractAffineScaler, x_scaled ::Vec, ℓ )
     return vec( get_jacobian( mod, scal, x_scaled, [ℓ,]) )
 end
 
-function _get_jacobian_from_grads( mod :: AbstractSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, rows = nothing )
+function _get_jacobian_from_grads( mod :: AbstractSurrogate, scal :: AbstractAffineScaler, x_scaled :: Vec, rows = nothing )
     indices = isnothing(rows) ? (1:num_outputs(mod)) : rows 
     return transpose( hcat( (get_gradient(mod, scal, x_scaled, ℓ) for ℓ = indices)...) )
 end
 
-function get_jacobian( mod:: AbstractSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec)
+function get_jacobian( mod:: AbstractSurrogate, scal :: AbstractAffineScaler, x_scaled :: Vec)
     return _get_jacobian_from_grads( mod, scal, x_scaled, nothing )
 end
 
-function get_jacobian( mod:: AbstractSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, rows)
+function get_jacobian( mod:: AbstractSurrogate, scal :: AbstractAffineScaler, x_scaled :: Vec, rows)
     return _get_jacobian_from_grads( mod, scal, x_scaled, rows )
 end
 
@@ -72,7 +73,7 @@ prepare_improve_model( mod, meta, cfg, func_indices, mop, scal, iter_data, db, a
 
 Evaluate output(s) `ℓ` of model `mod` at scaled site `x_scaled`.
 """
-function eval_models( sm :: AbstractSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ) 
+function eval_models( sm :: AbstractSurrogate, scal :: AbstractAffineScaler, x_scaled :: Vec, ℓ) 
     eval_models(sm, scal, x_scaled)[ℓ]
 end
 
@@ -90,12 +91,23 @@ end
 ## derived 
 _eval_models_vec( mod :: AbstractSurrogate, args...) = _ensure_vec( eval_models(mod,args...) )
 
+## NOTE This was added after introducing `_variables` to replace `eval_models`
+eval_surrogate( :: Nothing, mod, id, x, args... ) = _eval_models_vec( mod, x, args... )
+function eval_surrogate( var_inds :: AbstractVector{<:VarInd}, mod, id, x, args... )
+	ξ = get_x_scaled( id, var_inds )
+	return _eval_models_vec( mod, ξ, args... )
+end
+
+function eval_surrogate( mod, id, x = get_x_scaled(id), args...)
+	return eval_surrogate( _variables(mod), mod, id, x, args... )
+end
+
 @doc """
 Return a function handle to be used with `NLopt` for output `ℓ` of `model`.
 That is, if `model` is a surrogate for two scalar objectives, then `ℓ` must 
 be either 1 or 2.
 """
-function _get_optim_handle( model :: AbstractSurrogate, scal :: AbstractVarScaler, ℓ )
+function _get_optim_handle( model :: AbstractSurrogate, scal :: AbstractAffineScaler, ℓ )
     # Return an anonymous function that modifies the gradient if present
     function (x :: Vec, g :: Vec)
         if !isempty(g)
@@ -122,13 +134,13 @@ from the inner model output.
 @with_kw struct RefSurrogate{W <: Base.RefValue} <: AbstractSurrogate
 	model_ref :: W
 	output_indices :: Vector{Int}
-	nl_index :: NLIndex
-	num_outputs :: Int = num_outputs(nl_index)
+	inner_index :: InnerIndex
+	num_outputs :: Int = num_outputs(inner_index)
 	@assert num_outputs == length(output_indices)
 end
 
-function RefSurrogate( m :: AbstractSurrogate, output_indices, nl_index ) 
-	return RefSurrogate(; model_ref = Ref(m), output_indices, nl_index )
+function RefSurrogate( m :: AbstractSurrogate, output_indices, inner_index ) 
+	return RefSurrogate(; model_ref = Ref(m), output_indices, inner_index )
 end
 
 num_outputs(r :: RefSurrogate) = r.num_outputs
@@ -144,7 +156,7 @@ num_outputs(r :: RefSurrogate) = r.num_outputs
 	
 	inner_output_indices = Int[]
 
-	nl_index :: NLIndex
+	inner_index :: InnerIndex
 	
 	num_outputs :: Int = num_outputs( outer_ref[] )
 
@@ -156,10 +168,10 @@ end
 fully_linear( r :: Union{CompositeSurrogate,RefSurrogate} ) = fully_linear( r.model_ref[] )
 set_fully_linear!( r :: Union{CompositeSurrogate,RefSurrogate}, val ) = set_fully_linear!( r.model_ref[], val )
 
-function eval_models( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec )
+function eval_models( m :: RefSurrogate, scal :: AbstractAffineScaler, x_scaled :: Vec )
 	eval_models( m.model_ref[], scal, x_scaled, m.output_indices )
 end
-function eval_models( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ )
+function eval_models( m :: RefSurrogate, scal :: AbstractAffineScaler, x_scaled :: Vec, ℓ )
 	eval_models( m.model_ref[], scal, x_scaled, m.output_indices[ℓ] )
 end
 
@@ -179,14 +191,14 @@ function _eval_inner( m :: CompositeSurrogate, scal, x_scaled )
 		eval_models( m.model_ref[], scal, x_scaled, m.inner_output_indices )
 	]
 end
-function eval_models( m :: CompositeSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec )
+function eval_models( m :: CompositeSurrogate, scal :: AbstractAffineScaler, x_scaled :: Vec )
 	return eval_vfun(
 		m.outer_ref[],
 		_eval_inner(m, scal, x_scaled )
 	)
 end
 
-function get_gradient( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec, ℓ = 1 )
+function get_gradient( m :: RefSurrogate, scal :: AbstractAffineScaler, x_scaled ::Vec, ℓ = 1 )
 	return get_gradient( m.model_ref[], scal, x_scaled, m.output_indices[ℓ] )
 end
 
@@ -206,7 +218,7 @@ function _composite_jac( Dφ, Dg, scal, x_scaled)
 	return Dφ[:, 1:n_vars] * J .+ Dφ[:, n_vars+1:end] * Dg
 end
 
-function get_gradient( m :: CompositeSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ = 1)
+function get_gradient( m :: CompositeSurrogate, scal :: AbstractAffineScaler, x_scaled :: Vec, ℓ = 1)
 	# Df = Dφ(g(x))Dg(x)
 	gx = _eval_inner(m,scal,x_scaled)
 	∇φ = _get_gradient( m.outer_ref[], gx, ℓ )
@@ -214,14 +226,14 @@ function get_gradient( m :: CompositeSurrogate, scal :: AbstractVarScaler, x_sca
 	return vec( _composite_jac(∇φ', Dg, scal, x_scaled) )
 end
 
-function get_jacobian( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec )
+function get_jacobian( m :: RefSurrogate, scal :: AbstractAffineScaler, x_scaled ::Vec )
 	get_jacobian( m.model_ref[], scal, x_scaled, m.output_indices)
 end
-function get_jacobian( m :: RefSurrogate, scal :: AbstractVarScaler, x_scaled ::Vec, rows )
+function get_jacobian( m :: RefSurrogate, scal :: AbstractAffineScaler, x_scaled ::Vec, rows )
 	get_jacobian( m.model_ref[], scal, x_scaled, m.output_indices[rows])
 end
 
-function get_jacobian( m :: CompositeSurrogate, scal :: AbstractVarScaler, x_scaled :: Vec, args...)
+function get_jacobian( m :: CompositeSurrogate, scal :: AbstractAffineScaler, x_scaled :: Vec, args...)
 	gx = _eval_inner(m,scal,x_scaled)
 	Dφ = _get_jacobian( m.outer_ref[], gx, args... )
 	Dg = get_jacobian(m.model_ref[], scal, x_scaled, m.inner_output_indices )

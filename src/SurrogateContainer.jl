@@ -1,13 +1,13 @@
-"Group functions with indices of type `NLIndex` by model config type."
+"Group functions with indices of type `InnerIndex` by model config type."
 function do_groupings( mop :: AbstractMOP, ac :: AbstractConfig )
-	nl_indices = get_nl_function_indices(mop)
+	nl_indices = get_inner_function_indices(mop)
  
 	if !_combine_models_by_type(ac)
         groupings = [ ModelGrouping( [ind,], get_cfg(_get(mop,ind)) ) for ind in nl_indices ]
 		groupings_dict = Dictionary( nl_indices, collect(eachindex(nl_indices)) )
     else
 		groupings = ModelGrouping[]
-		groupings_dict = Dictionary{NLIndex, Int}()
+		groupings_dict = Dictionary{InnerIndex, Int}()
 		
 		for objf_ind1 in nl_indices
 			objf1 = _get( mop, objf_ind1 )
@@ -24,7 +24,7 @@ function do_groupings( mop :: AbstractMOP, ac :: AbstractConfig )
 			# if there is no group with `objf1` in it, 
 			# then create a new one and set `group_index` to new, last position
 			if group_index < 0
-				push!( groupings, ModelGrouping(NLIndex[objf_ind1,], model_cfg(objf1)) )
+				push!( groupings, ModelGrouping(InnerIndex[objf_ind1,], model_cfg(objf1)) )
 				group_index = length(groupings)
 				insert!( groupings_dict, objf_ind1, group_index)
 			end
@@ -55,12 +55,12 @@ struct GroupedSurrogates{
 	model :: M
 	meta :: I 
 
-	indices :: T # Tuple{NLIndex}
+	indices :: T # Tuple{InnerIndex}
 
 	num_outputs :: Int 
 
-	# "A dictionary mapping an `NLIndex` to the corresponding model output indices."
-	index_outputs_dict :: Dictionary{NLIndex,Vector{Int}}
+	# "A dictionary mapping an `InnerIndex` to the corresponding model output indices."
+	index_outputs_dict :: Dictionary{InnerIndex,Vector{Int}}
 end
 
 Base.broadcastable( gs :: GroupedSurrogates ) = Ref(gs)
@@ -75,7 +75,7 @@ function init_grouped_surrogates(
 	end
 
 	if isnothing(index_outputs_dict)
-		d = Dictionary{NLIndex,Vector{Int}}()
+		d = Dictionary{InnerIndex,Vector{Int}}()
 		offset = 1
 		for ind = indices
 			ind_out = num_outputs(ind)
@@ -90,28 +90,34 @@ end
 
 get_meta( gs :: GroupedSurrogates ) = gs.meta 
 get_cfg( gs :: GroupedSurrogates ) = gs.cfg
-get_indices( gs :: GroupedSurrogates ) = gs.indices 
+get_inner_indices( gs :: GroupedSurrogates ) = gs.indices 
 num_outputs( gs :: GroupedSurrogates ) = gs.num_outputs
 get_model( gs :: GroupedSurrogates ) = gs.model
-function get_output_indices( gs :: GroupedSurrogates, ind :: NLIndex ) 
+function get_output_indices( gs :: GroupedSurrogates, ind :: InnerIndex ) 
 	return gs.index_outputs_dict[ind]
 end
 fully_linear(gs :: GroupedSurrogates ) = fully_linear(get_model(gs))
 set_fully_linear!(gs :: GroupedSurrogates, args...) = set_fully_linear!(get_model(gs), args...)
+
 struct SurrogateContainer{
 	T,D,
-    ObjfType, NlEqType, NlIneqType
+    ObjfType, NlEqType, NlIneqType,
+	V 
 } <: AbstractSurrogateContainer
 
 	surrogates :: T # GroupedSurrogates Vector
 
-	# dictionary of NLIndex => Int, telling us the position of a single NLIndex in `surrogates`
+	# dictionary of InnerIndex => Int, telling us the position of a single InnerIndex in `surrogates`
 	surrogates_grouping_dict :: D 
 
    	objective_functions :: ObjfType	# Dict ObjectiveIndex => AbstractSurrogate
 	nl_eq_constraints :: NlEqType
 	nl_ineq_constraints :: NlIneqType
+
+	variables :: V = nothing
 end
+
+_variables( sc :: SurrogateContainer ) = sc.variables
 
 _sc_outputs(dict) = isempty(dict) ? 0 : sum(num_outputs(ind) for ind=keys(dict))
 function Base.show(io::IO, sc :: SurrogateContainer)
@@ -133,70 +139,77 @@ _meta_array_type( sc :: SurrogateContainer ) = typeof( [ get_meta(gs) for gs = s
 
 Provided a vector function `vfun` that is either of type 
 `RefVecFun` or `CompositeVecFun` and a `GroupedSurrogates` object `gs`, 
-that contains the model for `vfun.nl_index`, create and return 
+that contains the model for `vfun.inner_index`, create and return 
 a `RefSurrogate` or `CompositeSurrogate` from `gs`.
 """
-function _surrogate_from_vec_function( vfun, scal, gs, x_scaled )
-	output_indices = get_output_indices(gs, vfun.nl_index)
+function _surrogate_from_vec_function( vfun, gs )
+	output_indices = get_output_indices(gs, vfun.inner_index)
 	model = get_model( gs )
 	if vfun isa RefVecFun
-		return RefSurrogate( model, output_indices, vfun.nl_index )
+		return RefSurrogate( model, output_indices, vfun.inner_index )
 	elseif vfun isa CompositeVecFun
 		return CompositeSurrogate(;
 			model_ref = Ref(model), 
 			outer_ref = vfun.outer_ref,
-			nl_index = vfun.nl_index,
+			inner_index = vfun.inner_index,
 			inner_output_indices = output_indices,
-#			cache_in = x_scaled,
-#			cache_out = eval_models( model, scal, x_scaled, output_indices)
 		)
 	end
 end
 
-function _surrogate_from_vec_function( vfun, scal, gs_array, groupings_dict, x_scaled )
-	#gs_position = findfirst( gs -> vfun.nl_index in get_indices(gs) )
-	gs_position = groupings_dict[vfun.nl_index]
-	return _surrogate_from_vec_function( vfun, scal, gs_array[gs_position], x_scaled )
+function _surrogate_from_vec_function( vfun, gs_array, groupings_dict )
+	#gs_position = findfirst( gs -> vfun.inner_index in get_inner_indices(gs) )
+	gs_position = groupings_dict[vfun.inner_index]
+	return _surrogate_from_vec_function( vfun, gs_array[gs_position] )
 end
 
-function _create_dict(mop, gs_array, groupings_dict, indices, scal, x_scaled, index_type = FunctionIndex )
+function _create_dict(mop, gs_array, groupings_dict, indices, index_type = FunctionIndex )
 	if isempty( indices )
 		return Base.ImmutableDict{index_type, Nothing}()
 	else
 		num_indices = length(indices)
-		dict_vals = [ _surrogate_from_vec_function( _get(mop,ind), scal, gs_array, groupings_dict, x_scaled ) for ind = indices ]		
+		dict_vals = [ 
+			_surrogate_from_vec_function( 
+				_get(mop,ind), gs_array, groupings_dict 
+			) for ind = indices 
+		]		
 		return ArrayDictionary{ index_type, eltype(dict_vals) }( SVector{num_indices}(collect(indices)), dict_vals )
 	end
 end
 
-function init_surrogate_container( grouped_surrogate_array, groupings_dict, mop :: AbstractMOP, scal :: AbstractVarScaler, x_scaled )
+function init_surrogate_container(
+	grouped_surrogate_array, 
+	groupings_dict, 
+	mop :: AbstractMOP, 
+)
 	objective_functions = _create_dict( mop, 
 		grouped_surrogate_array, groupings_dict, 
-		get_objective_indices(mop), scal, x_scaled, ObjectiveIndex
+		get_objective_indices(mop) ObjectiveIndex
 	)
 	nl_eq_constraints = _create_dict( mop, 
 		grouped_surrogate_array, groupings_dict, 
-		get_nl_eq_constraint_indices(mop), scal, x_scaled, NLConstraintIndexEq
+		get_nl_eq_constraint_indices(mop), NLConstraintIndexEq
 	)
 	nl_ineq_constraints = _create_dict( mop, 
 		grouped_surrogate_array, groupings_dict, 
-		get_nl_ineq_constraint_indices(mop), scal, x_scaled, NLConstraintIndexIneq
+		get_nl_ineq_constraint_indices(mop), NLConstraintIndexIneq
 	)
 	return SurrogateContainer( 
 		grouped_surrogate_array,
 		groupings_dict,
 		objective_functions,
 		nl_eq_constraints,
-		nl_ineq_constraints
+		nl_ineq_constraints,
+		_var_indices(mop)
 	)
 end
 
-get_indices( sc :: SurrogateContainer ) = Iterators.flatten( get_indices(gs) for gs = sc.surrogates )
+get_inner_indices( sc :: SurrogateContainer ) = Iterators.flatten( get_inner_indices(gs) for gs = sc.surrogates )
 get_objective_indices( sc :: SurrogateContainer ) = keys( sc.objective_functions )
 get_nl_eq_constraint_indices( sc :: SurrogateContainer ) = keys( sc.nl_eq_constraints )
 get_nl_ineq_constraint_indices( sc :: SurrogateContainer ) = keys( sc.nl_ineq_constraints )
 _get_all_indices(sc) = collect( Iterators.flatten([
-	get_indices(sc),
+	get_inner_indices(sc),
 	get_objective_indices(sc),
 	get_nl_eq_constraint_indices(sc),
 	get_nl_ineq_constraint_indices(sc)
@@ -206,7 +219,7 @@ get_function_indices(sc) = collect( Iterators.flatten([
 	get_nl_eq_constraint_indices(sc),
 	get_nl_ineq_constraint_indices(sc)
 ]))
-get_surrogates( sc :: SurrogateContainer, ind :: NLIndex) = get_model( sc.surrogates[ sc.surrogates_grouping_dict[ind] ] )
+get_surrogates( sc :: SurrogateContainer, ind :: InnerIndex) = get_model( sc.surrogates[ sc.surrogates_grouping_dict[ind] ] )
 get_surrogates( sc :: SurrogateContainer, ind :: ObjectiveIndex) = sc.objective_functions[ind]
 get_surrogates( sc :: SurrogateContainer, ind :: NLConstraintIndexEq) = sc.nl_eq_constraints[ind]
 get_surrogates( sc :: SurrogateContainer, ind :: NLConstraintIndexIneq) = sc.nl_ineq_constraints[ind]
@@ -222,18 +235,32 @@ function set_fully_linear!(sc :: SurrogateContainer, val)
 end
 
 function eval_vec_container_at_func_index_at_scaled_site( 
-	sc :: SurrogateContainer, scal :: AbstractVarScaler, x_scaled :: Vec, func_ind :: AnyIndex 
+	sc :: SurrogateContainer, scal :: AbstractAffineScaler, x_scaled :: Vec, func_ind :: AnyIndex 
 )
 	m = get_surrogates( sc, func_ind )
 	return _eval_models_vec( m, scal, x_scaled )
 end
 
 function eval_container_jacobian_at_func_index_at_scaled_site( 
-	sc :: SurrogateContainer, scal :: AbstractVarScaler, x_scaled :: Vec, func_ind :: AnyIndex 
+	sc :: SurrogateContainer, scal :: AbstractAffineScaler, x_scaled :: Vec, func_ind :: AnyIndex 
 )
 	m = get_surrogates( sc, func_ind )
 	return get_jacobian( m, scal, x_scaled )
 end
+
+# defined below 
+function fully_linear_objectives(sc) end
+function fully_linear_nl_eq_constraints(sc) end
+function fully_linear_nl_ineq_constraints(sc) end
+function get_objectives_optim_handles(sc, scal) end
+function get_nl_eq_constraints_optim_handles(sc, scal) end
+function get_nl_ineq_constraints_optim_handles(sc, scal) end
+function eval_container_objectives_at_scaled_site(sc, scal, x_scaled) end
+function eval_container_nl_eq_constraints_at_scaled_site(sc, scal, x_scaled) end
+function eval_container_nl_ineq_constraints_at_scaled_site(sc, scal, x_scaled) end
+function eval_container_objectives_jacobian_at_scaled_site(sc, scal, x_scaled) end
+function eval_container_nl_eq_constraints_jacobian_at_scaled_site(sc, scal, x_scaled) end
+function eval_container_nl_ineq_constraints_jacobian_at_scaled_site(sc, scal, x_scaled) end
 
 for mod_type in ["objective", "nl_eq_constraint", "nl_ineq_constraint"]
 	# names of functions to be generated
@@ -249,7 +276,7 @@ for mod_type in ["objective", "nl_eq_constraint", "nl_ineq_constraint"]
 			return all( fully_linear(get_surrogates(sc, ind)) for ind = indices )
 		end
 
-		function $(get_XXX_optim_handles)( sc :: SurrogateContainer, scal :: AbstractVarScaler )
+		function $(get_XXX_optim_handles)( sc :: SurrogateContainer, scal :: AbstractAffineScaler )
 			indices = $(get_XXX_indices)( sc )
 			return Iterators.flatten( 
 				[ let mod = get_surrogates(sc,ind); 
@@ -258,13 +285,15 @@ for mod_type in ["objective", "nl_eq_constraint", "nl_ineq_constraint"]
 			)		
 		end
 
-		function $(eval_container_XXX_jacobian_at_scaled_site)( sc :: SurrogateContainer, scal :: AbstractVarScaler, x_scaled)
+		function $(eval_container_XXX_jacobian_at_scaled_site)( 
+			sc :: SurrogateContainer, scal :: AbstractAffineScaler, x_scaled
+		)
 			indices = $(get_XXX_indices)( sc )
 			isempty(indices) && return Matrix{MIN_PRECISION}(undef, 0, length(x_scaled))
 			return reduce( vcat, [ eval_container_jacobian_at_func_index_at_scaled_site( sc, scal, x_scaled, ind) for ind = indices ] )
 		end
 
-		function $(eval_container_XXX_at_scaled_site)( sc :: SurrogateContainer, scal :: AbstractVarScaler, x_scaled)
+		function $(eval_container_XXX_at_scaled_site)( sc :: SurrogateContainer, scal :: AbstractAffineScaler, x_scaled)
 			indices = $(get_XXX_indices)( sc )
 			isempty(indices) && return MIN_PRECISION[]
 			return reduce( vcat, [ eval_vec_container_at_func_index_at_scaled_site( sc, scal, x_scaled, ind) for ind = indices ] )
@@ -273,7 +302,7 @@ for mod_type in ["objective", "nl_eq_constraint", "nl_ineq_constraint"]
 end#for
 
 @doc "Return a SurrogateContainer initialized from the information provided in `mop`."
-function init_surrogates( mop :: AbstractMOP, scal :: AbstractVarScaler, id :: AbstractIterate, 
+function init_surrogates( mop :: AbstractMOP, scal :: AbstractAffineScaler, id :: IterData, 
 	ac :: AbstractConfig, groupings :: Vector{ModelGrouping}, groupings_dict, sdb )
     @logmsg loglevel2 "Initializing surrogate models."
     
@@ -296,8 +325,13 @@ function init_surrogates( mop :: AbstractMOP, scal :: AbstractVarScaler, id :: A
         push!(gs_array, gs)
     end
 
-    return init_surrogate_container(gs_array, groupings_dict, mop, scal, get_x_scaled(id))
+    return init_surrogate_container(gs_array, groupings_dict, mop )
 end
+
+# defined below:
+function update_objectives!(sc, updated_indices, scal) end
+function update_nl_eq_constraints!(sc, updated_indices, scal) end
+function update_nl_ineq_constraints!(sc, updated_indices, scal) end
 
 for (_fieldname, fnname) = [
 	(:objective_functions, :update_objectives!),
@@ -308,19 +342,19 @@ for (_fieldname, fnname) = [
 	@eval function $(fnname)(sc :: SurrogateContainer, updated_indices, scal )
 		fn_dict = getfield(sc, $fieldname)
 		for (ind, mod) = pairs(fn_dict)
-			surrogate_index = sc.surrogates_grouping_dict[ mod.nl_index ] 
+			surrogate_index = sc.surrogates_grouping_dict[ mod.inner_index ] 
 			if surrogate_index in updated_indices 
 				new_mod = get_model(sc.surrogates[ surrogate_index ])
 				if mod isa RefSurrogate
 					fn_dict[ind] = RefSurrogate(
 						new_mod, # updated model
-						mod.output_indices, mod.nl_index
+						mod.output_indices, mod.inner_index
 					)
 				elseif mod isa CompositeSurrogate
 					fn_dict[ind] = CompositeSurrogate(;
 						model_ref = Ref(new_mod), 
 						outer_ref = mod.outer_ref,
-						nl_index = mod.nl_index,
+						inner_index = mod.inner_index,
 						inner_output_indices = mod.inner_output_indices,
 #						cache_in = mod.cache_in,
 #						cache_out = eval_models( new_mod, scal, mod.cache_in, mod.inner_output_indices )
@@ -335,6 +369,7 @@ end
 #defined below:
 function update_surrogates!(sc, mop, scal, id, sdb, ac; kwargs...) end
 function improve_surrogates!(sc, mop, scal, id, sdb, ac; kwargs...) end 
+
 for method_name in [:update, :improve]
 	_method = Symbol("$(method_name)_surrogates!")
 	_mod_prepare_method = Symbol("prepare_$(method_name)_model")
@@ -342,7 +377,7 @@ for method_name in [:update, :improve]
 	_necessity_check = Symbol("requires_$(method_name)")
 	@eval function $(_method)( 
 		sc :: SurrogateContainer, 
-		mop :: AbstractMOP, scal :: AbstractVarScaler, iter_data :: AbstractIterate, 
+		mop :: AbstractMOP, scal :: AbstractAffineScaler, iter_data :: IterData, 
 		sdb, ac :: AbstractConfig;
 		ensure_fully_linear = true 
 	)
@@ -352,7 +387,7 @@ for method_name in [:update, :improve]
 		meta_array = empty( [ get_meta(gs) for gs = sc.surrogates ] )
 		updated_indices = Int[]
 		for (gi,gs) = enumerate(sc.surrogates)
-			indices = get_indices(gs)
+			indices = get_inner_indices(gs)
 			mod = get_model(gs)
 			meta = get_meta(gs)
 			cfg = get_cfg(gs)
@@ -372,7 +407,7 @@ for method_name in [:update, :improve]
 		for (i,gs) = enumerate(sc.surrogates[updated_indices])
 			mod = get_model(gs)
 			cfg = get_cfg(gs)
-			indices = get_indices(gs)
+			indices = get_inner_indices(gs)
 			_meta = meta_array[i]
 			model, meta = $(_mod_method)( 
 				mod, _meta, cfg, indices, mop, scal, iter_data, sdb, ac 

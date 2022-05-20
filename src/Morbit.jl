@@ -73,9 +73,9 @@ include("MOP.jl")
 #include("RbfModel.jl")
 include("SurrogateContainer.jl")
 include(joinpath(@__DIR__, "models", "ExactModel.jl"))
-include(joinpath(@__DIR__, "models", "TaylorModel.jl"))
-include(joinpath(@__DIR__, "models", "RbfModel.jl"))
-include(joinpath(@__DIR__, "models", "LagrangeModel.jl"))
+#include(joinpath(@__DIR__, "models", "TaylorModel.jl"))
+#include(joinpath(@__DIR__, "models", "RbfModel.jl"))
+#include(joinpath(@__DIR__, "models", "LagrangeModel.jl"))
 
 include("ConfigImplementations.jl")
 

@@ -255,7 +255,7 @@ end
 # updates but before calling the `update_model` methods:
 
 "Evaluate all unevaluated results in `db` using objectives of `mop`."
-function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, scal :: AbstractVarScaler, func_indices) :: Nothing
+function eval_missing!( db :: AbstractDB, mop :: AbstractMOP, scal :: AbstractAffineScaler, func_indices) :: Nothing
     missing_ids = copy(_missing_ids(db))
 
     n_missing = length(missing_ids)
@@ -282,13 +282,13 @@ end
 # Internally the variables might be scaled.
 # For conversion we offer the `transform!` and `untransform!` defaults:
 "Scale the site of result with `id` in database `db` using bounds of `mop`."
-function transform!( db :: AbstractDB, id :: Int, scal :: AbstractVarScaler )
+function transform!( db :: AbstractDB, id :: Int, scal :: AbstractAffineScaler )
     set_site!( db, id, transform( get_site( db, id ), scal ) ) 
     return nothing
 end
 
 "Unscale the site of result with `id` in database `db` using bounds of `mop`."
-function untransform!( db :: AbstractDB, id :: Int, scal :: AbstractVarScaler )
+function untransform!( db :: AbstractDB, id :: Int, scal :: AbstractAffineScaler )
     set_site!( db, id, untransfrom( get_site( db, id), scal ) )
     return nothing
 end
@@ -297,7 +297,7 @@ end
 # `(un)transform!` methods:
 
 "Apply scaling and objectives sorting to each result in database `db`."
-function transform!( db :: AbstractDB, scal :: AbstractVarScaler ) :: Nothing 
+function transform!( db :: AbstractDB, scal :: AbstractAffineScaler ) :: Nothing 
     if !is_transformed(db)
         for id in get_ids(db)
             transform!( db, id, scal)
@@ -308,7 +308,7 @@ function transform!( db :: AbstractDB, scal :: AbstractVarScaler ) :: Nothing
 end
 
 "Undo scaling and objectives sorting to each result in database `db`."
-function untransform!( db :: AbstractDB, scal :: AbstractVarScaler ) :: Nothing 
+function untransform!( db :: AbstractDB, scal :: AbstractAffineScaler ) :: Nothing 
     if is_transformed(db)
         for id in get_ids(db)
             untransform!( db, id, scal)
@@ -365,14 +365,14 @@ get_sub_db( sdb :: SuperDB, func_indices ) = get_sub_db( sdb, Tuple(func_indices
 
 is_transformed(sdb :: SuperDB) = all( is_transformed(db) for db = all_sub_dbs(sdb) )
 
-function transform!( sdb :: SuperDB, scal :: AbstractVarScaler  )
+function transform!( sdb :: SuperDB, scal :: AbstractAffineScaler  )
     for sub_db in all_sub_dbs( sdb )
         transform!(sub_db, scal)
     end
     return nothing
 end
 
-function untransform!( sdb :: SuperDB, scal :: AbstractVarScaler  )
+function untransform!( sdb :: SuperDB, scal :: AbstractAffineScaler  )
     for sub_db in all_sub_dbs( sdb )
         transform!(sub_db, scal)
     end
@@ -380,7 +380,7 @@ function untransform!( sdb :: SuperDB, scal :: AbstractVarScaler  )
 end
 
 "Evaluate all unevaluated results in `db` using objectives of `mop`."
-function eval_missing!( sdb :: SuperDB, mop :: AbstractMOP, scal :: AbstractVarScaler )
+function eval_missing!( sdb :: SuperDB, mop :: AbstractMOP, scal :: AbstractAffineScaler )
     for func_indices in all_sub_db_indices(sdb)
         eval_missing!( get_sub_db(sdb, func_indices), mop, scal, func_indices )
     end
@@ -390,7 +390,7 @@ end
 function put_eval_result_into_db!( sdb :: SuperDB, 
     eval_result :: Union{AbstractDict, AbstractDictionary}, x :: Vec 
 )
-    x_indices = Dict{NLIndexTuple, Int}()
+    x_indices = Dict{InnerIndexTuple, Int}()
     for func_indices in all_sub_db_indices(sdb)
         sub_db = get_sub_db( sdb, func_indices )
         vals = flatten_vecs( eval_result[f_ind] for f_ind=func_indices ) 

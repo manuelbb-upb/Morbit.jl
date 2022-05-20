@@ -11,7 +11,7 @@
 	lower_bounds :: Dict{VarInd, Real} = Dict()
 	upper_bounds :: Dict{VarInd, Real} = Dict()
 	
-	functions :: Dictionary{NLIndex, AbstractVecFun} = Dictionary()
+	functions :: Dictionary{AnyIndex, AbstractVecFun} = Dictionary()
 
 	objective_functions :: Dictionary{ObjectiveIndex, AbstractVecFun} = Dictionary()
 	nl_eq_constraints :: Dictionary{NLConstraintIndexEq, AbstractVecFun} = Dictionary()
@@ -86,7 +86,7 @@ function MOPTyped( mop :: AbstractMOP )
 	lower_bounds = Base.ImmutableDict( ( vi => ensure_precision( get_lower_bound( mop, vi ) ) for vi in variables )... )
 	upper_bounds = Base.ImmutableDict( ( vi => ensure_precision( get_upper_bound( mop, vi ) ) for vi in variables )... )
 
-	functions = _create_dict(mop, get_nl_function_indices(mop), NLIndex )
+	functions = _create_dict(mop, get_inner_function_indices(mop), InnerIndex )
 
 	objective_functions = _create_dict(mop, 
 		get_objective_indices(mop), ObjectiveIndex ) 
@@ -153,7 +153,7 @@ get_upper_bound( mop :: BothMOP, vi :: VarInd) = get( mop.upper_bounds, vi, MIN_
 num_vars( mop :: BothMOP ) = length( mop.variables )
 
 get_objective_indices( mop :: BothMOP ) = keys( mop.objective_functions )
-get_nl_function_indices(mop :: BothMOP) = keys(mop.functions)
+get_inner_function_indices(mop :: BothMOP) = keys(mop.functions)
 get_nl_eq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_eq_constraints )
 get_eq_constraint_indices( mop :: BothMOP ) = keys( mop.eq_constraints )
 get_nl_ineq_constraint_indices( mop :: BothMOP ) = keys( mop.nl_ineq_constraints )
@@ -162,7 +162,7 @@ get_ineq_constraint_indices( mop :: BothMOP ) = keys( mop.ineq_constraints )
 get_eq_matrix_and_vector( mop :: MOPTyped ) = (mop.eq_mat, mop.eq_vec)
 get_ineq_matrix_and_vector( mop :: MOPTyped ) = (mop.ineq_mat, mop.ineq_vec)
 
-_get( mop :: BothMOP, ind :: NLIndex ) = mop.functions[ind]
+_get( mop :: BothMOP, ind :: InnerIndex ) = mop.functions[ind]
 
 _get( mop :: BothMOP, ind::ObjectiveIndex ) = mop.objective_functions[ind]
 
@@ -205,7 +205,7 @@ function _add_function!(mop, fun :: AbstractVecFun )
 		# verbose error and explanation
 		error("Adding something else than `VecFun`s as inner functions is not supported yet.")
 	end
-	ind = NLIndex( 
+	ind = InnerIndex( 
 		_next_val( mop.functions ),
 		num_outputs( fun ) 
 	)
@@ -237,7 +237,7 @@ function _get_composite_vec_fun(mop, nl_ind, outer, n_vars, n_out)
 end
 
 function _add_objective!(
-	mop :: MOP, nl_ind :: NLIndex, 
+	mop :: MOP, nl_ind :: InnerIndex, 
 	outer :: Union{String, AbstractVecFun} = ""; n_out = 0, n_vars = 0
 )
 	_fun = _get_composite_vec_fun(mop, nl_ind, outer, n_vars, n_out)
@@ -260,7 +260,7 @@ function _add_objective!(mop :: MOP, fun :: AbstractVecFun,
 end
 
 # Similar for equality constraints …
-function _add_nl_eq_constraint!(mop :: MOP, nl_ind :: NLIndex,
+function _add_nl_eq_constraint!(mop :: MOP, nl_ind :: InnerIndex,
 	outer :: Union{String, AbstractVecFun} = ""; n_out = 0, n_vars = 0 )
 	_fun = _get_composite_vec_fun(mop, nl_ind, outer, n_vars,n_out)
 	ind = NLConstraintIndexEq( 
@@ -279,7 +279,7 @@ function _add_nl_eq_constraint!(mop :: MOP, fun :: AbstractVecFun,
 end
 
 # … and inequality constraints:
-function _add_nl_ineq_constraint!(mop :: MOP, nl_ind :: NLIndex, 
+function _add_nl_ineq_constraint!(mop :: MOP, nl_ind :: InnerIndex, 
 	outer :: Union{String, AbstractVecFun} = ""; n_vars = 0, n_out = 0)
 	_fun = _get_composite_vec_fun(mop, nl_ind, outer, n_vars, n_out)
 	ind = NLConstraintIndexIneq( 
@@ -334,7 +334,7 @@ function _optimized_eval_at_unscaled_site(mop, fun, tmp_res, x, ind = nothing)
 	else
 		inner_fun = fun.inner_ref[]
 		gx = _optimized_eval_at_unscaled_site(
-			mop, inner_fun, tmp_res, x, fun.nl_index
+			mop, inner_fun, tmp_res, x, fun.inner_index
 		)
 		if fun isa RefVecFun
 			return gx
@@ -344,13 +344,13 @@ function _optimized_eval_at_unscaled_site(mop, fun, tmp_res, x, ind = nothing)
 	end
 	#=
 	if fun isa RefVecFun
-		#return get!( tmp_res, fun.nl_index, eval_vfun(fun, x) )
-		return lazy_get!( tmp_res, fun.nl_index, eval_vfun, fun, x )
+		#return get!( tmp_res, fun.inner_index, eval_vfun(fun, x) )
+		return lazy_get!( tmp_res, fun.inner_index, eval_vfun, fun, x )
 	end
 
 	if fun isa CompositeVecFun
-		#gx = get!( tmp_res, fun.nl_index, eval_vfun(fun.inner_ref[], x))
-		gx = lazy_get!( tmp_res, fun.nl_index, eval_vfun, fun.inner_ref[], x)
+		#gx = get!( tmp_res, fun.inner_index, eval_vfun(fun.inner_ref[], x))
+		gx = lazy_get!( tmp_res, fun.inner_index, eval_vfun, fun.inner_ref[], x)
 		return eval_vfun(fun.outer_ref[], [x; gx])
 	end
 	
@@ -367,7 +367,7 @@ function _eval_at_indices_at_unscaled_site( mop :: BothMOP, indices, tmp_res, x 
 end
 
 function _eval_nl_functions_at_unscaled_site( mop, tmp_res, x )
-    return _eval_at_indices_at_unscaled_site( mop, get_nl_function_indices(mop), tmp_res, x )
+    return _eval_at_indices_at_unscaled_site( mop, get_inner_function_indices(mop), tmp_res, x )
 end
 
 function _eval_objectives_at_unscaled_site( mop, tmp_res, x )

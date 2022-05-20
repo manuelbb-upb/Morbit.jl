@@ -37,7 +37,7 @@ for tn = [:NLConstraintIndexEq, :NLConstraintIndexIneq, :ConstraintIndexEq, :Con
     end
 end
 
-struct NLIndex
+struct InnerIndex
     value :: Int
     num_out :: Int
 end 
@@ -49,7 +49,7 @@ const ConstraintIndex = Union{
     ConstraintIndexIneq,
 }
 const FunctionIndex = Union{ObjectiveIndex, ConstraintIndex}
-const AnyIndex = Union{FunctionIndex, NLIndex}
+const AnyIndex = Union{FunctionIndex, InnerIndex}
 
 Base.broadcastable( ind :: AnyIndex ) = Ref(ind)
 
@@ -59,7 +59,7 @@ const FunctionIndexTuple = Tuple{Vararg{<:FunctionIndex}}
 const FunctionIndexIterable = Union{FunctionIndexTuple, Vector{<:FunctionIndex}}
 const AnyIndexTuple = Tuple{Vararg{<:AnyIndex}}
 const AnyIndexIterable = Union{AnyIndexTuple, AbstractVector{<:AnyIndex}}
-const NLIndexTuple = Tuple{Vararg{<:NLIndex}}
+const InnerIndexTuple = Tuple{Vararg{<:InnerIndex}}
 
 num_outputs( fi :: AnyIndex ) = fi.num_out
 function num_outputs( indices :: AnyIndexIterable)
@@ -68,7 +68,7 @@ function num_outputs( indices :: AnyIndexIterable)
 end
 
 struct ModelGrouping{T}
-    indices :: Vector{NLIndex}
+    indices :: Vector{InnerIndex}
     cfg :: T
 end
 

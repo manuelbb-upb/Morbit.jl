@@ -182,7 +182,7 @@ function prepare_update_model(
     
     XT = typeof(x)
     
-    lb, ub = full_bounds_internal( scal )
+    lb, ub = _scaled_bound_vectors( scal )
 
     if cfg.degree >= 2
         RFD.substitute_leaves!(hess_wrapper)
@@ -378,19 +378,19 @@ function _eval_models( tm :: TaylorModel, h :: Vec, ℓ :: Int )
 end
 
 "Evaluate (internal) output(s) `ℓ` of `tm` at scaled site `x̂`."
-function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
+function eval_models( tm :: TaylorModel, scal :: AbstractAffineScaler, x̂ :: Vec, ℓ )
     h = x̂ .- tm.x0
     return reduce( vcat, _eval_models( tm, h, l ) for l = ℓ )
  end
 
 # For the vector valued model, we iterate over all (internal) outputs:
-function eval_models( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec )
+function eval_models( tm :: TaylorModel, scal :: AbstractAffineScaler, x̂ :: Vec )
     h = x̂ .- tm.x0
     return eval_models(tm, scal, x̂, 1:num_outputs(tm))
 end
 
 # The gradient of ``m_ℓ`` can easily be determined:
-function get_gradient( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ) 
+function get_gradient( tm :: TaylorModel, scal :: AbstractAffineScaler, x̂ :: Vec, ℓ) 
     if isnothing(tm.H)
         return tm.g[ℓ]
     else
@@ -400,7 +400,7 @@ function get_gradient( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec,
 end
 
 # And for the Jacobian, we again iterate:
-function get_jacobian( tm :: TaylorModel, scal :: AbstractVarScaler, x̂ :: Vec, rows = nothing )
+function get_jacobian( tm :: TaylorModel, scal :: AbstractAffineScaler, x̂ :: Vec, rows = nothing )
     indices = isnothing(rows) ? eachindex(tm.g) : rows
     grad_list = [ get_gradient(tm, scal, x̂, ℓ) for ℓ = indices ]
     return transpose( hcat( grad_list... ) )

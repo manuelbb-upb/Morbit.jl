@@ -641,19 +641,19 @@ function _eval_poly_vec( poly_vec, x )
     return [ p(x) for p in poly_vec ]
 end
 
-function eval_models( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
+function eval_models( lm :: LagrangeModel, scal :: AbstractAffineScaler, x̂ :: Vec, ℓ )
     return sum( c[ℓ] * p(x̂) for (c,p) in zip( lm.coeff, lm.basis ) )
 end
 
-function eval_models( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec )
+function eval_models( lm :: LagrangeModel, scal :: AbstractAffineScaler, x̂ :: Vec )
     return sum( c * p(x̂) for (c,p) in zip( lm.coeff, lm.basis ) )
 end
 
-function get_gradient( lm :: LagrangeModel, scal :: AbstractVarScaler, x̂ :: Vec, ℓ )
+function get_gradient( lm :: LagrangeModel, scal :: AbstractAffineScaler, x̂ :: Vec, ℓ )
     sum( c[ℓ] * _eval_poly_vec(p,x̂) for (c,p) in zip( lm.coeff, lm.grads ) )
 end
 
-function get_jacobian( lm :: LagrangeModel, scal :: AbstractVarScaler, x_scaled :: Vec, rows = nothing )
+function get_jacobian( lm :: LagrangeModel, scal :: AbstractAffineScaler, x_scaled :: Vec, rows = nothing )
     no_out = num_outputs(lm)
     indices = if isnothing(rows) 1:no_out else rows end
     grad_evals = [ _eval_poly_vec(p,x_scaled) for p in lm.grads ]

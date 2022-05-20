@@ -73,12 +73,12 @@ function get_upper_bounds( mop :: AbstractMOP, indices :: VarIndIterable )
 end
 
 "Return full vector of lower variable vectors for original problem."
-function full_lower_bounds( mop :: AbstractMOP )
+function _lower_bounds_vector( mop :: AbstractMOP )
     return get_lower_bounds( mop, var_indices(mop) )
 end
 
 "Return full vector of upper variable vectors for original problem."
-function full_upper_bounds( mop :: AbstractMOP )
+function _upper_bounds_vector( mop :: AbstractMOP )
     return get_upper_bounds( mop, var_indices(mop) )
 end
 
@@ -116,17 +116,17 @@ for (out_type, T) in zip([:objective, :eq_constraint, :ineq_constraint],
 end
 =#
 
-function full_bounds( mop :: AbstractMOP )
-    (full_lower_bounds(mop), full_upper_bounds(mop))
+function _bound_vectors( mop :: AbstractMOP )
+    (_lower_bounds_vector(mop), full_upper_bounds(mop))
 end
 
 function full_vector_bounds( mop :: AbstractMOP )
-    lb, ub = full_bounds(mop)
+    lb, ub = _bound_vectors(mop)
     return (collect(lb), collect(ub))
 end
 #=
 function _width( mop :: AbstractMOP )
-    lb, ub = full_bounds(mop)
+    lb, ub = _bound_vectors(mop)
     return ub .- lb
 end
 =#
@@ -188,6 +188,24 @@ for func_name in [:add_objective!, :add_nl_eq_constraint!, :add_nl_ineq_constrai
             return $(Symbol("_$(func_name)"))(mop, objf)
         end
     end
+end
+
+function check_variable_bounds(mop :: AbstractMOP, x :: AbstractDictionary )
+    for (vi,xi) in pairs(x)
+        if get_lower_bound(mop, vi) > xi || get_upper_bound(mop, vi) < xi 
+            return false
+        end
+    end
+    return true 
+end
+
+function project_into_bounds!(x :: AbstractDictionary, mop :: AbstractMOP ) 
+    for (vi, xi) in pairs(x)
+        set!(x, vi, 
+            min( get_upper_bound( mop, vi), max( get_lower_bound(mop, vi), xi) )
+        )
+    end
+    return nothing
 end
 
 # NOTE `eval_vfun` respects custom batching
@@ -399,8 +417,6 @@ function _num_type_of_any_array( arr :: Vector )
     end
 end
 
-# TODO: MathOptInterface v0.10 and higher will need 
-# `term.scalar_term.variable` instead of `term.scalar_term.variable_index`
 function _construct_constraint_matrix_and_vector( vec_affine_funcs, vars )
     ## vars = sort( vars, lt = (x,y) -> Base.isless(x.value, y.value ) )
     var_pos_dict = Dict( v => i for (i,v) = enumerate( vars) )
@@ -412,7 +428,6 @@ function _construct_constraint_matrix_and_vector( vec_affine_funcs, vars )
     for vaf in vec_affine_funcs
         for term in vaf.terms
             push!( row_inds, term.output_index + offset )
-            #push!( col_inds, var_pos_dict[ term.scalar_term.variable_index ] )
             push!( col_inds, var_pos_dict[ term.scalar_term.variable ] )
             push!( vals, term.scalar_term.coefficient )
         end
@@ -460,7 +475,7 @@ function _transform_linear_constraints( A, b, Tinv, offset )
     # Let S:ℝⁿ → ℝⁿ be the affine scaling map: 
     # xₛ = S(x) = Dx + o
     # x = S⁻¹(xₛ) = D⁻¹(xₛ - o)
-    # ⇒ Ax - b ≤ 0 ⇔ AD⁻¹(xₛ - o) - b ≤ 0 ⇔ (AD⁻¹)xₛ - (b + D⁻1o) ≤ 0
+    # ⇒ Ax - b ≤ 0 ⇔ AD⁻¹(xₛ - o) - b ≤ 0 ⇔ (AD⁻¹)xₛ - (b + AD⁻¹o) ≤ 0
     _A = A*Tinv
     return _A, b + _A * offset  
 end
@@ -468,8 +483,8 @@ end
 function transformed_linear_eq_constraints(scal, mop)
     A, b = get_eq_matrix_and_vector( mop )
 
-    Tinv = unscaling_matrix(scal)
-    offset = scaling_offset(scal)
+    Tinv = _unscaling_matrix(scal)
+    offset = _scaling_constants_vector(scal)
 
     return _transform_linear_constraints( A, b, Tinv, offset)
 end
@@ -477,8 +492,8 @@ end
 function transformed_linear_ineq_constraints(scal, mop)
     A, b = get_ineq_matrix_and_vector( mop )
 
-    Tinv = unscaling_matrix(scal)
-    offset = scaling_offset(scal)
+    Tinv = _unscaling_matrix(scal)
+    offset = _scaling_constants_vector(scal)
 
     return _transform_linear_constraints( A, b, Tinv, offset)
 end
@@ -537,7 +552,7 @@ function Base.show(io::IO, mop :: M) where M<:AbstractMOP
         * $(num_nl_eq_constraints(mop)) nonlinear equality and $(num_nl_ineq_constraints(mop)) nonlinear inequality constraints,
         * $(num_eq_constraints(mop)) linear equality and $(num_ineq_constraints(mop)) linear inequality constraints.
         The lower bounds and upper variable bounds are 
-        $(_prettify(full_lower_bounds(mop), 5))
+        $(_prettify(_lower_bounds_vector(mop), 5))
         $(_prettify(full_upper_bounds(mop), 5))"""
     end
     print(io, str)

@@ -1,13 +1,5 @@
-#src Does not depend on anything but `AbstractIterate` and `AbstractIterSaveable`
 
-# # Iter Data Interface 
-
-# Types (and instances of those types) that implement the `AbstractIterate`
-# interface are used to have a unified access to relevant iteration data in 
-# all functions of the main algorithm.
-
-# First of all, we make it so that any `AbstractIterate` is broadcasted wholly:
-Base.broadcastable( id :: AbstractIterate ) = Ref( id )
+## Iter Data
 
 mutable struct IterData{ 
         XT <: AbstractDictionary, 
@@ -17,9 +9,8 @@ mutable struct IterData{
         I <: AbstractDictionary,
         ET <: AbstractDictionary, 
         IT <: AbstractDictionary, 
-        DT, 
-        XIndType, 
-    } <: AbstractIterate
+        DT <: NumOrVec
+    }
     
     "dict mapping `i::VarInd` to variable value x[i]."
     x :: XT 
@@ -42,66 +33,85 @@ mutable struct IterData{
     "dict mapping `NLConstraintIndexIneq` to vector of nl-evaluations."
     c_i :: IT 
     
-    "trust region radius, either number or dict"
+    "trust region radius, either number or dict(?)"
     Δ :: DT 
     
-    "func index tuple to int for super data base"
-    x_indices :: XIndType
+    x_index = Int
+
+    # A constructor that ensures the same floating point precision in all values:
+    function IterData( 
+        x :: AbstractDictionary{VarInd, X},
+        x_scaled :: AbstractDictionary{VarInd, S},
+        fx :: AbstractDictionary{ObjectiveIndex, Y},
+        l_e:: AbstractDictionary{ConstraintIndexEq, E},
+        l_i:: AbstractDictionary{ConstraintIndexInEq, I},
+        c_e:: AbstractDictionary{NLConstraintIndexEq, NE},
+        c_i:: AbstractDictionary{NLConstraintIndexInEq, NI},
+        Δ :: DT, x_index :: Int
+    ) where{X,S,Y,E,I,NE,NI,DT}
+        F = Base.promote_eltype( MIN_PRECISION, X, S, Y, E, I, NE, NI, DT )
+        return IterData(
+            F.(x), F.(x_scaled), 
+            _vec_type( Y, F).(fx),
+            _vec_type( E, F).(l_e),
+            _vec_type( I, F).(l_i),
+            _vec_type( NE, F).(c_e),
+            _vec_type( NI, F).(c_i),
+            F(Δ), x_index
+        )
+    end
 end
 
-# ## Mandatory Methods 
+Base.broadcastable( id :: IterData ) = Ref( id )
 
-# Any subtype of `AbstractIterate` should implement these methods.
-
-# First, we need constructors.
-"""
-    _init_iterate( T , x, x_scaled, fx, 
-        l_e, l_i, c_e, c_i, Δ, x_index_mapping )
-    
-Return an `AbstractIterate` of type `T`. The arguments 
-`x` through `c_i` are site and value vectors. 
-`Δ` is the associated trust region radius.
-`x_index_mapping` is a `Dict` mapping `FunctionIndexTuple`s 
-to the index of `x` in the current (sub)database.
-"""
-function _init_iterate( ::Type{<:IterData}, 
-    x_dict, x_scaled_dict, 
-    fx_dict,
-    l_e :: VecF, l_i :: VecF, 
-    c_e :: VecF, c_i :: VecF, Δ :: NumOrVecF, x_index_mapping )
-    return IterData(x, x_scaled, fx, l_e, l_i, c_e, c_i, Δ, x_index_mapping)
+function _precision( :: IterData{XT,XS,YT,E,I,ET,IT,DT} ) where {XT,XS,YT,E,I,ET,IT,DT} 
+    return Base.promote_eltype( MIN_PRECISION, XT,XS,YT,E,I,ET,IT,DT )
 end
 
 # ### Getters
 
 # There are Getters for the mathematical objects relevant during optimzation:
 "Return current iteration site vector ``xᵗ``."
-get_x( id :: IterData ) = id.x
+get_x( id :: IterData, var_inds = nothing ) = collect(id.x)
+get_x( id :: IterData, var_inds :: AbstractVector{<:VarInd} ) = (id.x, var_inds)
+get_x_dict( id :: IterData ) = id.x
 
 "Return current iteration site vector ``xᵗ``."
-get_x_scaled( id :: IterData ) = id.x_scaled
+get_x_scaled( id :: IterData, var_inds = nothing ) = collect(id.x_scaled)
+get_x_scaled( id :: IterData, var_inds :: AbstractVector{<:VarInd} ) = collect(get_indices(id.x_scaled, var_inds))
+get_x_scaled_dict( id :: IterData ) = id.x
 
 "Return current value vector ``f(xᵗ)``."
-get_fx( id :: IterData ) = id.fx
+get_fx( id :: IterData, func_inds = nothing ) = collect(id.fx)
+get_fx( id :: IterData, func_inds :: AnyIndexIterable ) = collect(get_indices(id.fx, func_inds))
+get_fx_dict( id :: IterData ) = id.fx
 
 "Return only the parts of f(x) that are relevant for `func_indices`."
-function get_vals( id :: AbstractIterate, sdb, func_indices )
+function get_vals( id :: IterData, sdb, func_indices )
     x_index = get_x_index( id, func_indices )
     sub_db = get_sub_db( sdb, func_indices )
     return get_value( sub_db, x_index )
 end
 
 "Return value vector of linear equality constraints."
-get_eq_const( id :: IterData ) = id.l_e
+get_eq_const( id :: IterData, func_inds = nothing ) = collect(id.l_e)
+get_eq_const( id :: IterData, func_inds :: AnyIndexIterable ) = collect(get_indices(id.l_e, func_inds))
+get_eq_const_dict( id :: IterData ) = id.l_e
 
 "Return value vector of linear inequality constraints."
-get_ineq_const( id :: IterData ) = id.l_i
+get_ineq_const( id :: IterData, func_inds = nothing ) = collect(id.l_i)
+get_ineq_const( id :: IterData, func_inds :: AnyIndexIterable ) = collect(get_indices(id.l_i, func_inds))
+get_ineq_const_dict( id :: IterData ) = id.l_i
 
 "Return current equality constraint vector ``cₑ(xᵗ)``."
-get_nl_eq_const( id :: IterData ) = id.c_e
+get_nl_eq_const( id :: IterData, func_inds = nothing ) = collect(id.c_e)
+get_nl_eq_const( id :: IterData, func_inds :: AnyIndexIterable ) = collect(get_indices(id.c_e, func_inds))
+get_nl_eq_const_dict( id :: IterData ) = id.l_eget_nl_eq_const( id :: IterData ) = id.c_e
 
 "Return current inequality constraint vector ``cᵢ(xᵗ)``."
-get_nl_ineq_const( id :: IterData ) = id.c_i
+get_nl_ineq_const( id :: IterData, func_inds = nothing ) = collect(id.c_i)
+get_nl_ineq_const( id :: IterData, func_inds :: AnyIndexIterable ) = collect(get_indices(id.c_i, func_inds))
+get_nl_ineq_const_dict( id :: IterData ) = id.l_eget_nl_eq_const( id :: IterData ) = id.c_i
 
 "Return current trust region radius (vector) ``Δᵗ``."
 get_delta( id :: IterData ) = id.Δ
@@ -112,8 +122,8 @@ get_x_index( id:: IterData, ind ) = id.x_indices[ind]
 get_x_index( id:: IterData, ind :: AnyIndex ) = id.x_indices[(ind,)]
 get_x_index_dict( id :: IterData ) = id.x_indices
 
-function Base.show( io :: IO, id :: I) where I<:AbstractIterate
-    str = "AbstractIterate of type $(_typename(I))."
+function Base.show( io :: IO, id :: I) where I<:IterData
+    str = "IterData"
     if !get(io, :compact, false)
         x = get_x(id)
         fx = get_fx(id)
@@ -149,101 +159,4 @@ end
 # ## Derived Methods
 
 # The actual setters simply ensure proper copying (if a vector is provided):
-set_delta!( id :: AbstractIterate, Δ :: NumOrVec ) = _set_delta!(id, copy(Δ))
-
-# The actual constructor ensures that all arguments have eltype<:AbstractFloat:
-"""
-    init_iter_data( T , x, fx, Δ )
-Return an instance of "base" type `T` implementing `AbstractIterate` with 
-correct type parameters for `x`, `fx` and `Δ`.
-`x` and `fx` should be vectors of floats and `Δ` can either be a float or 
-a vector of floats.
-"""
-function init_iterate( T :: Type{<:AbstractIterate}, 
-    x :: AbstractDictionary{VarInd, R}, 
-    x_scaled :: AbstractDictionary{VarInd, F}, 
-    fx :: Vec, 
-    l_e :: Vec, l_i :: Vec, c_e :: Vec, c_i :: Vec, Δ :: NumOrVec,
-    x_index_mapping 
-) where {R,F}
-    base_type = @eval $(_typename(T))    # strip any type parameters from T
-    # x and x_scaled need same precision, else it might to lead to 
-    # inconsistencies when evaluating mop at scaled and unscaled sites
-    XT = promote_type( R, F, MIN_PRECISION )
-	return _init_iterate( base_type,
-        Dictionary{VarInd, XT}(x),
-        Dictionary{VarInd, XT}(x_scaled),
-        ensure_precision(fx),
-        ensure_precision(l_e), ensure_precision(l_i), 
-        ensure_precision(c_e), ensure_precision(c_i), 
-        ensure_precision(Δ), x_index_mapping,
-    )
-end
-
-
-# # `AbstractIterSaveable`
-
-# The only thing we require for an `AbstractIterSaveable` is a constructor (think "extractor")
-# that gets us a saveable object to store in the database.
-
-struct EmptyIterSaveable <: AbstractIterSaveable end
-
-# ## Default fallbacks
-# By default, return an `EmptyIterSaveable()`:
-function get_saveable( :: Type{<:AbstractIterSaveable}, id; 
- it_stat, rho, steplength, omega) 
- return EmptyIterSaveable()
-end
-
-# The type `T` returned by `get_saveable_type` should be such
-# that `get_saveable(T, id) :: T`
-function get_saveable_type( T :: Type{<:AbstractIterSaveable}, id :: AbstractIterate )
-    return typeof( get_saveable( T, id ) )
-end
-
-function get_saveable_type( id :: AbstractIterate, ac :: AbstractConfig )
-    T = iter_saveable_type( ac )
-    if T <: EmptyIterSaveable
-        return EmptyIterSaveable
-    else
-        return get_saveable_type(T, id :: AbstractIterate)
-    end
-end 
-
-# A more useful implementation:
-struct IterSaveable{
-        XT <: VecF, D <: NumOrVecF,
-        XIndType
-    } <: AbstractIterSaveable
-
-    iter_counter :: Int
-    it_stat :: ITER_TYPE
-
-    x :: XT
-    Δ :: D
-    x_indices :: XIndType
-
-    # additional information for stamping
-    ρ :: Float64
-    stepsize :: Float64
-    ω :: Float64
-end
-
-function get_saveable( :: Type{<:IterSaveable}, id :: AbstractIterate;
-    iter_counter, it_stat, rho, steplength, omega)
-    return IterSaveable(
-        iter_counter, it_stat,
-        get_x( id ),
-        get_delta( id ),
-        get_x_index_dict( id ),
-        Float64(rho), Float64(steplength), Float64(omega)
-    )
-end
-
-function get_saveable_type( :: Type{<:IterSaveable}, id :: AbstractIterate )
-    return IterSaveable{ 
-        typeof( get_x(id) ), 
-        typeof( get_delta(id) ),
-        typeof( get_x_index_dict(id) )
-     }
-end
+set_delta!( id :: IterData, Δ :: NumOrVec ) = _set_delta!(id, copy(Δ))

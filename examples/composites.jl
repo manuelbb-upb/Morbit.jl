@@ -175,7 +175,7 @@ end
 
 # We initialize the box constrained problem and use the internal method 
 # `_add_function` to add the inner function. 
-# It requires a `VecFun` and returns an `NLIndex` that we need for referencing.
+# It requires a `VecFun` and returns an `InnerIndex` that we need for referencing.
 mop = MOP( zeros(n), ones(n) )
 
 g̃_vfun = Morbit.make_vec_fun( g̃; model_cfg = RbfConfig(), n_out = 1)

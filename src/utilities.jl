@@ -24,14 +24,6 @@ _typename( T :: UnionAll ) = _typename( T.body )
 _ensure_vec( x :: Number ) = [x,]
 _ensure_vec( x :: AbstractVector{<:Number} ) = x
 
-# used instead of list comprehension
-# works with vectors of vectors too:
-flatten_vecs( x :: Number) = [x,]
-
-function flatten_vecs(x)
-	return [ e for e in Iterators.flatten(x) ]  # TODO check performance
-end
-
 function mat_from_row_vecs( row_vecs )
 	return copy( transpose( hcat(row_vecs...) ) )
 end
@@ -39,8 +31,8 @@ end
 function build_super_db( groupings :: Vector{<:ModelGrouping}, x_scaled :: XT, eval_res ) where XT <: VecF
     n_vars = length(x_scaled)
 
-    sub_dbs = Dict{NLIndexTuple, ArrayDB}()
-    x_index_mapping = Dict{NLIndexTuple, Int}()
+    sub_dbs = Dict{InnerIndexTuple, ArrayDB}()
+    x_index_mapping = Dict{InnerIndexTuple, Int}()
     for group in groupings 
         index_tuple = Tuple(group.indices)
 
@@ -60,22 +52,26 @@ function build_super_db( groupings :: Vector{<:ModelGrouping}, x_scaled :: XT, e
 
     return sub_dbs, x_index_mapping
 end
-###################################################################
-function ensure_precision( x :: X ) where X<:Real 
-    _X = promote_type( X, MIN_PRECISION )
-    return _X(x)
-end
+##################################################################
 
-function ensure_precision( x :: AbstractVector{X} ) where X<:Real
-    isempty(x) && return MIN_PRECISION[]
-    _X = promote_type( X, MIN_PRECISION )
-    return _X.(x)
-end
+"Return the type of a vector with elements of type `F`."
+_vec_type( ::Type{<:Vector}, F ) = Vector{F}
+"Return the type of a static vector with elements of type `F`."
+_vec_type( T::Type{<:StaticVector}, F ) = similar_type(T, F)
+_vec_type( x :: T, F ) where T<:AbstractVector = similar_type(T, F)
 
-function ensure_precision( x :: AbstractVector )
-    isempty(x) && return MIN_PRECISION[]
-    error("Cannot promote to a floating point type.")
-end
+_precision( :: Type{<:Number} ) = MIN_PRECISION
+_precision( :: Type{F} ) where F<:AbstractFloat = F
+_precision( :: Type{<:AbstractVector{F}} ) where F<:Number = _precision(F)
+_precision( :: R ) where R<:Union{Number,AbstractVector} = _precision(R)
+
+_precision( :: Type{<:AbstractDict{K,V}} ) where {K,V} = _precision(V)
+_precision( :: Type{<:AbstractDictionary{K,V}} ) where {K,V} = _precision(V)
+
+_min_precision( x ) = Base.promote_type( _precision(x), MIN_PRECISION )
+
+ensure_precision( x :: Number ) = convert( _min_precision(x), x )
+ensure_precision( x :: AbstractVector ) = convert( _vec_type( x, _min_precision(x)), x )
 
 # Scaling
 function _scale!( x, lb, ub )
@@ -294,8 +290,8 @@ function _local_bounds( x, Δ, lb, ub )
 end
 
 "Local bounds vectors `lb_eff` and `ub_eff` using scaled variable constraints from `mop`."
-function local_bounds( scal :: AbstractVarScaler, x :: Vec, Δ :: Union{Real, Vec} )
-    lb, ub = full_bounds_internal(scal)
+function local_bounds( scal :: AbstractAffineScaler, x :: Vec, Δ :: Union{Real, Vec} )
+    lb, ub = scaled_bound_vectors(scal)
     return _local_bounds( x, Δ, lb, ub )
 end
 
@@ -323,7 +319,7 @@ function zeros_like( x :: AbstractVector{R} ) where R<:Number
 	return zeros( R, length(x) )
 end
 
-function compute_constraint_val( filter :: AbstractFilter, iter_data :: AbstractIterate )
+function compute_constraint_val( filter :: AbstractFilter, iter_data :: IterData )
     return compute_constraint_val( filter,
     get_eq_const( iter_data ),
         get_ineq_const( iter_data ),

@@ -19,9 +19,13 @@
 Exact Model type for evaluating the objective function `objf` directly.
 Is instantiated by the corresponding `init_model` and `update_model` functions.
 """
-struct ExactModel{M <: Base.RefValue } <: AbstractSurrogate
-    func_index :: NLIndex
+struct ExactModel{
+    M <: Base.RefValue, 
+    V <: Union{Nothing, AbstractVector{<:VarInd}}
+} <: AbstractSurrogate
+    func_index :: InnerIndex
     mop :: M
+    variables :: V = nothing
 end
  
 function ExactModel( func_ind, mop :: AbstractMOP )
@@ -50,6 +54,7 @@ needs_gradients(cfg::ExactConfig) = true
 struct ExactMeta <: AbstractSurrogateMeta end   # no construction meta data needed
 
 # The remaining implementations are straightforward:
+_variables( em :: ExactModel ) = em.variables
 num_outputs( emc :: ExactConfig ) = emc.num_outputs 
 max_evals( emc :: ExactConfig ) = emc.max_evals
 # We always deem the models fully linear:
@@ -82,12 +87,12 @@ requires_improve( cfg :: ExactConfig ) = false
 
 # ## Evaluation
 @doc "Evaluate the ExactModel `em` at scaled site `x̂`."
-function eval_models( em :: ExactModel, scal :: AbstractVarScaler, x_scaled :: Vec)
+function eval_models( em :: ExactModel, scal :: AbstractAffineScaler, x_scaled :: Vec)
     return eval_vfun( _get(em.mop[], em.func_index), untransform(x_scaled, scal) )
 end
 
 @doc "Gradient vector of output `ℓ` of `em` at scaled site `x̂`."
-function get_gradient( em :: ExactModel, scal :: AbstractVarScaler, x_scaled :: Vec, ℓ )
+function get_gradient( em :: ExactModel, scal :: AbstractAffineScaler, x_scaled :: Vec, ℓ )
     mop = em.mop[]
     f_ind = em.func_index
     objf = _get( mop, f_ind )
@@ -97,7 +102,7 @@ function get_gradient( em :: ExactModel, scal :: AbstractVarScaler, x_scaled :: 
 end
 
 @doc "Jacobian Matrix of ExactModel `em` at scaled site `x̂`."
-function get_model_jacobian( em :: ExactModel, scal :: AbstractVarScaler, x_scaled :: Vec, rows = nothing )
+function get_model_jacobian( em :: ExactModel, scal :: AbstractAffineScaler, x_scaled :: Vec, rows = nothing )
     mop = em.mop[]
     J = jacobian_of_unscaling(scal)
     x = untransform( x_scaled, scal )
@@ -110,11 +115,11 @@ function get_model_jacobian( em :: ExactModel, scal :: AbstractVarScaler, x_scal
     return partial_jac * J        
 end
 
-function get_jacobian(em :: ExactModel, scal :: AbstractVarScaler, x_s :: Vec )
+function get_jacobian(em :: ExactModel, scal :: AbstractAffineScaler, x_s :: Vec )
     return get_model_jacobian(em, scal, x_s)
 end
 
-function get_jacobian(em :: ExactModel, scal :: AbstractVarScaler, x_s :: Vec, rows )
+function get_jacobian(em :: ExactModel, scal :: AbstractAffineScaler, x_s :: Vec, rows )
     return get_model_jacobian( em, scal, x_s, rows)
 end
 

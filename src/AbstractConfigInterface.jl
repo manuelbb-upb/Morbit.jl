@@ -89,8 +89,8 @@ filter_kappa_delta(:: AbstractConfig) = MIN_PRECISION(0.7f0)
 filter_kappa_mu( :: AbstractConfig ) = MIN_PRECISION(100)
 filter_mu( :: AbstractConfig ) = MIN_PRECISION(0.01f0)
 
-var_scaler( :: AbstractConfig ) :: Union{AbstractVarScaler,Symbol} = :default # :none, :auto, :default
+var_scaler( :: AbstractConfig ) :: Union{AbstractAffineScaler,Symbol} = :default # :none, :auto, :default
 untransform_final_database( :: AbstractConfig ) = false
 var_scaler_update( :: AbstractConfig ) = :none
 
-iter_saveable_type( :: AbstractConfig ) = IterSaveable
+save_no_model_meta_data( :: AbstractConfig ) = true

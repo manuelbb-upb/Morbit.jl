@@ -8,7 +8,7 @@
 # • `algo_config` to have access to `desc_cfg`, an AbstractDescentConfiguration
 #
 # For the individual descent step methods a method with signature 
-# `get_criticality( :: typeof{desc_cfg}, :: AbstractMOP, ::AbstractIterate,
+# `get_criticality( :: typeof{desc_cfg}, :: AbstractMOP, ::IterData,
 #  ::SuperDB, sc :: SurrogateContainer )`
 # should be defined, because this is then called internally
 # 
@@ -16,7 +16,7 @@
 # the new trial point model values and the steplength (inf-norm)
 
 # method to only compute criticality
-function get_criticality( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
+function get_criticality( mop :: AbstractMOP, scal :: AbstractAffineScaler, x_it :: IterData, x_it_n :: IterData, 
         data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig;
         kwargs...
     )
@@ -25,7 +25,7 @@ function get_criticality( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it ::
 end
 
 # methods to compute a local descent step
-function compute_descent_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
+function compute_descent_step( mop :: AbstractMOP, scal :: AbstractAffineScaler, x_it :: IterData, x_it_n :: IterData, 
        data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig, args...; kwargs...
     )
     return compute_descent_step( descent_method( algo_config ), mop, scal, x_it, x_it_n, data_base, sc, algo_config, args... ; kwargs...)
@@ -33,15 +33,15 @@ end
 
 # fallback, if `get_criticality` allready does the whole job: simply return `ω` and `data`
 
-function compute_descent_step(cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
-        x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
+function compute_descent_step(cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractAffineScaler, 
+        x_it :: IterData, x_it_n :: IterData, 
         data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, ω_data; kwargs...
     )
     return ω, ω_data...
 end
 
-function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
-        x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
+function compute_descent_step( cfg :: AbstractDescentConfig, mop :: AbstractMOP, scal :: AbstractAffineScaler, 
+        x_it :: IterData, x_it_n :: IterData, 
         data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig; kwargs...
     )
     ω, data = get_criticality(cfg, mop, scal, x_it, x_it_n, data_base, sc, algo_config; kwargs...)
@@ -182,7 +182,7 @@ function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_
 
     ∇m = eval_container_objectives_jacobian_at_scaled_site(sc, scal, x_n)
 
-    lb, ub = full_bounds_internal( scal )
+    lb, ub = scaled_bound_vectors( scal )
     
     # For computing a step `t`, starting at `x + n`, the linear constraints are 
     # A⋅(x + n + t) - b ≦ 0 ⇔ At - b + A(x + n) ≦ 0
@@ -227,8 +227,8 @@ function get_criticality( desc_cfg :: SteepestDescentConfig, mop, scal, x_it, x_
     return ω, d
 end
 
-function compute_descent_step(desc_cfg :: SteepestDescentConfig, mop :: AbstractMOP, scal :: AbstractVarScaler, 
-        x_it :: AbstractIterate, x_it_n :: AbstractIterate, 
+function compute_descent_step(desc_cfg :: SteepestDescentConfig, mop :: AbstractMOP, scal :: AbstractAffineScaler, 
+        x_it :: IterData, x_it_n :: IterData, 
         data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig, ω, d; kwargs...
     )
 
@@ -237,7 +237,7 @@ function compute_descent_step(desc_cfg :: SteepestDescentConfig, mop :: Abstract
     x = get_x_scaled( x_it )
     x_n = get_x_scaled( x_it_n )
     
-    lb, ub = full_bounds_internal(scal)
+    lb, ub = scaled_bound_vectors(scal)
     if x ≈ x_n
         Δ = get_delta( x_it )
         lb_eff, ub_eff = _local_bounds(x, Δ, lb, ub )
@@ -580,12 +580,12 @@ end
 # Directed Search
 #=
 function compute_descent_step(::Val{:directed_search}, algo_config :: AbstractConfig,
-    mop :: AbstractMOP, id :: AbstractIterate, sc :: SurrogateContainer )
+    mop :: AbstractMOP, id :: IterData, sc :: SurrogateContainer )
     pascoletti_serafini(Val(ds), algo_config, mop, id, sc )
 end
 
 function compute_descent_step(::Val{:ds}, algo_config :: AbstractConfig,
-    mop :: AbstractMOP, id :: AbstractIterate, sc :: SurrogateContainer )
+    mop :: AbstractMOP, id :: IterData, sc :: SurrogateContainer )
     @logmsg loglevel3 "Calculating Pascoletti-Serafini descent."
     x = xᵗ(id);
     fx = fxᵗ(id);
@@ -613,7 +613,7 @@ function compute_descent_step(::Val{:ds}, algo_config :: AbstractConfig,
         return 0, copy(x), eval_container_objectives_at_scaled_site(sc, x), 0
     end
 
-    lb, ub = full_bounds_internal( mop );    
+    lb, ub = scaled_bound_vectors( mop );    
     mx = eval_container_objectives_at_scaled_site( sc, x );
     ∇m = eval_container_jacobian_at_scaled_site(sc, x);
 
@@ -685,7 +685,7 @@ function get_criticality( desc_cfg :: Symbol, mop, scal, x_it, x_it_n, data_base
 end
 
 ###################
-function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_it :: AbstractIterate,
+function compute_normal_step( mop :: AbstractMOP, scal :: AbstractAffineScaler, x_it :: IterData,
     data_base, sc :: SurrogateContainer, algo_config :: AbstractConfig;
     variable_radius :: Bool = false )
     
@@ -732,7 +732,7 @@ function compute_normal_step( mop :: AbstractMOP, scal :: AbstractVarScaler, x_i
     JuMP.@constraint( opt_problem, -α .<= n)
     JuMP.@constraint( opt_problem, n .<= α)
 
-    lb, ub = full_bounds_internal( scal )
+    lb, ub = scaled_bound_vectors( scal )
     JuMP.@constraint( opt_problem, lb .<= x .+ n .<= ub )
 
     # A (x + n) - b ≦ 0 ⇔ An -b + Ax ≦ 0 ⇔ An - (b-Ax) ≦ 0 ⇔ An - (-l) ≦ 0
